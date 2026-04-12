@@ -25,12 +25,16 @@ die() { log "FATAL: $*"; exit 1; }
 
 # -- Authenticate with Azure using Managed Identity -------------------------
 log "Logging in with Managed Identity..."
-az login --identity --allow-no-subscriptions -o none || die "az login --identity failed."
+if [[ -n "${AZURE_CLIENT_ID:-}" ]]; then
+  az login --identity --client-id "${AZURE_CLIENT_ID}" --allow-no-subscriptions -o none || die "az login --identity failed."
+else
+  az login --identity --allow-no-subscriptions -o none || die "az login --identity failed."
+fi
 
 # -- Dequeue one message from Azure Storage Queue ----------------------------
 log "Dequeuing message from queue '${QUEUE_NAME}' (account: ${AZURE_STORAGE_ACCOUNT})..."
 
-RAW_MSG=$(az storage message get --queue-name "${QUEUE_NAME}" --account-name "${AZURE_STORAGE_ACCOUNT}" --auth-mode login --num-messages 1 -o json 2>&1) || die "az storage message get failed: ${RAW_MSG}"
+RAW_MSG=$(az storage message get --queue-name "${QUEUE_NAME}" --account-name "${AZURE_STORAGE_ACCOUNT}" --auth-mode login --num-messages 1 -o json 2>/dev/null) || die "az storage message get failed."
 
 # KEDA may trigger the job after the queue drains - exit cleanly if empty.
 if [[ -z "${RAW_MSG}" || "${RAW_MSG}" == "[]" || "${RAW_MSG}" == "null" ]]; then
