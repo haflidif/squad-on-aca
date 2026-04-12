@@ -280,12 +280,14 @@ module "function_app" {
   }
 
   app_settings = {
-    FUNCTIONS_WORKER_RUNTIME       = "python"
+    FUNCTIONS_WORKER_RUNTIME         = "python"
     AzureWebJobsStorage__accountName = module.storage.name
-    SQUAD_QUEUE_NAME               = var.queue_name
-    GITHUB_REPO                    = var.github_repo
-    GITHUB_TOKEN                   = var.github_token
-    SQUAD_LABELS                   = "squad"
+    AzureWebJobsFeatureFlags         = "EnableWorkerIndexing"
+    SquadStorage__queueServiceUri    = "https://${module.storage.name}.queue.core.windows.net"
+    SQUAD_QUEUE_NAME                 = var.queue_name
+    GITHUB_REPO                      = var.github_repo
+    GITHUB_TOKEN                     = var.github_token
+    SQUAD_LABELS                     = "squad"
   }
 }
 

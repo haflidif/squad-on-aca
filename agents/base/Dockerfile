@@ -40,7 +40,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     jq \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    python3 \
+    pip \
+    && pip install --break-system-packages --no-cache-dir azure-cli \
+    && rm -rf /var/lib/apt/lists/* /root/.cache
 
 # Copy Go toolchain
 COPY --from=build /usr/local/go /usr/local/go

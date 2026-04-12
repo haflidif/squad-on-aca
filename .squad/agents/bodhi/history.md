@@ -23,3 +23,11 @@ Agent Bodhi initialized as Function Dev. Responsible for the Python Azure Functi
 - Deduplication via in-memory `seen` set per invocation.
 - PRs are filtered out (GitHub API returns them as issues).
 - Pinned dependencies: `azure-functions==1.21.3`, `requests==2.32.3`, `urllib3==2.4.0`.
+
+### 2026-04-12: Switched queue output binding to identity-based connection
+
+- Changed `connection="AzureWebJobsStorage"` → `connection="SquadStorage"` in the queue output decorator.
+- This decouples the queue binding from the host runtime's internal storage connection.
+- Requires Chewie to add `SquadStorage__queueServiceUri` app setting in Terraform (see decision `bodhi-identity-queue-binding.md`).
+- `AzureWebJobsStorage__accountName` remains for host runtime — extension bundle v4 supports identity-based host storage on Consumption plan.
+- The prior 503 was likely a missing deployment package, not an identity-based storage issue.
