@@ -5,6 +5,7 @@
 .terraform.lock.hcl
 *.tfvars
 !*.tfvars.example
+tfplan
 
 # Go
 app/vendor/
@@ -14,6 +15,7 @@ app/bin/
 __pycache__/
 *.pyc
 .venv/
+.python_packages/
 local.settings.json
 
 # IDE
