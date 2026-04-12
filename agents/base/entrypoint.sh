@@ -73,7 +73,8 @@ log "Issue:      #${ISSUE_NUMBER}"
 
 # -- GitHub auth -------------------------------------------------------------
 log "Authenticating with GitHub..."
-echo "${GITHUB_TOKEN}" | gh auth login --with-token || die "gh auth login failed."
+# gh CLI auto-detects GITHUB_TOKEN env var — just verify it works
+gh auth status 2>/dev/null || die "gh auth failed. Check GITHUB_TOKEN."
 
 # -- Git identity (needed for commits) --------------------------------------
 git config --global user.name "squad-bot[${AGENT_TYPE}]"
