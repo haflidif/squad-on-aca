@@ -47,7 +47,7 @@ module "storage" {
   resource_group_name           = azurerm_resource_group.main.name
   account_tier                  = "Standard"
   account_replication_type      = "LRS"
-  shared_access_key_enabled     = true
+  shared_access_key_enabled     = false
   public_network_access_enabled = true
   default_to_oauth_authentication = true
   tags                          = var.tags
@@ -221,6 +221,10 @@ module "function_app" {
   tags                     = var.tags
   enable_telemetry         = false
 
+  managed_identities = {
+    system_assigned = true
+  }
+
   site_config = {
     always_on = false # Required for Consumption (Y1) plan
     application_stack = {
@@ -231,11 +235,32 @@ module "function_app" {
   }
 
   app_settings = {
-    FUNCTIONS_WORKER_RUNTIME = "python"
-    AzureWebJobsStorage      = module.storage.resource.primary_connection_string
-    SQUAD_QUEUE_NAME         = var.queue_name
-    GITHUB_REPO              = var.github_repo
-    GITHUB_TOKEN             = var.github_token
-    SQUAD_LABELS             = "squad"
+    FUNCTIONS_WORKER_RUNTIME       = "python"
+    AzureWebJobsStorage__accountName = module.storage.name
+    SQUAD_QUEUE_NAME               = var.queue_name
+    GITHUB_REPO                    = var.github_repo
+    GITHUB_TOKEN                   = var.github_token
+    SQUAD_LABELS                   = "squad"
   }
+}
+
+# --------------------------------------------------------------------------
+# RBAC: Function App → Storage Account (identity-based access)
+# --------------------------------------------------------------------------
+resource "azurerm_role_assignment" "func_storage_blob_owner" {
+  scope                = module.storage.resource_id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = module.function_app.system_assigned_mi_principal_id
+}
+
+resource "azurerm_role_assignment" "func_storage_queue_contributor" {
+  scope                = module.storage.resource_id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = module.function_app.system_assigned_mi_principal_id
+}
+
+resource "azurerm_role_assignment" "func_storage_account_contributor" {
+  scope                = module.storage.resource_id
+  role_definition_name = "Storage Account Contributor"
+  principal_id         = module.function_app.system_assigned_mi_principal_id
 }
