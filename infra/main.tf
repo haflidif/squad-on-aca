@@ -47,7 +47,7 @@ module "storage" {
   resource_group_name             = azurerm_resource_group.main.name
   account_tier                    = "Standard"
   account_replication_type        = "LRS"
-  shared_access_key_enabled       = false
+  shared_access_key_enabled       = false # Enforced by subscription policy
   public_network_access_enabled   = true
   default_to_oauth_authentication = true
   tags                            = var.tags
@@ -105,90 +105,129 @@ module "aca_environment" {
 }
 
 # --------------------------------------------------------------------------
+# User-Assigned Managed Identity for Container App Job
+# Used for KEDA scaling (queue auth) and ACR image pull — no shared keys needed
+# --------------------------------------------------------------------------
+resource "azurerm_user_assigned_identity" "squad_agent" {
+  name                = "id-squad-agent-${local.name_suffix}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+# RBAC: UAMI → Storage Queue Data Reader (KEDA scaler reads queue length)
+resource "azurerm_role_assignment" "agent_queue_reader" {
+  scope                = module.storage.resource_id
+  role_definition_name = "Storage Queue Data Reader"
+  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
+# RBAC: UAMI → Storage Queue Data Contributor (agent dequeues messages at runtime)
+resource "azurerm_role_assignment" "agent_queue_contributor" {
+  scope                = module.storage.resource_id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
+# RBAC: UAMI → AcrPull (pull agent image without admin credentials)
+resource "azurerm_role_assignment" "agent_acr_pull" {
+  scope                = module.acr.resource_id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
+# --------------------------------------------------------------------------
 # Container App Job — Generic Squad Agent
+# Uses azapi_resource because azurerm doesn't support identity-based KEDA auth.
 # One job handles all agent types; AGENT_TYPE is parsed from queue message
 # at runtime by entrypoint.sh.
-# AVM: Azure/avm-res-app-job/azurerm
 # --------------------------------------------------------------------------
-module "squad_agent_job" {
-  source  = "Azure/avm-res-app-job/azurerm"
-  version = "~> 0.2"
+resource "azapi_resource" "squad_agent_job" {
+  type      = "Microsoft.App/jobs@2025-01-01"
+  name      = "job-squad-agent-${local.name_suffix}"
+  location  = azurerm_resource_group.main.location
+  parent_id = azurerm_resource_group.main.id
+  tags      = var.tags
 
-  name                                  = "job-squad-agent-${local.name_suffix}"
-  location                              = azurerm_resource_group.main.location
-  resource_group_name                   = azurerm_resource_group.main.name
-  container_app_environment_resource_id = module.aca_environment.resource_id
-  replica_timeout_in_seconds            = var.agent_job_config.timeout_seconds
-  tags                                  = var.tags
-  enable_telemetry                      = false
+  schema_validation_enabled = false # azapi schema doesn't know about identity-based KEDA auth yet
 
-  registries = [
-    {
-      server               = module.acr.resource.login_server
-      username             = local.acr_name
-      password_secret_name = "acr-password"
-    }
-  ]
-
-  secrets = [
-    {
-      name  = "acr-password"
-      value = module.acr.resource.admin_password
-    },
-    {
-      name  = "github-token"
-      value = var.github_token
-    },
-    {
-      name  = "storage-connection"
-      value = module.storage.resource.primary_connection_string
-    }
-  ]
-
-  template = {
-    container = {
-      name   = "squad-agent"
-      image  = "${module.acr.resource.login_server}/squad-agent:latest"
-      cpu    = var.agent_job_config.cpu
-      memory = var.agent_job_config.memory
-      env = [
-        { name = "GITHUB_REPO", value = var.github_repo },
-        { name = "GITHUB_TOKEN", secret_name = "github-token" },
-        { name = "AZURE_STORAGE_CONNECTION_STRING", secret_name = "storage-connection" },
-        { name = "QUEUE_NAME", value = var.queue_name },
-      ]
-    }
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.squad_agent.id]
   }
 
-  trigger_config = {
-    event_trigger_config = {
-      parallelism              = 1
-      replica_completion_count = 1
-      scale = {
-        min_executions              = 0
-        max_executions              = var.agent_job_config.max_executions
-        polling_interval_in_seconds = 30
-        rules = [
+  body = {
+    properties = {
+      environmentId = module.aca_environment.resource_id
+
+      configuration = {
+        replicaTimeout  = var.agent_job_config.timeout_seconds
+        replicaRetryLimit = 0
+        triggerType     = "Event"
+
+        secrets = [
           {
-            name             = "queue-scaling"
-            custom_rule_type = "azure-queue"
-            metadata = {
-              queueName   = var.queue_name
-              queueLength = "1"
-              accountName = local.storage_account_name
-              cloud       = "AzurePublicCloud"
-            }
-            authentication = [
+            name  = "github-token"
+            value = var.github_token
+          }
+        ]
+
+        registries = [
+          {
+            server   = module.acr.resource.login_server
+            identity = azurerm_user_assigned_identity.squad_agent.id
+          }
+        ]
+
+        eventTriggerConfig = {
+          parallelism            = 1
+          replicaCompletionCount = 1
+          scale = {
+            minExecutions   = 0
+            maxExecutions   = var.agent_job_config.max_executions
+            pollingInterval = 30
+            rules = [
               {
-                secret_name       = "storage-connection"
-                trigger_parameter = "connection"
+                name = "queue-scaling"
+                type = "azure-queue"
+                metadata = {
+                  queueName   = var.queue_name
+                  queueLength = "1"
+                  accountName = local.storage_account_name
+                }
+                identity = azurerm_user_assigned_identity.squad_agent.id
               }
+            ]
+          }
+        }
+      }
+
+      template = {
+        containers = [
+          {
+            name  = "squad-agent"
+            image = "${module.acr.resource.login_server}/squad-agent:latest"
+            resources = {
+              cpu    = var.agent_job_config.cpu
+              memory = var.agent_job_config.memory
+            }
+            env = [
+              { name = "GITHUB_REPO", value = var.github_repo },
+              { name = "GITHUB_TOKEN", secretRef = "github-token" },
+              { name = "QUEUE_NAME", value = var.queue_name },
+              { name = "AZURE_STORAGE_ACCOUNT", value = local.storage_account_name },
             ]
           }
         ]
       }
     }
   }
+
+  depends_on = [
+    azurerm_role_assignment.agent_queue_reader,
+    azurerm_role_assignment.agent_queue_contributor,
+    azurerm_role_assignment.agent_acr_pull,
+  ]
 }
 
 # --------------------------------------------------------------------------

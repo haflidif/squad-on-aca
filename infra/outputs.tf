@@ -19,7 +19,11 @@ output "container_apps_environment" {
 }
 
 output "agent_job_name" {
-  value = module.squad_agent_job.container_app_job_name
+  value = azapi_resource.squad_agent_job.name
+}
+
+output "agent_identity_name" {
+  value = azurerm_user_assigned_identity.squad_agent.name
 }
 
 output "function_app_name" {
