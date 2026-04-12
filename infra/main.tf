@@ -42,16 +42,21 @@ module "storage" {
   source  = "Azure/avm-res-storage-storageaccount/azurerm"
   version = "~> 0.6"
 
-  name                          = local.storage_account_name
-  location                      = azurerm_resource_group.main.location
-  resource_group_name           = azurerm_resource_group.main.name
-  account_tier                  = "Standard"
-  account_replication_type      = "LRS"
-  shared_access_key_enabled     = false
-  public_network_access_enabled = true
+  name                            = local.storage_account_name
+  location                        = azurerm_resource_group.main.location
+  resource_group_name             = azurerm_resource_group.main.name
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
+  shared_access_key_enabled       = false
+  public_network_access_enabled   = true
   default_to_oauth_authentication = true
-  tags                          = var.tags
-  enable_telemetry              = false
+  tags                            = var.tags
+  enable_telemetry                = false
+
+  network_rules = {
+    default_action = "Allow"
+    bypass         = ["AzureServices"]
+  }
 
   queues = {
     squad-work = {
@@ -213,13 +218,14 @@ module "function_app" {
   source  = "Azure/avm-res-web-site/azurerm"
   version = "~> 0.21"
 
-  name                     = "func-${local.name_prefix}-${local.name_suffix}"
-  location                 = azurerm_resource_group.main.location
-  parent_id                = azurerm_resource_group.main.id
-  service_plan_resource_id = module.function_service_plan.resource_id
-  kind                     = "functionapp"
-  tags                     = var.tags
-  enable_telemetry         = false
+  name                          = "func-${local.name_prefix}-${local.name_suffix}"
+  location                      = azurerm_resource_group.main.location
+  parent_id                     = azurerm_resource_group.main.id
+  service_plan_resource_id      = module.function_service_plan.resource_id
+  kind                          = "functionapp"
+  public_network_access_enabled = true
+  tags                          = var.tags
+  enable_telemetry              = false
 
   managed_identities = {
     system_assigned = true
