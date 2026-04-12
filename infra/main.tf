@@ -32,6 +32,9 @@ module "log_analytics" {
   resource_group_name = azurerm_resource_group.main.name
   tags                = var.tags
   enable_telemetry    = false
+
+  log_analytics_workspace_internet_ingestion_enabled = true
+  log_analytics_workspace_internet_query_enabled     = true
 }
 
 # --------------------------------------------------------------------------
@@ -216,6 +219,7 @@ resource "azapi_resource" "squad_agent_job" {
               { name = "GITHUB_TOKEN", secretRef = "github-token" },
               { name = "QUEUE_NAME", value = var.queue_name },
               { name = "AZURE_STORAGE_ACCOUNT", value = local.storage_account_name },
+              { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.squad_agent.client_id },
             ]
           }
         ]
