@@ -1,0 +1,39 @@
+{
+  "agents": {
+    "lead": {
+      "persistent_name": "Wedge",
+      "universe": "Star Wars",
+      "created_at": "2026-04-12T15:26:43Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "iac-dev": {
+      "persistent_name": "Chewie",
+      "universe": "Star Wars",
+      "created_at": "2026-04-12T15:26:43Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "container-dev": {
+      "persistent_name": "Lando",
+      "universe": "Star Wars",
+      "created_at": "2026-04-12T15:26:43Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "function-dev": {
+      "persistent_name": "Bodhi",
+      "universe": "Star Wars",
+      "created_at": "2026-04-12T15:26:43Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "tester": {
+      "persistent_name": "Cassian",
+      "universe": "Star Wars",
+      "created_at": "2026-04-12T15:26:43Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}

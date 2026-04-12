@@ -1,0 +1,22 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Star Wars",
+      "assignment_id": "squad-on-aca-init-2026-04-12",
+      "used_at": "2026-04-12T15:26:43Z"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "squad-on-aca-init-2026-04-12": {
+      "universe": "Star Wars",
+      "agents": {
+        "lead": "Wedge",
+        "iac-dev": "Chewie",
+        "container-dev": "Lando",
+        "function-dev": "Bodhi",
+        "tester": "Cassian"
+      },
+      "created_at": "2026-04-12T15:26:43Z"
+    }
+  }
+}
