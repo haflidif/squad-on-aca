@@ -18,8 +18,8 @@ output "container_apps_environment" {
   value = module.aca_environment.name
 }
 
-output "agent_job_names" {
-  value = { for k, v in module.agent_jobs : k => v.container_app_job_name }
+output "agent_job_name" {
+  value = module.squad_agent_job.resource.name
 }
 
 output "function_app_name" {

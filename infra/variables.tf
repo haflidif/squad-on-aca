@@ -47,3 +47,29 @@ variable "tags" {
     managed_by = "terraform"
   }
 }
+
+variable "agent_job_config" {
+  description = "Configuration for the generic squad agent Container App Job"
+  type = object({
+    cpu             = optional(number, 1.0)
+    memory          = optional(string, "2Gi")
+    max_executions  = optional(number, 10)
+    timeout_seconds = optional(number, 1800)
+  })
+  default = {}
+
+  validation {
+    condition     = contains([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], var.agent_job_config.cpu)
+    error_message = "CPU must be one of: 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0"
+  }
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?Gi$", var.agent_job_config.memory))
+    error_message = "Memory must be in the format '<number>Gi', e.g. '2Gi'."
+  }
+
+  validation {
+    condition     = var.agent_job_config.max_executions >= 1 && var.agent_job_config.max_executions <= 30
+    error_message = "max_executions must be between 1 and 30."
+  }
+}
