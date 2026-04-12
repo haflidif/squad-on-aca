@@ -49,6 +49,7 @@ module "storage" {
   account_replication_type      = "LRS"
   shared_access_key_enabled     = true
   public_network_access_enabled = true
+  default_to_oauth_authentication = true
   tags                          = var.tags
   enable_telemetry              = false
 
@@ -70,10 +71,11 @@ module "acr" {
   name                = local.acr_name
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  sku                 = "Basic"
-  admin_enabled       = true
-  tags                = var.tags
-  enable_telemetry    = false
+  sku                      = "Basic"
+  admin_enabled            = true
+  zone_redundancy_enabled  = false
+  tags                     = var.tags
+  enable_telemetry         = false
 }
 
 # --------------------------------------------------------------------------

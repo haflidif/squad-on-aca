@@ -49,15 +49,11 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Copy GitHub CLI
 COPY --from=build /usr/bin/gh /usr/bin/gh
 
-# Copy Node.js + npm
+# Copy Node.js + npm + global modules (all in /usr/lib)
 COPY --from=build /usr/bin/node /usr/bin/node
 COPY --from=build /usr/bin/npm /usr/bin/npm
 COPY --from=build /usr/bin/npx /usr/bin/npx
 COPY --from=build /usr/lib/node_modules /usr/lib/node_modules
-
-# Copy squad-cli (global npm package)
-COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=build /usr/local/bin/squad /usr/local/bin/squad
 
 WORKDIR /workspace
 
