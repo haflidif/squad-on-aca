@@ -283,6 +283,7 @@ module "function_app" {
     FUNCTIONS_WORKER_RUNTIME         = "python"
     AzureWebJobsStorage__accountName = module.storage.name
     AzureWebJobsFeatureFlags         = "EnableWorkerIndexing"
+    WEBSITE_RUN_FROM_PACKAGE         = "https://${module.storage.name}.blob.core.windows.net/function-releases/squad-function.zip"
     SquadStorage__queueServiceUri    = "https://${module.storage.name}.queue.core.windows.net"
     SQUAD_QUEUE_NAME                 = var.queue_name
     GITHUB_REPO                      = var.github_repo

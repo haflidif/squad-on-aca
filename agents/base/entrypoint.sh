@@ -23,6 +23,10 @@ die() { log "FATAL: $*"; exit 1; }
 [[ -z "${QUEUE_NAME:-}" ]] && die "QUEUE_NAME is not set."
 [[ -z "${GITHUB_TOKEN:-}" ]] && die "GITHUB_TOKEN is not set."
 
+# -- Authenticate with Azure using Managed Identity -------------------------
+log "Logging in with Managed Identity..."
+az login --identity --allow-no-subscriptions -o none || die "az login --identity failed."
+
 # -- Dequeue one message from Azure Storage Queue ----------------------------
 log "Dequeuing message from queue '${QUEUE_NAME}' (account: ${AZURE_STORAGE_ACCOUNT})..."
 
