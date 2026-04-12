@@ -18,13 +18,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22.x (LTS)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# squad-cli
-RUN npm install -g @bradygaster/squad-cli
+# gh copilot extension cannot run headlessly (requires interactive TTY),
+# so we skip it. The entrypoint uses gh CLI directly to read issues and
+# commit work artifacts. Full Copilot integration will need the Copilot API.
 
 # =============================================================================
 # Stage 2: Runtime — slim image with only what we need
@@ -51,12 +47,6 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Copy GitHub CLI
 COPY --from=build /usr/bin/gh /usr/bin/gh
-
-# Copy Node.js + npm + global modules (all in /usr/lib)
-COPY --from=build /usr/bin/node /usr/bin/node
-COPY --from=build /usr/bin/npm /usr/bin/npm
-COPY --from=build /usr/bin/npx /usr/bin/npx
-COPY --from=build /usr/lib/node_modules /usr/lib/node_modules
 
 WORKDIR /workspace
 
