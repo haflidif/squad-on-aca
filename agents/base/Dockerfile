@@ -18,9 +18,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# gh copilot extension cannot run headlessly (requires interactive TTY),
-# so we skip it. The entrypoint uses gh CLI directly to read issues and
-# commit work artifacts. Full Copilot integration will need the Copilot API.
+# Node.js 22 — required by @github/copilot CLI
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub Copilot CLI (installed in build stage, copied to runtime)
+RUN npm install -g @github/copilot
 
 # =============================================================================
 # Stage 2: Runtime — slim image with only what we need
@@ -41,12 +45,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pip install --break-system-packages --no-cache-dir azure-cli \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
+# Node.js 22 — required for Copilot CLI at runtime
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy Go toolchain
 COPY --from=build /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Copy GitHub CLI
 COPY --from=build /usr/bin/gh /usr/bin/gh
+
+# Copy Copilot CLI (global npm package from build stage)
+COPY --from=build /usr/lib/node_modules/@github/copilot /usr/lib/node_modules/@github/copilot
+RUN ln -sf /usr/lib/node_modules/@github/copilot/bin/copilot /usr/local/bin/copilot
 
 WORKDIR /workspace
 

@@ -104,23 +104,70 @@ ISSUE_LABELS=$(echo "${ISSUE_JSON}" | jq -r '[.labels[].name] | join(", ") // "n
 
 log "Issue title: ${ISSUE_TITLE}"
 
-# -- Do the work -------------------------------------------------------------
-# NOTE: gh copilot CLI requires an interactive TTY and cannot run headlessly
-# in a container job. Until the GitHub Copilot API supports headless agent
-# workflows, we create a structured work artifact that proves the full e2e
-# pipeline (queue → container → clone → branch → commit → push → PR).
-#
-# Future integration options:
-#   1. GitHub Copilot API (when available for headless agents)
-#   2. GitHub Models API with a code-generation prompt
-#   3. Copilot Coding Agent via `gh copilot-coding-agent` (when GA)
+# -- Do the work (Copilot CLI) -----------------------------------------------
+# Run GitHub Copilot CLI in --yolo mode (auto-accepts all operations).
+# The container is ephemeral and isolated — yolo is safe here.
+# If copilot fails, fall back to a work artifact so the PR still gets created.
 
-log "Creating work artifact for issue #${ISSUE_NUMBER}..."
+COPILOT_SUCCEEDED=false
 
-WORK_DIR=".squad-work"
-mkdir -p "${WORK_DIR}"
+log "Running Copilot CLI for issue #${ISSUE_NUMBER}..."
 
-cat > "${WORK_DIR}/issue-${ISSUE_NUMBER}.md" <<EOF
+COPILOT_PROMPT="You are working in a git repo. Read the following GitHub issue and make the code changes it describes.
+
+Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+${ISSUE_BODY}
+
+Make all necessary code changes to resolve this issue. After making changes, stage and commit them with a descriptive commit message referencing issue #${ISSUE_NUMBER}."
+
+# Temporarily allow failure so copilot errors don't kill the script
+set +e
+echo "${COPILOT_PROMPT}" | copilot --yolo 2>&1 | tee /workspace/copilot-output.log
+COPILOT_EXIT=${PIPESTATUS[1]}
+set -e
+
+if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
+  log "Copilot CLI completed successfully."
+  COPILOT_SUCCEEDED=true
+else
+  log "WARNING: Copilot CLI failed (exit code ${COPILOT_EXIT}). Falling back to work artifact."
+fi
+
+# Check if copilot made any changes (committed or uncommitted)
+if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
+  # Stage any unstaged changes copilot may have left
+  if [[ -n "$(git status --porcelain)" ]]; then
+    log "Copilot left uncommitted changes — committing them now."
+    git add -A
+    git commit -m "squad(${AGENT_TYPE}): copilot changes for issue #${ISSUE_NUMBER}
+
+Automated by Squad agent pipeline (Copilot CLI --yolo).
+Issue: ${ISSUE_TITLE}" || log "Nothing new to commit (copilot may have committed already)."
+  fi
+
+  # Verify we actually have commits beyond the base branch
+  if git log origin/main..HEAD --oneline | grep -q .; then
+    log "Copilot produced commits for issue #${ISSUE_NUMBER}."
+  else
+    log "WARNING: Copilot ran but produced no commits. Falling back to work artifact."
+    COPILOT_SUCCEEDED=false
+  fi
+fi
+
+# -- Fallback: work artifact if copilot didn't produce changes ---------------
+if [[ "${COPILOT_SUCCEEDED}" != "true" ]]; then
+  log "Creating fallback work artifact for issue #${ISSUE_NUMBER}..."
+
+  COPILOT_LOG=""
+  if [[ -f /workspace/copilot-output.log ]]; then
+    COPILOT_LOG=$(tail -50 /workspace/copilot-output.log 2>/dev/null || true)
+  fi
+
+  WORK_DIR=".squad-work"
+  mkdir -p "${WORK_DIR}"
+
+  cat > "${WORK_DIR}/issue-${ISSUE_NUMBER}.md" <<EOF
 # Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
 
 **Agent:** ${AGENT_TYPE}
@@ -133,26 +180,27 @@ ${ISSUE_BODY}
 
 ## Status
 
-This work artifact was created by the Squad agent pipeline running on
-Azure Container App Jobs. The full e2e flow completed successfully:
+Copilot CLI was unable to produce code changes for this issue.
+A work artifact has been created instead so the PR captures context.
 
-- [x] Queue message dequeued (Managed Identity)
-- [x] Issue details fetched from GitHub
-- [x] Repository cloned and branch created
-- [x] Work artifact committed
-- [x] Branch pushed and PR opened
+### Copilot Output (last 50 lines)
+
+\`\`\`
+${COPILOT_LOG:-"No output captured."}
+\`\`\`
 
 ## Next Steps
 
-Copilot integration pending — \`gh copilot\` requires interactive TTY.
-See entrypoint.sh for future integration options.
+- Review the issue description and implement manually
+- Or re-trigger the agent after resolving any Copilot CLI issues
 EOF
 
-git add "${WORK_DIR}/"
-git commit -m "squad(${AGENT_TYPE}): work artifact for issue #${ISSUE_NUMBER}
+  git add "${WORK_DIR}/"
+  git commit -m "squad(${AGENT_TYPE}): work artifact for issue #${ISSUE_NUMBER}
 
-Automated by Squad agent pipeline.
+Copilot CLI fallback — see .squad-work/ for details.
 Issue: ${ISSUE_TITLE}" || die "git commit failed (nothing to commit?)."
+fi
 
 # -- Push and open PR --------------------------------------------------------
 log "Pushing branch and creating PR..."
@@ -169,12 +217,17 @@ Automated PR for issue #${ISSUE_NUMBER}.
 | Queue dequeue (MI auth) | ✅ |
 | Issue fetch | ✅ |
 | Clone + branch | ✅ |
-| Work artifact | ✅ |
+| Copilot CLI (--yolo) | $(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then echo "✅"; else echo "⚠️ fallback"; fi) |
 | Push + PR | ✅ |
 
-### Note
-This is a pipeline proof-of-concept. The work artifact in \`.squad-work/\` contains the issue details.
-Full AI coding integration is pending headless Copilot API support.
+$(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
+  echo "### Copilot CLI"
+  echo "Code changes were generated by GitHub Copilot CLI running in \`--yolo\` mode."
+else
+  echo "### Note"
+  echo "Copilot CLI did not produce code changes. A fallback work artifact was committed instead."
+  echo "Check \`.squad-work/issue-${ISSUE_NUMBER}.md\` for details and copilot output."
+fi)
 
 Closes #${ISSUE_NUMBER}
 EOF
