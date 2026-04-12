@@ -1,0 +1,7 @@
+subscription_id = "YOUR_SUBSCRIPTION_ID"
+github_token    = "YOUR_GITHUB_PAT"
+github_repo     = "haflidif/squad-on-aca"
+location        = "swedencentral"
+project_name    = "squad-aca"
+environment     = "dev"
+queue_name      = "squad-work-queue"

@@ -1,0 +1,30 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+
+# Go
+app/vendor/
+app/bin/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+local.settings.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Azure Functions
+bin/
+obj/
