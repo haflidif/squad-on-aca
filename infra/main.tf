@@ -84,12 +84,17 @@ module "aca_environment" {
   source  = "Azure/avm-res-app-managedenvironment/azurerm"
   version = "~> 0.4"
 
-  name                       = "cae-${local.name_prefix}-${local.name_suffix}"
-  location                   = azurerm_resource_group.main.location
-  resource_group_name        = azurerm_resource_group.main.name
-  log_analytics_workspace_id = module.log_analytics.resource.id
-  tags                       = var.tags
-  enable_telemetry           = false
+  name                = "cae-${local.name_prefix}-${local.name_suffix}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+  enable_telemetry    = false
+
+  zone_redundancy_enabled = false
+
+  log_analytics_workspace = {
+    resource_id = module.log_analytics.resource_id
+  }
 }
 
 # --------------------------------------------------------------------------
@@ -192,10 +197,11 @@ module "function_service_plan" {
   location  = azurerm_resource_group.main.location
   parent_id = azurerm_resource_group.main.id
   os_type   = "Linux"
+  sku_name  = "Y1"
 
-  sku = {
-    name = "Y1"
-  }
+  # Consumption plan does not support zone balancing or multiple workers
+  zone_balancing_enabled = false
+  worker_count           = 1
 
   tags             = var.tags
   enable_telemetry = false
@@ -214,6 +220,7 @@ module "function_app" {
   enable_telemetry         = false
 
   site_config = {
+    always_on = false # Required for Consumption (Y1) plan
     application_stack = {
       python = {
         python_version = "3.11"

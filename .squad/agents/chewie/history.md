@@ -16,3 +16,10 @@ Agent Chewie initialized as IaC Dev. Responsible for all Terraform infrastructur
 - **2026-04-12 — Single generic Container App Job:** Replaced 4 per-agent-type jobs (backend/frontend/tester/docs) with one `module "squad_agent_job"`. AGENT_TYPE is now parsed from the queue message JSON at runtime by `entrypoint.sh`, not set as a static env var. Scaling is 0–10 via KEDA azure-queue scaler. Resource config exposed via `var.agent_job_config` (cpu, memory, max_executions, timeout_seconds) with validation rules.
 - **Key files:** `infra/main.tf` (single job module), `infra/variables.tf` (agent_job_config variable), `infra/outputs.tf` (agent_job_name output).
 - **Pre-existing issue noted:** `module.aca_environment` uses `log_analytics_workspace_id` which the AVM module ~>0.4 doesn't support — not fixed here, outside scope of this change.
+- **2026-04-12 — Fixed ACA environment Log Analytics wiring:** The AVM module `Azure/avm-res-app-managedenvironment/azurerm ~>0.4` does NOT accept `log_analytics_workspace_id`. It expects `log_analytics_workspace = { resource_id = "..." }` (an object). Changed reference to use `module.log_analytics.resource_id` (non-sensitive output) instead of `module.log_analytics.resource.id`. Also set `zone_redundancy_enabled = false` since it defaults to `true` in the module and our dev environment doesn't need it.
+- **Remaining pre-existing issue:** `module.function_service_plan` uses `sku = { name = "Y1" }` but `avm-res-web-serverfarm ~>2.0` may not accept that argument — needs separate fix.
+- **2026-04-12 — Fixed all terraform validate errors:** Three fixes applied:
+  1. **Service plan SKU:** `avm-res-web-serverfarm ~>2.0` uses `sku_name = "Y1"` (flat string), not `sku = { name = "Y1" }` (object). Also set `zone_balancing_enabled = false` and `worker_count = 1` since Consumption plan doesn't support these.
+  2. **Function app site_config:** Added `always_on = false` — Consumption (Y1) plan does not support always-on.
+  3. **Agent job output:** `avm-res-app-job ~>0.2` exports `container_app_job_name`, not `resource.name`. Fixed `outputs.tf` reference.
+  - Full `terraform validate` now returns **Success**.

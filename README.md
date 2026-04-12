@@ -1,6 +1,18 @@
 # Squad on ACA — Serverless Agent Orchestration
 
+[![Status: MVP](https://img.shields.io/badge/status-MVP-blue)](#project-status)
+
 Run [Squad](https://bradygaster.github.io/squad/) agents on Azure Container App Jobs with event-driven KEDA scaling. Zero cost when idle, scales proportionally to your issue queue.
+
+## How It Works
+
+1. **GitHub Issue Created** – Developer creates an issue in any app repo (e.g., `azure-lz-dashboard`) and adds the `squad` label
+2. **Ralph Triages** – Ralph (GitHub Actions heartbeat) detects the labeled issue and adds a `squad:{member}` label based on triage rules
+3. **Function Polls** – Azure Function (timer-triggered) queries GitHub for issues with `squad:{member}` labels
+4. **Message Enqueued** – For each matching issue, the Function enqueues a JSON message to the Storage Queue (contains issue number, repo, agent type)
+5. **KEDA Scales** – KEDA monitors queue depth and scales the Container App Job from 0 to configured max executions
+6. **Agent Works** – Each job execution reads a message, clones the app repo, runs the Squad agent against that issue, and opens a PR with the results
+7. **Scribe Logs** – Results are recorded in the app repo's `.squad/` decision log; Ralph monitors for the next work item
 
 ## Architecture
 
@@ -16,15 +28,28 @@ Ralph Heartbeat (GitHub Actions) ──► Azure Function (timer, polls issues)
                                      KEDA azure-queue scaler
                                            │
                                            ▼
-                                  Container App Jobs
-                                  ┌─────────┬──────────┐
-                                  │ backend │ frontend │
-                                  │ tester  │ docs     │
-                                  └─────────┴──────────┘
+                                    Container App Job
+                                    (single generic job)
                                            │
                                            ▼
                                      Pull Requests
 ```
+
+## Two-Repo Architecture
+
+Squad on ACA consists of two repositories:
+
+- **This Repository** (`squad-on-aca`) – The platform infrastructure
+  - Terraform modules that provision Azure resources (Function App, Container App Jobs, Storage, Log Analytics, ACR)
+  - Base Docker image with Squad CLI, git, and deployment tools
+  - Reusable infrastructure for any Squad agent workload
+  
+- **Your App Repository** (e.g., `azure-lz-dashboard`) – Where agents do their work
+  - Must contain a `.squad/` directory with agent configurations and decision history
+  - Issues labeled `squad` in this repo trigger agent execution
+  - Agents clone this repo, work on issues, and open PRs with changes
+
+Point the platform at any app repo by updating `github_repo` in `terraform.tfvars`. The platform will automatically scale agents to handle issues labeled `squad` in that repo.
 
 ## Components
 
@@ -53,6 +78,10 @@ Ralph Heartbeat (GitHub Actions) ──► Azure Function (timer, polls issues)
 - GitHub PAT with `repo` scope
 - Terraform >= 1.10
 - Azure CLI (`az login`)
+
+## Project Status
+
+**MVP** — Core platform is stable and working end-to-end. The single generic Container App Job eliminates infrastructure sprawl while supporting unlimited agent types. Production-ready for teams running Squad agents on Azure.
 
 ## Quick Start
 

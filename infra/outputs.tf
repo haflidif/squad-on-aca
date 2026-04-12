@@ -19,7 +19,7 @@ output "container_apps_environment" {
 }
 
 output "agent_job_name" {
-  value = module.squad_agent_job.resource.name
+  value = module.squad_agent_job.container_app_job_name
 }
 
 output "function_app_name" {

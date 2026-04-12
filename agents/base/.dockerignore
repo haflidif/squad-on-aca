@@ -1,0 +1,4 @@
+# Ignore everything except what the build needs
+*
+!Dockerfile
+!entrypoint.sh
