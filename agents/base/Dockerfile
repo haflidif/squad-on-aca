@@ -1,7 +1,9 @@
 # =============================================================================
 # Stage 1: Build — install tooling in a full image
 # =============================================================================
-FROM golang:1.23.4-bookworm AS build
+# Base images cached in ACR to avoid Docker Hub rate limits.
+# Import once: az acr import --name crsquadacaa6b49feb --source docker.io/library/golang:1.23.4-bookworm --image base/golang:1.23.4-bookworm
+FROM crsquadacaa6b49feb.azurecr.io/base/golang:1.23.4-bookworm AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -29,7 +31,8 @@ RUN npm install -g @github/copilot
 # =============================================================================
 # Stage 2: Runtime — slim image with only what we need
 # =============================================================================
-FROM debian:bookworm-20240701-slim AS runtime
+# Import once: az acr import --name crsquadacaa6b49feb --source docker.io/library/debian:bookworm-20240701-slim --image base/debian:bookworm-20240701-slim
+FROM crsquadacaa6b49feb.azurecr.io/base/debian:bookworm-20240701-slim AS runtime
 
 LABEL maintainer="Haflidi Fridthjofsson"
 LABEL org.opencontainers.image.description="Squad agent runtime for Azure Container App Jobs"
