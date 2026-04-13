@@ -136,6 +136,13 @@ gh auth status 2>/dev/null || die "gh auth failed. Check installation token."
 # Configure gh as the git credential helper so git push uses the token
 gh auth setup-git 2>/dev/null
 
+# -- Ensure required labels exist on the target repo -------------------------
+# Labels are created by the workflow template, but repos may not have them yet.
+# This is a defensive check — gh label create --force is idempotent.
+log "Ensuring squad lifecycle labels exist on ${GITHUB_REPO}..."
+gh label create "squad:processing" --repo "${GITHUB_REPO}" --color "FBCA04" --description "Squad agent is actively working on this issue" --force 2>/dev/null || true
+gh label create "squad:queued" --repo "${GITHUB_REPO}" --color "0E8A16" --description "Squad agent created a PR — awaiting review" --force 2>/dev/null || true
+
 # -- Dedup checks (prevent multiple containers working the same issue) -------
 # Multiple KEDA-triggered containers may dequeue messages for the same issue
 # (e.g. retries, duplicate enqueue). These checks gate processing so only one
@@ -435,9 +442,13 @@ gh pr create \
 
 # -- Update issue labels (processing → queued) -------------------------------
 # Signal that this issue now has a PR queued for review.
+# Operations are split so a failure on one doesn't block the other.
 log "Swapping labels on issue #${ISSUE_NUMBER} (processing → queued)..."
 gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
-  --remove-label "squad:processing" --add-label "squad:queued" 2>/dev/null \
-  || log "WARNING: Could not swap labels on issue #${ISSUE_NUMBER}."
+  --add-label "squad:queued" 2>/dev/null \
+  || log "WARNING: Could not add squad:queued label on issue #${ISSUE_NUMBER}."
+gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+  --remove-label "squad:processing" 2>/dev/null \
+  || log "WARNING: Could not remove squad:processing label on issue #${ISSUE_NUMBER}."
 
 log "=== Agent ${AGENT_TYPE} completed issue #${ISSUE_NUMBER} ==="
