@@ -78,6 +78,25 @@
 
 **Decision:** Container runs `copilot --yolo` for AI coding. If Copilot fails, falls back to a diagnostic work artifact so the PR pipeline always completes. Container is ephemeral/isolated — yolo mode is safe.
 
+### 2026-04-14: `/squad revise` PR Feedback Loop
+
+**Author:** Lando (Container Dev)  
+**Status:** Implemented
+
+**Context:** After Squad creates a PR, reviewers need a way to request targeted revisions without manually editing bot-owned branches. The existing pipeline only supports new-issue → PR creation; there's no feedback loop for iterating on review comments.
+
+**Decision:** Add a `/squad revise` command that triggers from PR comments. A new GitHub Actions workflow (`squad-revise.yml`) collects review feedback, validates guards (branch pattern, bot authorship, write access, no concurrent revisions), and enqueues a `type: "revise"` message to the same Azure Storage Queue. The entrypoint dispatches on `MSG_TYPE`: "revise" checks out the existing branch, validates HEAD hasn't moved (stale check), builds a revision prompt with inline review comments + diff context, runs Copilot CLI, pushes additive commits (no force-push), comments results on the PR, and removes the `squad:revising` label. The existing "new" flow is unchanged.
+
+**Changes:**
+- `agents/workflows/squad-revise.yml`: New workflow template — `issue_comment` trigger, 6 guards, OIDC queue auth, feedback collection, acknowledgement comment.
+- `agents/base/entrypoint.sh`: `MSG_TYPE` dispatch (if/else) wrapping existing flow. Revision flow shares auth and Copilot invocation but skips dedup, branch creation, and PR creation.
+
+**Consequences:**
+- Reviewers can iterate on bot PRs without leaving GitHub — just comment `/squad revise`.
+- `squad:revising` label prevents concurrent revision races.
+- Stale-SHA check prevents revisions on moved branches.
+- Existing new-issue flow is structurally identical (wrapped in else branch).
+
 ## Governance
 
 - All meaningful changes require team consensus

@@ -61,6 +61,7 @@ MSG_BODY_B64=$(echo "${RAW_MSG}" | jq -r '.[0].content // empty')
 # -- Decode and parse the message --------------------------------------------
 QUEUE_MESSAGE=$(echo "${MSG_BODY_B64}" | base64 -d 2>&1) || die "Failed to base64-decode message content: ${QUEUE_MESSAGE}"
 
+MSG_TYPE=$(echo "${QUEUE_MESSAGE}" | jq -r '.type // "new"')
 ISSUE_NUMBER=$(echo "${QUEUE_MESSAGE}" | jq -r '.issue_number // empty')
 AGENT_TYPE=$(echo "${QUEUE_MESSAGE}" | jq -r '.agent_type // empty')
 GITHUB_REPO=$(echo "${QUEUE_MESSAGE}" | jq -r '.repo // empty')
@@ -69,15 +70,26 @@ GITHUB_REPO=$(echo "${QUEUE_MESSAGE}" | jq -r '.repo // empty')
 [[ -z "${AGENT_TYPE}" ]] && die "agent_type is missing in message."
 [[ -z "${GITHUB_REPO}" ]] && die "repo is missing in message."
 
+# Revision-specific fields (only present when MSG_TYPE == "revise")
+PR_NUMBER=$(echo "${QUEUE_MESSAGE}" | jq -r '.pr_number // empty')
+REVISION_BRANCH=$(echo "${QUEUE_MESSAGE}" | jq -r '.branch // empty')
+HEAD_SHA=$(echo "${QUEUE_MESSAGE}" | jq -r '.head_sha // empty')
+FEEDBACK=$(echo "${QUEUE_MESSAGE}" | jq -r '.feedback // empty')
+
 # -- Delete message from queue (prevent reprocessing) ------------------------
 log "Deleting message ${MSG_ID} from queue..."
 az storage message delete --queue-name "${QUEUE_NAME}" --account-name "${AZURE_STORAGE_ACCOUNT}" --auth-mode login --id "${MSG_ID}" --pop-receipt "${POP_RECEIPT}" -o none || die "Failed to delete message ${MSG_ID} from queue."
 
 export ISSUE_NUMBER AGENT_TYPE GITHUB_REPO
 
-log "=== Squad Agent: ${AGENT_TYPE} ==="
+log "=== Squad Agent: ${AGENT_TYPE} (mode: ${MSG_TYPE}) ==="
 log "Repository: ${GITHUB_REPO}"
 log "Issue:      #${ISSUE_NUMBER}"
+if [[ "${MSG_TYPE}" == "revise" ]]; then
+  log "PR:         #${PR_NUMBER}"
+  log "Branch:     ${REVISION_BRANCH}"
+  log "Head SHA:   ${HEAD_SHA}"
+fi
 
 # -- GitHub App Authentication (JWT → Installation Token) -----------------
 log "Generating GitHub App installation token..."
@@ -142,150 +154,286 @@ gh auth setup-git 2>/dev/null
 log "Ensuring squad lifecycle labels exist on ${GITHUB_REPO}..."
 gh label create "squad:processing" --repo "${GITHUB_REPO}" --color "FBCA04" --description "Squad agent is actively working on this issue" --force 2>/dev/null || true
 gh label create "squad:queued" --repo "${GITHUB_REPO}" --color "0E8A16" --description "Squad agent created a PR — awaiting review" --force 2>/dev/null || true
+gh label create "squad:revising" --repo "${GITHUB_REPO}" --color "D93F0B" --description "Squad agent is revising this PR based on reviewer feedback" --force 2>/dev/null || true
 
-# -- Dedup checks (prevent multiple containers working the same issue) -------
-# Multiple KEDA-triggered containers may dequeue messages for the same issue
-# (e.g. retries, duplicate enqueue). These checks gate processing so only one
-# container performs work per issue.
+# ===========================================================================
+# MSG_TYPE dispatch — "revise" vs "new" (default)
+# ===========================================================================
 
-# 1. Check squad:processing label — if the label is missing, another container
-#    already completed this issue (it would have swapped the label on PR creation).
-log "Checking squad:processing label on issue #${ISSUE_NUMBER}..."
-ISSUE_LABELS=$(gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --json labels --jq '[.labels[].name] | join("\n")' 2>/dev/null || true)
+if [[ "${MSG_TYPE}" == "revise" ]]; then
+  # =========================================================================
+  # REVISION FLOW — address reviewer feedback on an existing bot-owned PR
+  # =========================================================================
+  [[ -z "${PR_NUMBER}" ]] && die "pr_number is missing in revision message."
+  [[ -z "${REVISION_BRANCH}" ]] && die "branch is missing in revision message."
+  [[ -z "${HEAD_SHA}" ]] && die "head_sha is missing in revision message."
 
-if echo "${ISSUE_LABELS}" | grep -q "^squad:queued$"; then
-  log "Issue #${ISSUE_NUMBER} already has squad:queued label (PR was created). Skipping."
-  exit 0
-fi
+  # -- Git identity -----------------------------------------------------------
+  git config --global user.name "squad-aca-bot[bot]"
+  git config --global user.email "3362344+squad-aca-bot[bot]@users.noreply.github.com"
 
-if ! echo "${ISSUE_LABELS}" | grep -q "^squad:processing$"; then
-  log "Issue #${ISSUE_NUMBER} is missing squad:processing label — already handled. Skipping."
-  exit 0
-fi
+  # -- Clone and checkout existing branch -------------------------------------
+  log "Cloning ${GITHUB_REPO} and checking out ${REVISION_BRANCH}..."
+  gh repo clone "${GITHUB_REPO}" /workspace/repo || die "Failed to clone ${GITHUB_REPO}."
+  cd /workspace/repo
+  git checkout "${REVISION_BRANCH}" || die "Failed to checkout branch ${REVISION_BRANCH}."
 
-# 2. Check for existing open PRs whose branch matches the squad naming convention.
-#    Using --head is precise and avoids false positives from free-text search.
-log "Checking for existing PRs for issue #${ISSUE_NUMBER}..."
-EXISTING_PR=$(gh pr list --repo "${GITHUB_REPO}" --state open \
-  --json number,headRefName \
-  --jq "[.[] | select(.headRefName | test(\"squad/.*/issue-${ISSUE_NUMBER}$\"))] | .[0].number // empty" \
-  2>/dev/null || true)
+  # -- Stale check: verify HEAD matches enqueued SHA --------------------------
+  CURRENT_SHA=$(git rev-parse HEAD)
+  if [[ "${CURRENT_SHA}" != "${HEAD_SHA}" ]]; then
+    log "Branch has moved since revision was requested (expected ${HEAD_SHA}, got ${CURRENT_SHA})."
+    gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPO}" \
+      --body "⚠️ Branch has changed since revision was requested (expected \`${HEAD_SHA:0:7}\`, found \`${CURRENT_SHA:0:7}\`). Please re-trigger \`/squad revise\`."
+    # Remove revising label so it can be re-triggered
+    gh pr edit "${PR_NUMBER}" --repo "${GITHUB_REPO}" --remove-label "squad:revising" 2>/dev/null || true
+    exit 0
+  fi
 
-if [[ -n "${EXISTING_PR}" ]]; then
-  log "PR #${EXISTING_PR} already exists for issue #${ISSUE_NUMBER}. Skipping."
-  # Ensure labels reflect reality — swap processing → queued if needed
-  gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
-    --remove-label "squad:processing" --add-label "squad:queued" 2>/dev/null || true
-  exit 0
-fi
+  # -- Collect rich feedback for the prompt -----------------------------------
+  log "Collecting review feedback for PR #${PR_NUMBER}..."
 
-# 3. Check for existing squad branches on remote (covers the window between
-#    push and PR creation where another container could start).
-log "Checking for existing squad branches for issue #${ISSUE_NUMBER}..."
-EXISTING_BRANCH=$(git ls-remote --heads "https://github.com/${GITHUB_REPO}.git" "squad/*/issue-${ISSUE_NUMBER}" 2>/dev/null | head -1 || true)
-if [[ -n "${EXISTING_BRANCH}" ]]; then
-  log "Branch already exists for issue #${ISSUE_NUMBER}. Skipping."
-  exit 0
-fi
+  # Review-level comments (approvals, change requests, general comments)
+  REVIEW_COMMENTS=$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPO}" \
+    --json reviews,comments \
+    --jq '{reviews: [.reviews[] | {author: .author.login, state: .state, body: .body}], comments: [.comments[] | {author: .author.login, body: .body}]}' \
+    2>/dev/null || echo '{}')
 
-# 4. Confirm squad:processing label is present (it should already be set by the
-#    workflow before enqueue — this is a defensive re-apply for edge cases).
-log "Confirming squad:processing label on issue #${ISSUE_NUMBER}..."
-gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --add-label "squad:processing" 2>/dev/null || log "WARNING: Could not add squad:processing label."
+  # Inline code review comments (file/line specific)
+  INLINE_COMMENTS=$(gh api "repos/${GITHUB_REPO}/pulls/${PR_NUMBER}/comments" \
+    --jq '[.[] | select(.position != null or .line != null) | {path: .path, line: (.line // .position), body: .body}]' \
+    2>/dev/null || echo '[]')
 
-# -- Git identity (needed for commits) --------------------------------------
-git config --global user.name "squad-aca-bot[bot]"
-git config --global user.email "3362344+squad-aca-bot[bot]@users.noreply.github.com"
+  # Current diff for context (capped at 500 lines)
+  PR_DIFF=$(gh pr diff "${PR_NUMBER}" --repo "${GITHUB_REPO}" 2>/dev/null | head -500 || echo "No diff available.")
 
-# -- Clone repo --------------------------------------------------------------
-log "Cloning ${GITHUB_REPO}..."
-gh repo clone "${GITHUB_REPO}" /workspace/repo || die "Failed to clone ${GITHUB_REPO}."
-cd /workspace/repo
+  # -- Build revision prompt --------------------------------------------------
+  SQUAD_PROMPT="@${AGENT_TYPE}, address reviewer feedback on PR #${PR_NUMBER} (issue #${ISSUE_NUMBER}).
 
-# -- Create working branch ---------------------------------------------------
-BRANCH="squad/${AGENT_TYPE}/issue-${ISSUE_NUMBER}"
-log "Creating branch: ${BRANCH}"
-git checkout -b "${BRANCH}"
+## Reviewer Feedback
+${FEEDBACK}
 
-# -- Read issue details -------------------------------------------------------
-log "Fetching issue #${ISSUE_NUMBER} from ${GITHUB_REPO}..."
-ISSUE_JSON=$(gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --json title,body,labels,assignees 2>/dev/null) \
-  || die "Failed to fetch issue #${ISSUE_NUMBER}."
+## Review Comments
+${REVIEW_COMMENTS}
 
-ISSUE_TITLE=$(echo "${ISSUE_JSON}" | jq -r '.title // "Untitled"')
-ISSUE_BODY=$(echo "${ISSUE_JSON}" | jq -r '.body // "No description provided."')
-ISSUE_LABELS=$(echo "${ISSUE_JSON}" | jq -r '[.labels[].name] | join(", ") // "none"')
+## Inline Review Comments
+${INLINE_COMMENTS}
 
-log "Issue title: ${ISSUE_TITLE}"
+## Current PR Diff (for context)
+\`\`\`diff
+${PR_DIFF}
+\`\`\`
 
-# -- Do the work (Copilot CLI) -----------------------------------------------
-# Run GitHub Copilot CLI in --yolo mode (auto-accepts all operations).
-# The container is ephemeral and isolated — yolo is safe here.
-# If copilot fails, fall back to a work artifact so the PR still gets created.
+Make targeted changes to address the feedback. Don't rewrite code that wasn't mentioned.
+Stage and commit changes with a descriptive message referencing PR #${PR_NUMBER}."
 
-COPILOT_SUCCEEDED=false
+  # -- Run Copilot CLI --------------------------------------------------------
+  log "Running Copilot CLI for revision of PR #${PR_NUMBER}..."
 
-log "Running Copilot CLI for issue #${ISSUE_NUMBER}..."
+  set +e
+  export GITHUB_TOKEN="${COPILOT_TOKEN}"
+  echo "${SQUAD_PROMPT}" | copilot --yolo --agent squad 2>&1 | tee /workspace/copilot-output.log
+  COPILOT_EXIT=${PIPESTATUS[1]}
+  export GITHUB_TOKEN="${APP_TOKEN}"
+  set -e
 
-# The agent name comes from the queue message (e.g., "din", "sabine", "k-2so")
-# @agent routing lets Squad read .squad/team.md and dispatch to the right charter
-SQUAD_PROMPT="@${AGENT_TYPE}, resolve issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+  if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
+    log "Copilot CLI completed revision successfully."
+  else
+    log "WARNING: Copilot CLI failed during revision (exit code ${COPILOT_EXIT})."
+  fi
+
+  # Stage any uncommitted changes
+  if [[ -n "$(git status --porcelain)" ]]; then
+    log "Staging uncommitted changes from revision..."
+    git add -A
+    git commit -m "squad(${AGENT_TYPE}): revise PR #${PR_NUMBER} per reviewer feedback
+
+Automated revision by Squad agent pipeline.
+Issue: #${ISSUE_NUMBER}" || log "Nothing new to commit."
+  fi
+
+  # -- Commit .squad/ state changes -------------------------------------------
+  SQUAD_CHANGES=$(git diff --name-only -- .squad/ 2>/dev/null || true)
+  SQUAD_UNTRACKED=$(git ls-files --others --exclude-standard -- .squad/ 2>/dev/null || true)
+
+  if [[ -n "${SQUAD_CHANGES}" || -n "${SQUAD_UNTRACKED}" ]]; then
+    log "Found .squad/ state changes — committing..."
+    git add .squad/
+    git commit -m "squad(${AGENT_TYPE}): update team state for PR #${PR_NUMBER} revision" || log "Nothing new to commit in .squad/."
+  fi
+
+  # -- Push (add commits, no force-push) --------------------------------------
+  log "Pushing revision commits to ${REVISION_BRANCH}..."
+  git push origin "${REVISION_BRANCH}" || die "git push failed."
+
+  # -- Comment on PR with results ---------------------------------------------
+  AGENT_SUMMARY=""
+  if [[ -f /workspace/copilot-output.log ]]; then
+    AGENT_SUMMARY=$(tail -50 /workspace/copilot-output.log 2>/dev/null \
+      | sed 's/\x1b\[[0-9;]*m//g' \
+      | grep -v '^\s*$' \
+      | grep -v '^●' \
+      | grep -v '^\s*└' \
+      | grep -v '^Changes\s\+[+-]' \
+      | grep -v '^Requests\s' \
+      | grep -v '^Tokens\s' \
+      | grep -v '^Duration\s' \
+      | grep -v '^\s*Running\s*$' \
+      | grep -v '^\s*Completed\s*$' \
+      | grep -v '^\s*│' \
+      | grep -v '/workspace/' \
+      | grep -v '^\s*cat ' \
+      | grep -v '^\s*ls ' \
+      | grep -v '^\s*cd ' \
+      | grep -v '^\s*find ' \
+      | grep -v '^\s*git config' \
+      | grep -v '^\s*git rev-parse' \
+      | grep -v '2>/dev/null' \
+      | tail -15 \
+      || true)
+  fi
+
+  DIFF_STATS=$(git diff --stat "HEAD~1..HEAD" 2>/dev/null || echo "No diff stats available.")
+
+  gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPO}" \
+    --body "🔧 **Revision applied** by \`${AGENT_TYPE}\`
+
+${AGENT_SUMMARY:-"Revision completed — check the updated diff for changes."}
+
+### Changes
+\`\`\`
+${DIFF_STATS}
+\`\`\`"
+
+  # -- Remove squad:revising label --------------------------------------------
+  log "Removing squad:revising label from PR #${PR_NUMBER}..."
+  gh pr edit "${PR_NUMBER}" --repo "${GITHUB_REPO}" --remove-label "squad:revising" 2>/dev/null || true
+
+  log "=== Agent ${AGENT_TYPE} completed revision of PR #${PR_NUMBER} ==="
+
+else
+  # =========================================================================
+  # NEW ISSUE FLOW — existing behavior, unchanged
+  # =========================================================================
+
+  # -- Dedup checks (prevent multiple containers working the same issue) -------
+  log "Checking squad:processing label on issue #${ISSUE_NUMBER}..."
+  ISSUE_LABELS=$(gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --json labels --jq '[.labels[].name] | join("\n")' 2>/dev/null || true)
+
+  if echo "${ISSUE_LABELS}" | grep -q "^squad:queued$"; then
+    log "Issue #${ISSUE_NUMBER} already has squad:queued label (PR was created). Skipping."
+    exit 0
+  fi
+
+  if ! echo "${ISSUE_LABELS}" | grep -q "^squad:processing$"; then
+    log "Issue #${ISSUE_NUMBER} is missing squad:processing label — already handled. Skipping."
+    exit 0
+  fi
+
+  log "Checking for existing PRs for issue #${ISSUE_NUMBER}..."
+  EXISTING_PR=$(gh pr list --repo "${GITHUB_REPO}" --state open \
+    --json number,headRefName \
+    --jq "[.[] | select(.headRefName | test(\"squad/.*/issue-${ISSUE_NUMBER}$\"))] | .[0].number // empty" \
+    2>/dev/null || true)
+
+  if [[ -n "${EXISTING_PR}" ]]; then
+    log "PR #${EXISTING_PR} already exists for issue #${ISSUE_NUMBER}. Skipping."
+    gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+      --remove-label "squad:processing" --add-label "squad:queued" 2>/dev/null || true
+    exit 0
+  fi
+
+  log "Checking for existing squad branches for issue #${ISSUE_NUMBER}..."
+  EXISTING_BRANCH=$(git ls-remote --heads "https://github.com/${GITHUB_REPO}.git" "squad/*/issue-${ISSUE_NUMBER}" 2>/dev/null | head -1 || true)
+  if [[ -n "${EXISTING_BRANCH}" ]]; then
+    log "Branch already exists for issue #${ISSUE_NUMBER}. Skipping."
+    exit 0
+  fi
+
+  log "Confirming squad:processing label on issue #${ISSUE_NUMBER}..."
+  gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --add-label "squad:processing" 2>/dev/null || log "WARNING: Could not add squad:processing label."
+
+  # -- Git identity (needed for commits) --------------------------------------
+  git config --global user.name "squad-aca-bot[bot]"
+  git config --global user.email "3362344+squad-aca-bot[bot]@users.noreply.github.com"
+
+  # -- Clone repo --------------------------------------------------------------
+  log "Cloning ${GITHUB_REPO}..."
+  gh repo clone "${GITHUB_REPO}" /workspace/repo || die "Failed to clone ${GITHUB_REPO}."
+  cd /workspace/repo
+
+  # -- Create working branch ---------------------------------------------------
+  BRANCH="squad/${AGENT_TYPE}/issue-${ISSUE_NUMBER}"
+  log "Creating branch: ${BRANCH}"
+  git checkout -b "${BRANCH}"
+
+  # -- Read issue details -------------------------------------------------------
+  log "Fetching issue #${ISSUE_NUMBER} from ${GITHUB_REPO}..."
+  ISSUE_JSON=$(gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --json title,body,labels,assignees 2>/dev/null) \
+    || die "Failed to fetch issue #${ISSUE_NUMBER}."
+
+  ISSUE_TITLE=$(echo "${ISSUE_JSON}" | jq -r '.title // "Untitled"')
+  ISSUE_BODY=$(echo "${ISSUE_JSON}" | jq -r '.body // "No description provided."')
+  ISSUE_LABELS=$(echo "${ISSUE_JSON}" | jq -r '[.labels[].name] | join(", ") // "none"')
+
+  log "Issue title: ${ISSUE_TITLE}"
+
+  # -- Do the work (Copilot CLI) -----------------------------------------------
+  COPILOT_SUCCEEDED=false
+
+  log "Running Copilot CLI for issue #${ISSUE_NUMBER}..."
+
+  SQUAD_PROMPT="@${AGENT_TYPE}, resolve issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
 
 ${ISSUE_BODY}
 
 Make all necessary code changes to resolve this issue. After making changes, stage and commit them with a descriptive commit message referencing issue #${ISSUE_NUMBER}."
 
-# Temporarily allow failure so copilot errors don't kill the script
-set +e
-# Swap to Copilot-licensed PAT for AI operations (App tokens can't use Copilot)
-export GITHUB_TOKEN="${COPILOT_TOKEN}"
-echo "${SQUAD_PROMPT}" | copilot --yolo --agent squad 2>&1 | tee /workspace/copilot-output.log
-COPILOT_EXIT=${PIPESTATUS[1]}
-# Swap back to App token for git push + PR creation
-export GITHUB_TOKEN="${APP_TOKEN}"
-set -e
+  set +e
+  export GITHUB_TOKEN="${COPILOT_TOKEN}"
+  echo "${SQUAD_PROMPT}" | copilot --yolo --agent squad 2>&1 | tee /workspace/copilot-output.log
+  COPILOT_EXIT=${PIPESTATUS[1]}
+  export GITHUB_TOKEN="${APP_TOKEN}"
+  set -e
 
-if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
-  log "Copilot CLI completed successfully."
-  COPILOT_SUCCEEDED=true
-else
-  log "WARNING: Copilot CLI failed (exit code ${COPILOT_EXIT}). Falling back to work artifact."
-fi
+  if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
+    log "Copilot CLI completed successfully."
+    COPILOT_SUCCEEDED=true
+  else
+    log "WARNING: Copilot CLI failed (exit code ${COPILOT_EXIT}). Falling back to work artifact."
+  fi
 
-# Check if copilot made any changes (committed or uncommitted)
-if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
-  # Stage any unstaged changes copilot may have left
-  if [[ -n "$(git status --porcelain)" ]]; then
-    log "Copilot left uncommitted changes — committing them now."
-    git add -A
-    git commit -m "squad(${AGENT_TYPE}): copilot changes for issue #${ISSUE_NUMBER}
+  if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
+    if [[ -n "$(git status --porcelain)" ]]; then
+      log "Copilot left uncommitted changes — committing them now."
+      git add -A
+      git commit -m "squad(${AGENT_TYPE}): copilot changes for issue #${ISSUE_NUMBER}
 
 Automated by Squad agent pipeline (Copilot CLI --yolo).
 Issue: ${ISSUE_TITLE}" || log "Nothing new to commit (copilot may have committed already)."
+    fi
+
+    if git log origin/main..HEAD --oneline | grep -q .; then
+      log "Copilot produced commits for issue #${ISSUE_NUMBER}."
+    else
+      log "WARNING: Copilot ran but produced no commits. Falling back to work artifact."
+      COPILOT_SUCCEEDED=false
+    fi
   fi
 
-  # Verify we actually have commits beyond the base branch
-  if git log origin/main..HEAD --oneline | grep -q .; then
-    log "Copilot produced commits for issue #${ISSUE_NUMBER}."
-  else
-    log "WARNING: Copilot ran but produced no commits. Falling back to work artifact."
-    COPILOT_SUCCEEDED=false
-  fi
-fi
+  # -- Fallback: work artifact if copilot didn't produce changes ---------------
+  if [[ "${COPILOT_SUCCEEDED}" != "true" ]]; then
+    log "Creating fallback work artifact for issue #${ISSUE_NUMBER}..."
 
-# -- Fallback: work artifact if copilot didn't produce changes ---------------
-if [[ "${COPILOT_SUCCEEDED}" != "true" ]]; then
-  log "Creating fallback work artifact for issue #${ISSUE_NUMBER}..."
+    COPILOT_LOG=""
+    if [[ -f /workspace/copilot-output.log ]]; then
+      COPILOT_LOG=$(tail -50 /workspace/copilot-output.log 2>/dev/null || true)
+    fi
 
-  COPILOT_LOG=""
-  if [[ -f /workspace/copilot-output.log ]]; then
-    COPILOT_LOG=$(tail -50 /workspace/copilot-output.log 2>/dev/null || true)
-  fi
+    WORK_DIR=".squad-work"
+    mkdir -p "${WORK_DIR}"
 
-  WORK_DIR=".squad-work"
-  mkdir -p "${WORK_DIR}"
-
-  cat > "${WORK_DIR}/issue-${ISSUE_NUMBER}.md" <<EOF
+    cat > "${WORK_DIR}/issue-${ISSUE_NUMBER}.md" <<EOF
 # Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
 
 **Agent:** ${AGENT_TYPE}
@@ -313,95 +461,86 @@ ${COPILOT_LOG:-"No output captured."}
 - Or re-trigger the agent after resolving any Copilot CLI issues
 EOF
 
-  git add "${WORK_DIR}/"
-  git commit -m "squad(${AGENT_TYPE}): work artifact for issue #${ISSUE_NUMBER}
+    git add "${WORK_DIR}/"
+    git commit -m "squad(${AGENT_TYPE}): work artifact for issue #${ISSUE_NUMBER}
 
 Copilot CLI fallback — see .squad-work/ for details.
 Issue: ${ISSUE_TITLE}" || die "git commit failed (nothing to commit?)."
-fi
+  fi
 
-# -- Commit .squad/ state changes (decisions, history) -----------------------
-# The Squad agent may have updated decisions.md and history.md during its run.
-# These are tracked files that should flow back to the repo via the PR.
-log "Checking for .squad/ state changes..."
-SQUAD_CHANGES=$(git diff --name-only -- .squad/ 2>/dev/null || true)
-SQUAD_UNTRACKED=$(git ls-files --others --exclude-standard -- .squad/ 2>/dev/null || true)
+  # -- Commit .squad/ state changes (decisions, history) -----------------------
+  log "Checking for .squad/ state changes..."
+  SQUAD_CHANGES=$(git diff --name-only -- .squad/ 2>/dev/null || true)
+  SQUAD_UNTRACKED=$(git ls-files --others --exclude-standard -- .squad/ 2>/dev/null || true)
 
-if [[ -n "${SQUAD_CHANGES}" || -n "${SQUAD_UNTRACKED}" ]]; then
-  log "Found .squad/ state changes — committing..."
-  git add .squad/
-  git commit -m "squad(${AGENT_TYPE}): update team state for issue #${ISSUE_NUMBER}
+  if [[ -n "${SQUAD_CHANGES}" || -n "${SQUAD_UNTRACKED}" ]]; then
+    log "Found .squad/ state changes — committing..."
+    git add .squad/
+    git commit -m "squad(${AGENT_TYPE}): update team state for issue #${ISSUE_NUMBER}
 
 Updated decisions and learnings from agent work.
 " || log "Nothing new to commit in .squad/."
-else
-  log "No .squad/ state changes to commit."
-fi
-
-# -- Push and open PR --------------------------------------------------------
-log "Pushing branch and creating PR..."
-git push origin "${BRANCH}" || die "git push failed."
-
-# -- Build enriched PR body with agent context --------------------------------
-log "Building PR body with agent context..."
-
-COPILOT_STATUS=$(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then echo "✅"; else echo "⚠️ fallback"; fi)
-
-if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
-  # Extract agent summary from copilot output, stripping CLI noise.
-  # Removes: ANSI codes, tool markers, token stats, shell commands, file paths,
-  # blank lines, and copilot CLI metadata — leaving only agent activity and results.
-  AGENT_SUMMARY=""
-  if [[ -f /workspace/copilot-output.log ]]; then
-    AGENT_SUMMARY=$(tail -50 /workspace/copilot-output.log 2>/dev/null \
-      | sed 's/\x1b\[[0-9;]*m//g' \
-      | grep -v '^\s*$' \
-      | grep -v '^●' \
-      | grep -v '^\s*└' \
-      | grep -v '^Changes\s\+[+-]' \
-      | grep -v '^Requests\s' \
-      | grep -v '^Tokens\s' \
-      | grep -v '^Duration\s' \
-      | grep -v '^\s*Running\s*$' \
-      | grep -v '^\s*Completed\s*$' \
-      | grep -v '^\s*│' \
-      | grep -v '/workspace/' \
-      | grep -v '^\s*cat ' \
-      | grep -v '^\s*ls ' \
-      | grep -v '^\s*cd ' \
-      | grep -v '^\s*find ' \
-      | grep -v '^\s*git config' \
-      | grep -v '^\s*git rev-parse' \
-      | grep -v '2>/dev/null' \
-      | grep -v '\.squad/agents/.*/charter\.md' \
-      | grep -v '\.squad/agents/.*/history\.md' \
-      | grep -v '\.squad/decisions\.md' \
-      | grep -v '\.squad/routing\.md' \
-      | grep -v '\.squad/team\.md' \
-      | grep -v '\.squad/casting/' \
-      | grep -v 'Read.*charter.*shell' \
-      | grep -v 'Read.*history.*shell' \
-      | grep -v '(shell)$' \
-      | grep -v '^Agent started in background' \
-      | grep -v '^General-purpose' \
-      | tail -15 \
-      || true)
+  else
+    log "No .squad/ state changes to commit."
   fi
 
-  # Get diff stats
-  DIFF_STATS=$(git diff --stat origin/main..HEAD 2>/dev/null || echo "No diff stats available.")
+  # -- Push and open PR --------------------------------------------------------
+  log "Pushing branch and creating PR..."
+  git push origin "${BRANCH}" || die "git push failed."
 
-  # Get commit log
-  COMMIT_LOG=$(git log origin/main..HEAD --oneline 2>/dev/null || echo "No commits found.")
+  # -- Build enriched PR body with agent context --------------------------------
+  log "Building PR body with agent context..."
 
-  # Check for decisions
-  DECISIONS=""
-  DECISIONS_DIR=".squad/decisions/inbox"
-  if [[ -d "${DECISIONS_DIR}" ]] && ls "${DECISIONS_DIR}"/*.md 1>/dev/null 2>&1; then
-    DECISIONS=$(cat "${DECISIONS_DIR}"/*.md 2>/dev/null || true)
-  fi
+  COPILOT_STATUS=$(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then echo "✅"; else echo "⚠️ fallback"; fi)
 
-  PR_BODY="## Squad Agent: \`${AGENT_TYPE}\` — Issue #${ISSUE_NUMBER}
+  if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
+    AGENT_SUMMARY=""
+    if [[ -f /workspace/copilot-output.log ]]; then
+      AGENT_SUMMARY=$(tail -50 /workspace/copilot-output.log 2>/dev/null \
+        | sed 's/\x1b\[[0-9;]*m//g' \
+        | grep -v '^\s*$' \
+        | grep -v '^●' \
+        | grep -v '^\s*└' \
+        | grep -v '^Changes\s\+[+-]' \
+        | grep -v '^Requests\s' \
+        | grep -v '^Tokens\s' \
+        | grep -v '^Duration\s' \
+        | grep -v '^\s*Running\s*$' \
+        | grep -v '^\s*Completed\s*$' \
+        | grep -v '^\s*│' \
+        | grep -v '/workspace/' \
+        | grep -v '^\s*cat ' \
+        | grep -v '^\s*ls ' \
+        | grep -v '^\s*cd ' \
+        | grep -v '^\s*find ' \
+        | grep -v '^\s*git config' \
+        | grep -v '^\s*git rev-parse' \
+        | grep -v '2>/dev/null' \
+        | grep -v '\.squad/agents/.*/charter\.md' \
+        | grep -v '\.squad/agents/.*/history\.md' \
+        | grep -v '\.squad/decisions\.md' \
+        | grep -v '\.squad/routing\.md' \
+        | grep -v '\.squad/team\.md' \
+        | grep -v '\.squad/casting/' \
+        | grep -v 'Read.*charter.*shell' \
+        | grep -v 'Read.*history.*shell' \
+        | grep -v '(shell)$' \
+        | grep -v '^Agent started in background' \
+        | grep -v '^General-purpose' \
+        | tail -15 \
+        || true)
+    fi
+
+    DIFF_STATS=$(git diff --stat origin/main..HEAD 2>/dev/null || echo "No diff stats available.")
+    COMMIT_LOG=$(git log origin/main..HEAD --oneline 2>/dev/null || echo "No commits found.")
+
+    DECISIONS=""
+    DECISIONS_DIR=".squad/decisions/inbox"
+    if [[ -d "${DECISIONS_DIR}" ]] && ls "${DECISIONS_DIR}"/*.md 1>/dev/null 2>&1; then
+      DECISIONS=$(cat "${DECISIONS_DIR}"/*.md 2>/dev/null || true)
+    fi
+
+    PR_BODY="## Squad Agent: \`${AGENT_TYPE}\` — Issue #${ISSUE_NUMBER}
 
 ### Agent Activity
 
@@ -434,9 +573,8 @@ ${DECISIONS:-"No team decisions recorded."}
 
 Closes #${ISSUE_NUMBER}"
 
-else
-  # Fallback body — copilot failed or produced no changes
-  PR_BODY="## Squad Agent: \`${AGENT_TYPE}\` — Issue #${ISSUE_NUMBER}
+  else
+    PR_BODY="## Squad Agent: \`${AGENT_TYPE}\` — Issue #${ISSUE_NUMBER}
 
 ### Note
 
@@ -453,34 +591,34 @@ Check \`.squad-work/issue-${ISSUE_NUMBER}.md\` for details and copilot output.
 | Push + PR | ✅ |
 
 Closes #${ISSUE_NUMBER}"
-fi
+  fi
 
-# Truncate PR body to stay under GitHub's ~65KB limit (keep ~60KB to be safe)
-if [[ ${#PR_BODY} -gt 61440 ]]; then
-  log "WARNING: PR body exceeds 60KB — truncating."
-  PR_BODY="${PR_BODY:0:61000}
+  # Truncate PR body to stay under GitHub's ~65KB limit (keep ~60KB to be safe)
+  if [[ ${#PR_BODY} -gt 61440 ]]; then
+    log "WARNING: PR body exceeds 60KB — truncating."
+    PR_BODY="${PR_BODY:0:61000}
 
 ...
 
 > ⚠️ PR body was truncated (original was ${#PR_BODY} bytes). Check copilot output log for full context."
+  fi
+
+  gh pr create \
+    --title "squad(${AGENT_TYPE}): resolve issue #${ISSUE_NUMBER}" \
+    --body "${PR_BODY}" \
+    --base main \
+    --head "${BRANCH}" \
+    || die "gh pr create failed."
+
+  # -- Update issue labels (processing → queued) -------------------------------
+  log "Swapping labels on issue #${ISSUE_NUMBER} (processing → queued)..."
+  gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+    --add-label "squad:queued" 2>/dev/null \
+    || log "WARNING: Could not add squad:queued label on issue #${ISSUE_NUMBER}."
+  gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+    --remove-label "squad:processing" 2>/dev/null \
+    || log "WARNING: Could not remove squad:processing label on issue #${ISSUE_NUMBER}."
+
+  log "=== Agent ${AGENT_TYPE} completed issue #${ISSUE_NUMBER} ==="
+
 fi
-
-gh pr create \
-  --title "squad(${AGENT_TYPE}): resolve issue #${ISSUE_NUMBER}" \
-  --body "${PR_BODY}" \
-  --base main \
-  --head "${BRANCH}" \
-  || die "gh pr create failed."
-
-# -- Update issue labels (processing → queued) -------------------------------
-# Signal that this issue now has a PR queued for review.
-# Operations are split so a failure on one doesn't block the other.
-log "Swapping labels on issue #${ISSUE_NUMBER} (processing → queued)..."
-gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
-  --add-label "squad:queued" 2>/dev/null \
-  || log "WARNING: Could not add squad:queued label on issue #${ISSUE_NUMBER}."
-gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
-  --remove-label "squad:processing" 2>/dev/null \
-  || log "WARNING: Could not remove squad:processing label on issue #${ISSUE_NUMBER}."
-
-log "=== Agent ${AGENT_TYPE} completed issue #${ISSUE_NUMBER} ==="

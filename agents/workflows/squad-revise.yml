@@ -1,0 +1,222 @@
+# =============================================================================
+# Squad PR Revise — GitHub Actions Workflow (TEMPLATE)
+# =============================================================================
+# Feedback loop: when a reviewer comments `/squad revise` on a bot-owned PR,
+# this workflow collects review feedback and enqueues a revision job.
+# Copy this file to your target repo: .github/workflows/squad-revise.yml
+#
+# Prerequisites: Same as squad-queue.yml — OIDC federated credentials, UAMI
+# with "Storage Queue Data Message Sender" role, and repo variables set.
+#
+# Flow:
+#   /squad revise comment on PR → guards → collect feedback →
+#   OIDC login → add "squad:revising" → enqueue revision → done
+# =============================================================================
+
+name: Squad PR Revise
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  id-token: write       # Request OIDC token from GitHub
+  issues: write         # Add/remove labels on PRs (PRs are issues in GH API)
+  pull-requests: write  # Comment on PRs, read PR metadata
+  contents: read        # Read repository contents
+
+jobs:
+  revise:
+    # Only fire when the comment contains /squad revise and it's on a PR
+    if: |
+      contains(github.event.comment.body, '/squad revise') &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------------------------
+      # Step 1: Guard checks — branch pattern, PR author, permissions, label
+      # -------------------------------------------------------------------
+      - name: Guard checks
+        id: guards
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.issue.number }}"
+          COMMENTER="${{ github.event.comment.user.login }}"
+
+          # Fetch PR details
+          PR_JSON=$(gh pr view "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --json headRefName,author,labels)
+
+          HEAD_REF=$(echo "${PR_JSON}" | jq -r '.headRefName')
+          PR_AUTHOR=$(echo "${PR_JSON}" | jq -r '.author.login')
+
+          echo "PR #${PR_NUMBER} — branch: ${HEAD_REF}, author: ${PR_AUTHOR}"
+
+          # Guard 1: Branch matches squad/*/issue-* pattern
+          if [[ ! "${HEAD_REF}" =~ ^squad/[^/]+/issue-[0-9]+$ ]]; then
+            echo "Branch '${HEAD_REF}' does not match squad/*/issue-* pattern. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Guard 2: PR author is the bot
+          if [[ "${PR_AUTHOR}" != "squad-aca-bot[bot]" ]]; then
+            echo "PR author '${PR_AUTHOR}' is not squad-aca-bot[bot]. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Guard 3: Commenter has write or admin access
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${COMMENTER}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+
+          if [[ "${PERMISSION}" != "admin" && "${PERMISSION}" != "write" ]]; then
+            echo "Commenter '${COMMENTER}' has '${PERMISSION}' access — need write or admin. Skipping."
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --body "⚠️ @${COMMENTER} You need write access to trigger \`/squad revise\`."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Guard 4: No squad:revising label (prevent concurrent revisions)
+          HAS_REVISING=$(echo "${PR_JSON}" | jq -r '[.labels[].name] | any(. == "squad:revising")')
+          if [[ "${HAS_REVISING}" == "true" ]]; then
+            echo "PR #${PR_NUMBER} already has squad:revising label. Skipping."
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --body "⚠️ A revision is already in progress for this PR. Please wait for it to complete."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract agent_type and issue_number from branch name
+          AGENT_TYPE=$(echo "${HEAD_REF}" | sed 's|squad/\([^/]*\)/issue-.*|\1|')
+          ISSUE_NUMBER=$(echo "${HEAD_REF}" | sed 's|squad/.*/issue-\([0-9]*\)|\1|')
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "head_ref=${HEAD_REF}" >> "$GITHUB_OUTPUT"
+          echo "agent_type=${AGENT_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------------------
+      # Step 2: Add squad:revising label (self-healing create + apply)
+      # -------------------------------------------------------------------
+      - name: Add revising label
+        if: steps.guards.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.issue.number }}"
+
+          # Create label if it doesn't exist (idempotent)
+          gh label create "squad:revising" \
+            --repo "${{ github.repository }}" \
+            --color "D93F0B" \
+            --description "Squad agent is revising this PR based on reviewer feedback" \
+            --force 2>/dev/null || true
+
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --add-label "squad:revising"
+
+      # -------------------------------------------------------------------
+      # Step 3: OIDC login to Azure
+      # -------------------------------------------------------------------
+      - name: Azure Login (OIDC)
+        if: steps.guards.outputs.skip != 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.SQUAD_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.SQUAD_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.SQUAD_AZURE_SUBSCRIPTION_ID }}
+
+      # -------------------------------------------------------------------
+      # Step 4: Collect feedback and enqueue revision message
+      # -------------------------------------------------------------------
+      - name: Collect feedback and enqueue
+        if: steps.guards.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.issue.number }}"
+          AGENT_TYPE="${{ steps.guards.outputs.agent_type }}"
+          ISSUE_NUMBER="${{ steps.guards.outputs.issue_number }}"
+          HEAD_REF="${{ steps.guards.outputs.head_ref }}"
+
+          # Get PR head SHA
+          HEAD_SHA=$(gh pr view "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --json headRefOid --jq '.headRefOid')
+
+          # Collect review-level feedback (review bodies and comments)
+          REVIEW_FEEDBACK=$(gh pr view "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --json reviewDecision,reviews,comments \
+            --jq '{
+              reviewDecision: .reviewDecision,
+              reviews: [.reviews[] | {author: .author.login, state: .state, body: .body}],
+              comments: [.comments[] | {author: .author.login, body: .body}]
+            }' 2>/dev/null || echo '{}')
+
+          # Collect inline review comments (code-level feedback)
+          INLINE_COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.position != null or .line != null) | {path: .path, line: (.line // .position), body: .body}]' \
+            2>/dev/null || echo '[]')
+
+          # Combine into a single feedback string for the prompt
+          FEEDBACK=$(jq -n \
+            --argjson reviews "${REVIEW_FEEDBACK}" \
+            --argjson inline "${INLINE_COMMENTS}" \
+            '{reviews: $reviews, inline_comments: $inline}' | jq -c '.')
+
+          # Build the queue message
+          MESSAGE=$(jq -n \
+            --arg type "revise" \
+            --argjson pr_number "${PR_NUMBER}" \
+            --argjson issue_number "${ISSUE_NUMBER}" \
+            --arg branch "${HEAD_REF}" \
+            --arg agent_type "${AGENT_TYPE}" \
+            --arg repo "${{ github.repository }}" \
+            --arg head_sha "${HEAD_SHA}" \
+            --arg feedback "${FEEDBACK}" \
+            '{
+              type: $type,
+              pr_number: $pr_number,
+              issue_number: $issue_number,
+              branch: $branch,
+              agent_type: $agent_type,
+              repo: $repo,
+              head_sha: $head_sha,
+              feedback: $feedback
+            }')
+
+          # Base64 encode for Azure Storage Queue
+          MESSAGE_B64=$(echo "${MESSAGE}" | base64 -w 0)
+
+          # Enqueue
+          az storage message put \
+            --queue-name "${{ vars.SQUAD_QUEUE_NAME }}" \
+            --account-name "${{ vars.SQUAD_STORAGE_ACCOUNT }}" \
+            --auth-mode login \
+            --content "${MESSAGE_B64}" \
+            --time-to-live 86400
+
+          echo "✅ Enqueued revision for PR #${PR_NUMBER} (agent: ${AGENT_TYPE}, issue: #${ISSUE_NUMBER})"
+
+      # -------------------------------------------------------------------
+      # Step 5: Acknowledge the revision request on the PR
+      # -------------------------------------------------------------------
+      - name: Acknowledge on PR
+        if: steps.guards.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "🔄 **Revision queued** — \`${{ steps.guards.outputs.agent_type }}\` will address reviewer feedback shortly.
+
+          The \`squad:revising\` label will be removed when the revision is complete."
