@@ -348,10 +348,23 @@ log "Building PR body with agent context..."
 COPILOT_STATUS=$(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then echo "✅"; else echo "⚠️ fallback"; fi)
 
 if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
-  # Extract agent summary from copilot output (last 20 lines, truncated to 200 lines max)
+  # Extract agent summary from copilot output, stripping CLI metadata noise
+  # (tool call markers, token stats, ANSI escape codes, trailing blanks)
   AGENT_SUMMARY=""
   if [[ -f /workspace/copilot-output.log ]]; then
-    AGENT_SUMMARY=$(tail -20 /workspace/copilot-output.log 2>/dev/null | head -200 || true)
+    AGENT_SUMMARY=$(tail -40 /workspace/copilot-output.log 2>/dev/null \
+      | sed 's/\x1b\[[0-9;]*m//g' \
+      | grep -v '^\s*$' \
+      | grep -v '^●' \
+      | grep -v '^\s*└' \
+      | grep -v '^Changes\s\+[+-]' \
+      | grep -v '^Requests\s' \
+      | grep -v '^Tokens\s' \
+      | grep -v '^Duration\s' \
+      | grep -v '^\s*Running\s*$' \
+      | grep -v '^\s*Completed\s*$' \
+      | tail -20 \
+      || true)
   fi
 
   # Get diff stats
@@ -369,11 +382,9 @@ if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
 
   PR_BODY="## Squad Agent: \`${AGENT_TYPE}\` — Issue #${ISSUE_NUMBER}
 
-### Summary
+### Agent Activity
 
-\`\`\`
 ${AGENT_SUMMARY:-"No summary captured from copilot output."}
-\`\`\`
 
 ### Changes Made
 
