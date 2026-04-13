@@ -31,3 +31,14 @@ Agent Bodhi initialized as Function Dev. Responsible for the Python Azure Functi
 - Requires Chewie to add `SquadStorage__queueServiceUri` app setting in Terraform (see decision `bodhi-identity-queue-binding.md`).
 - `AzureWebJobsStorage__accountName` remains for host runtime — extension bundle v4 supports identity-based host storage on Consumption plan.
 - The prior 503 was likely a missing deployment package, not an identity-based storage issue.
+
+### 2026-04-13: Replaced Azure Function with GitHub Actions workflow
+
+- Created `agents/workflows/squad-queue.yml` — a template workflow that target repos copy into `.github/workflows/`.
+- Triggers on `issues: [labeled]` when a `squad:*` label is added. Event-driven, not polling.
+- Uses OIDC federated credentials (`azure/login@v2`) — zero secrets stored in repos.
+- Two-layer dedup prevents infinite loops: (1) direct check if triggering label IS `squad:processing`, (2) existing label check on the issue.
+- Label lifecycle: `squad:backend` → workflow adds `squad:processing` → enqueue → Container App Job → PR with `Closes #N`.
+- Queue message schema unchanged: `{issue_number, agent_type, repo, title}` — base64-encoded, same as entrypoint.sh expects.
+- Configuration via GitHub repository variables (`vars.*`), not secrets — all values are resource identifiers.
+- Created `agents/workflows/README.md` with installation instructions, RBAC requirements, federated credential setup, and retry guidance.

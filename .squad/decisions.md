@@ -50,6 +50,34 @@
 - No shared keys or connection strings anywhere in the platform
 - azapi_resource used instead of AVM module (minor drift from AVM-everywhere pattern)
 
+### 2026-04-12: Container Self-Dequeues via Managed Identity
+
+**Author:** Lando (Container Dev)  
+**Status:** Implemented
+
+**Decision:** Container dequeues messages from Azure Storage Queue using `az storage message get --auth-mode login` with UAMI. Requires `az login --identity --client-id` before queue operations. Messages are deleted after parsing to prevent reprocessing. Empty queue = clean exit (exit 0).
+
+### 2026-04-12: SquadStorage Connection for Queue Output Binding
+
+**Author:** Bodhi (Function Dev)  
+**Status:** Implemented
+
+**Decision:** Function App queue output binding uses `connection="SquadStorage"` with `SquadStorage__queueServiceUri` app setting for identity-based auth, decoupled from host runtime's `AzureWebJobsStorage`.
+
+### 2026-04-13: Replace squad-cli with gh CLI Workflow
+
+**Author:** Lando (Container Dev)  
+**Status:** Implemented
+
+**Decision:** Removed `@bradygaster/squad-cli` from container. Entrypoint uses `gh` CLI directly for GitHub operations (clone, PR create). Work performed by `@github/copilot` CLI in `--yolo` mode.
+
+### 2026-04-13: Copilot CLI --yolo with Graceful Fallback
+
+**Author:** Lando (Container Dev)  
+**Status:** Implemented
+
+**Decision:** Container runs `copilot --yolo` for AI coding. If Copilot fails, falls back to a diagnostic work artifact so the PR pipeline always completes. Container is ephemeral/isolated — yolo mode is safe.
+
 ## Governance
 
 - All meaningful changes require team consensus
