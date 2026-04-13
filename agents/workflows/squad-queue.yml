@@ -1,0 +1,139 @@
+# =============================================================================
+# Squad Issue Queue — GitHub Actions Workflow (TEMPLATE)
+# =============================================================================
+# Bridges GitHub issues to Azure Storage Queue so Squad agents wake up.
+# Copy this file to your target repo: .github/workflows/squad-queue.yml
+#
+# Prerequisites:
+#   1. Set GitHub repository variables (Settings > Secrets and variables > Actions > Variables):
+#      - SQUAD_AZURE_CLIENT_ID      — UAMI client ID (from Terraform output)
+#      - SQUAD_AZURE_TENANT_ID      — Azure AD tenant ID
+#      - SQUAD_AZURE_SUBSCRIPTION_ID — Azure subscription ID
+#      - SQUAD_STORAGE_ACCOUNT      — Storage account name (e.g. stsquadacaa6b49feb)
+#      - SQUAD_QUEUE_NAME           — Queue name (e.g. squad-work-queue)
+#
+#   2. Add a federated credential on the UAMI for this repo:
+#      - Issuer: https://token.actions.githubusercontent.com
+#      - Subject: repo:<owner>/<repo>:ref:refs/heads/main
+#        (or use a broader filter — see README.md)
+#
+#   3. Assign UAMI the "Storage Queue Data Message Sender" role on the queue.
+#
+# Flow:
+#   Issue labeled "squad:backend" → this workflow →
+#   dedup check → OIDC login → add "squad:processing" → enqueue → done
+# =============================================================================
+
+name: Squad Issue Queue
+
+on:
+  issues:
+    types: [labeled]
+
+# OIDC federated credentials require these permissions
+permissions:
+  id-token: write    # Request OIDC token from GitHub
+  issues: write      # Add/remove labels on issues
+  contents: read     # Read repository contents
+
+jobs:
+  enqueue:
+    # Only run when a label starting with "squad:" is added.
+    # NOTE: The "squad:processing" label also matches this condition — that's
+    # intentional. The dedup check in step 1 prevents infinite loops.
+    if: startsWith(github.event.label.name, 'squad:')
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Dedup — skip if "squad:processing" is already on the issue.
+      # This is CRITICAL because adding "squad:processing" in step 3 fires
+      # another issues.labeled event. Without this check, we'd loop forever.
+      # -----------------------------------------------------------------------
+      - name: Check for duplicate processing
+        id: dedup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # If the label that triggered us IS "squad:processing", skip immediately
+          if [[ "${{ github.event.label.name }}" == "squad:processing" ]]; then
+            echo "Triggered by squad:processing label itself. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Also check if the issue already has the processing label
+          LABELS=$(gh issue view "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --json labels -q '.labels[].name')
+
+          if echo "${LABELS}" | grep -q "^squad:processing$"; then
+            echo "Issue #${{ github.event.issue.number }} already has squad:processing label. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Step 2: OIDC login to Azure using federated credentials (zero secrets).
+      # -----------------------------------------------------------------------
+      - name: Azure Login (OIDC)
+        if: steps.dedup.outputs.skip != 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.SQUAD_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.SQUAD_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.SQUAD_AZURE_SUBSCRIPTION_ID }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Mark the issue so we don't process it again.
+      # Done BEFORE enqueuing — if the enqueue fails, we still have the label
+      # to signal that processing was attempted. The label can be removed
+      # manually to retry.
+      # -----------------------------------------------------------------------
+      - name: Add processing label
+        if: steps.dedup.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --add-label "squad:processing"
+
+      # -----------------------------------------------------------------------
+      # Step 4: Build the queue message and send it.
+      # Message schema matches what entrypoint.sh expects:
+      #   { "issue_number": 42, "agent_type": "backend", "repo": "owner/repo", "title": "..." }
+      # -----------------------------------------------------------------------
+      - name: Enqueue issue to Storage Queue
+        if: steps.dedup.outputs.skip != 'true'
+        run: |
+          # Extract agent type from the label (e.g., "squad:backend" → "backend")
+          AGENT_TYPE="${{ github.event.label.name }}"
+          AGENT_TYPE="${AGENT_TYPE#squad:}"
+
+          # Build the queue message JSON
+          MESSAGE=$(jq -n \
+            --arg issue_number "${{ github.event.issue.number }}" \
+            --arg agent_type "${AGENT_TYPE}" \
+            --arg repo "${{ github.repository }}" \
+            --arg title "${{ github.event.issue.title }}" \
+            '{
+              issue_number: ($issue_number | tonumber),
+              agent_type: $agent_type,
+              repo: $repo,
+              title: $title
+            }')
+
+          # Base64 encode — Azure Storage Queue expects base64 content
+          MESSAGE_B64=$(echo "${MESSAGE}" | base64 -w 0)
+
+          # Put message on the queue using managed identity auth
+          az storage message put \
+            --queue-name "${{ vars.SQUAD_QUEUE_NAME }}" \
+            --account-name "${{ vars.SQUAD_STORAGE_ACCOUNT }}" \
+            --auth-mode login \
+            --content "${MESSAGE_B64}" \
+            --time-to-live 86400
+
+          echo "✅ Enqueued issue #${{ github.event.issue.number }} (agent: ${AGENT_TYPE}) to queue"
