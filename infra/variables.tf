@@ -48,6 +48,12 @@ variable "tags" {
   }
 }
 
+variable "target_repos" {
+  description = "GitHub repositories (owner/repo format) allowed to authenticate via OIDC federated credentials"
+  type        = list(string)
+  default     = []
+}
+
 variable "agent_job_config" {
   description = "Configuration for the generic squad agent Container App Job"
   type = object({

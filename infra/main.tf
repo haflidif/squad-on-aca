@@ -1,3 +1,8 @@
+# --------------------------------------------------------------------------
+# Data Sources
+# --------------------------------------------------------------------------
+data "azurerm_client_config" "current" {}
+
 resource "random_id" "suffix" {
   byte_length = 4
 }
@@ -137,6 +142,21 @@ resource "azurerm_role_assignment" "agent_acr_pull" {
   scope                = module.acr.resource_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
+# --------------------------------------------------------------------------
+# OIDC Federated Identity Credentials — GitHub Actions
+# Allows workflows from target repos to authenticate as the UAMI via OIDC
+# and push messages to the Storage Queue without secrets.
+# --------------------------------------------------------------------------
+resource "azurerm_federated_identity_credential" "github_actions" {
+  for_each = toset(var.target_repos)
+
+  name      = "ghactions-${replace(replace(each.value, "/", "-"), ".", "-")}"
+  parent_id = azurerm_user_assigned_identity.squad_agent.id
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = "https://token.actions.githubusercontent.com"
+  subject             = "repo:${each.value}:ref:refs/heads/main"
 }
 
 # --------------------------------------------------------------------------

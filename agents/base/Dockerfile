@@ -59,7 +59,8 @@ COPY --from=build /usr/bin/gh /usr/bin/gh
 
 # Copy Copilot CLI (global npm package from build stage)
 COPY --from=build /usr/lib/node_modules/@github/copilot /usr/lib/node_modules/@github/copilot
-RUN ln -sf /usr/lib/node_modules/@github/copilot/bin/copilot /usr/local/bin/copilot
+RUN ln -sf /usr/lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+    && chmod +x /usr/local/bin/copilot
 
 WORKDIR /workspace
 

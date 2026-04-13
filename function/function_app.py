@@ -114,7 +114,7 @@ def _fetch_triaged_issues(
 @app.queue_output(
     arg_name="msg",
     queue_name="%SQUAD_QUEUE_NAME%",
-    connection="SquadStorage",
+    connection="AzureWebJobsStorage",
 )
 def poll_issues(timer: func.TimerRequest, msg: func.Out[list[str]]) -> None:
     """Poll GitHub issues and enqueue triaged ones for agent processing."""

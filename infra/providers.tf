@@ -22,7 +22,18 @@ terraform {
       source  = "hashicorp/time"
       version = ">= 0.9.0, < 1.0.0"
     }
+    github = {
+      source  = "integrations/github"
+      version = "~> 6.0"
+    }
   }
+}
+
+# --------------------------------------------------------------------------
+# Locals — GitHub owner extracted from target_repos for the GitHub provider
+# --------------------------------------------------------------------------
+locals {
+  github_owner = length(var.target_repos) > 0 ? split("/", var.target_repos[0])[0] : ""
 }
 
 provider "azurerm" {
@@ -34,3 +45,8 @@ provider "azurerm" {
 provider "azapi" {}
 provider "modtm" {}
 provider "time" {}
+
+provider "github" {
+  token = var.github_token
+  owner = local.github_owner
+}

@@ -26,6 +26,16 @@ output "agent_identity_name" {
   value = azurerm_user_assigned_identity.squad_agent.name
 }
 
+output "squad_agent_client_id" {
+  description = "Client ID of the Squad Agent UAMI — used by GitHub Actions OIDC login"
+  value       = azurerm_user_assigned_identity.squad_agent.client_id
+}
+
+output "squad_agent_tenant_id" {
+  description = "Tenant ID of the Squad Agent UAMI — used by GitHub Actions OIDC login"
+  value       = azurerm_user_assigned_identity.squad_agent.tenant_id
+}
+
 output "function_app_name" {
   value = module.function_app.name
 }
