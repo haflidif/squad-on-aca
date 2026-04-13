@@ -191,6 +191,10 @@ resource "azurerm_role_assignment" "deployer_keyvault_officer" {
 # NOTE: GitHub App private key is uploaded manually to Key Vault via:
 #   az keyvault secret set --vault-name "kv-squad-XXXX" --name "github-app-private-key" --file ./path-to.pem
 # This keeps the PEM out of Terraform state entirely.
+#
+# NOTE: Copilot CLI PAT is also uploaded manually (requires a Copilot-licensed user token):
+#   az keyvault secret set --vault-name "kv-squad-XXXX" --name "copilot-pat" --value "<PAT>"
+# The container reads this via COPILOT_TOKEN_SECRET_NAME + KEY_VAULT_NAME env vars.
 
 # --------------------------------------------------------------------------
 # Container App Job — Generic Squad Agent
@@ -271,6 +275,7 @@ resource "azapi_resource" "squad_agent_job" {
               { name = "QUEUE_NAME", value = var.queue_name },
               { name = "AZURE_STORAGE_ACCOUNT", value = local.storage_account_name },
               { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.squad_agent.client_id },
+              { name = "COPILOT_TOKEN_SECRET_NAME", value = "copilot-pat" },
             ]
           }
         ]
