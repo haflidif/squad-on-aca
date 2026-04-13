@@ -26,6 +26,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # GitHub Copilot CLI (installed in build stage, copied to runtime)
 RUN npm install -g @github/copilot
 
+# Squad CLI — enables `--agent squad` discovery via .github/agents/squad.agent.md
+RUN npm install -g @bradygaster/squad-cli
+
 # =============================================================================
 # Stage 2: Runtime — slim image with only what we need
 # =============================================================================
@@ -62,6 +65,11 @@ COPY --from=build /usr/bin/gh /usr/bin/gh
 COPY --from=build /usr/lib/node_modules/@github/copilot /usr/lib/node_modules/@github/copilot
 RUN ln -sf /usr/lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && chmod +x /usr/local/bin/copilot
+
+# Copy Squad CLI (global npm package from build stage)
+COPY --from=build /usr/lib/node_modules/@bradygaster/squad-cli /usr/lib/node_modules/@bradygaster/squad-cli
+RUN ln -sf /usr/lib/node_modules/@bradygaster/squad-cli/bin/squad.js /usr/local/bin/squad \
+    && chmod +x /usr/local/bin/squad
 
 WORKDIR /workspace
 

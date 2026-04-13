@@ -220,9 +220,9 @@ COPILOT_SUCCEEDED=false
 
 log "Running Copilot CLI for issue #${ISSUE_NUMBER}..."
 
-COPILOT_PROMPT="You are working in a git repo. Read the following GitHub issue and make the code changes it describes.
-
-Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+# The agent name comes from the queue message (e.g., "din", "sabine", "k-2so")
+# @agent routing lets Squad read .squad/team.md and dispatch to the right charter
+SQUAD_PROMPT="@${AGENT_TYPE}, resolve issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
 
 ${ISSUE_BODY}
 
@@ -232,7 +232,7 @@ Make all necessary code changes to resolve this issue. After making changes, sta
 set +e
 # Swap to Copilot-licensed PAT for AI operations (App tokens can't use Copilot)
 export GITHUB_TOKEN="${COPILOT_TOKEN}"
-echo "${COPILOT_PROMPT}" | copilot --yolo 2>&1 | tee /workspace/copilot-output.log
+echo "${SQUAD_PROMPT}" | copilot --yolo --agent squad 2>&1 | tee /workspace/copilot-output.log
 COPILOT_EXIT=${PIPESTATUS[1]}
 # Swap back to App token for git push + PR creation
 export GITHUB_TOKEN="${APP_TOKEN}"
