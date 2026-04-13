@@ -79,6 +79,56 @@ gh auth status 2>/dev/null || die "gh auth failed. Check GITHUB_TOKEN."
 # Configure gh as the git credential helper so git push uses the PAT
 gh auth setup-git 2>/dev/null
 
+# -- Dedup checks (prevent multiple containers working the same issue) -------
+# Multiple KEDA-triggered containers may dequeue messages for the same issue
+# (e.g. retries, duplicate enqueue). These checks gate processing so only one
+# container performs work per issue.
+
+# 1. Check squad:processing label — if the label is missing, another container
+#    already completed this issue (it would have swapped the label on PR creation).
+log "Checking squad:processing label on issue #${ISSUE_NUMBER}..."
+ISSUE_LABELS=$(gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --json labels --jq '[.labels[].name] | join("\n")' 2>/dev/null || true)
+
+if echo "${ISSUE_LABELS}" | grep -q "^squad:queued$"; then
+  log "Issue #${ISSUE_NUMBER} already has squad:queued label (PR was created). Skipping."
+  exit 0
+fi
+
+if ! echo "${ISSUE_LABELS}" | grep -q "^squad:processing$"; then
+  log "Issue #${ISSUE_NUMBER} is missing squad:processing label — already handled. Skipping."
+  exit 0
+fi
+
+# 2. Check for existing open PRs whose branch matches the squad naming convention.
+#    Using --head is precise and avoids false positives from free-text search.
+log "Checking for existing PRs for issue #${ISSUE_NUMBER}..."
+EXISTING_PR=$(gh pr list --repo "${GITHUB_REPO}" --state open \
+  --json number,headRefName \
+  --jq "[.[] | select(.headRefName | test(\"squad/.*/issue-${ISSUE_NUMBER}$\"))] | .[0].number // empty" \
+  2>/dev/null || true)
+
+if [[ -n "${EXISTING_PR}" ]]; then
+  log "PR #${EXISTING_PR} already exists for issue #${ISSUE_NUMBER}. Skipping."
+  # Ensure labels reflect reality — swap processing → queued if needed
+  gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+    --remove-label "squad:processing" --add-label "squad:queued" 2>/dev/null || true
+  exit 0
+fi
+
+# 3. Check for existing squad branches on remote (covers the window between
+#    push and PR creation where another container could start).
+log "Checking for existing squad branches for issue #${ISSUE_NUMBER}..."
+EXISTING_BRANCH=$(git ls-remote --heads "https://github.com/${GITHUB_REPO}.git" "squad/*/issue-${ISSUE_NUMBER}" 2>/dev/null | head -1 || true)
+if [[ -n "${EXISTING_BRANCH}" ]]; then
+  log "Branch already exists for issue #${ISSUE_NUMBER}. Skipping."
+  exit 0
+fi
+
+# 4. Confirm squad:processing label is present (it should already be set by the
+#    workflow before enqueue — this is a defensive re-apply for edge cases).
+log "Confirming squad:processing label on issue #${ISSUE_NUMBER}..."
+gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --add-label "squad:processing" 2>/dev/null || log "WARNING: Could not add squad:processing label."
+
 # -- Git identity (needed for commits) --------------------------------------
 git config --global user.name "squad-bot[${AGENT_TYPE}]"
 git config --global user.email "squad-bot@users.noreply.github.com"
@@ -239,5 +289,12 @@ gh pr create \
   --base main \
   --head "${BRANCH}" \
   || die "gh pr create failed."
+
+# -- Update issue labels (processing → queued) -------------------------------
+# Signal that this issue now has a PR queued for review.
+log "Swapping labels on issue #${ISSUE_NUMBER} (processing → queued)..."
+gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" \
+  --remove-label "squad:processing" --add-label "squad:queued" 2>/dev/null \
+  || log "WARNING: Could not swap labels on issue #${ISSUE_NUMBER}."
 
 log "=== Agent ${AGENT_TYPE} completed issue #${ISSUE_NUMBER} ==="
