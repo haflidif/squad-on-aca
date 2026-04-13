@@ -1,0 +1,48 @@
+name: Import Base Images to ACR
+
+on:
+  workflow_dispatch:
+    description: Manually import base images from Docker Hub to ACR
+
+env:
+  ACR_NAME: crsquadacaa6b49feb
+  ACR_REGISTRY_URL: crsquadacaa6b49feb.azurecr.io
+
+jobs:
+  import-base-images:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Log in to Azure using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: 63223493-a39f-4a62-82ef-09c5066ae3c0
+          tenant-id: 49ff7219-653a-4644-8540-71d16dbf9c16
+          subscription-id: e69b8a95-fe38-42da-b5e6-e3e0a833cf9e
+
+      - name: Import golang base image
+        run: |
+          az acr import \
+            --name ${{ env.ACR_NAME }} \
+            --source "docker.io/library/golang:1.23.4-bookworm" \
+            --image "base/golang:1.23.4-bookworm" \
+            --force
+
+      - name: Import debian base image
+        run: |
+          az acr import \
+            --name ${{ env.ACR_NAME }} \
+            --source "docker.io/library/debian:bookworm-20240701-slim" \
+            --image "base/debian:bookworm-20240701-slim" \
+            --force
+
+      - name: Verify imports
+        run: |
+          echo "Golang image:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository base/golang || true
+          echo ""
+          echo "Debian image:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository base/debian || true

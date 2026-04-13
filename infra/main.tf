@@ -144,6 +144,13 @@ resource "azurerm_role_assignment" "agent_acr_pull" {
   principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
 }
 
+# RBAC: UAMI → AcrPush (import base images from Docker Hub)
+resource "azurerm_role_assignment" "agent_acr_push" {
+  scope                = module.acr.resource_id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
 # --------------------------------------------------------------------------
 # OIDC Federated Identity Credentials — GitHub Actions
 # Allows workflows from target repos to authenticate as the UAMI via OIDC
