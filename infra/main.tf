@@ -160,6 +160,39 @@ resource "azurerm_federated_identity_credential" "github_actions" {
 }
 
 # --------------------------------------------------------------------------
+# Azure Key Vault — GitHub App private key storage
+# RBAC-based access only (no access policies)
+# --------------------------------------------------------------------------
+resource "azurerm_key_vault" "squad" {
+  name                      = "kv-squad-${local.name_suffix}"
+  location                  = azurerm_resource_group.main.location
+  resource_group_name       = azurerm_resource_group.main.name
+  tenant_id                 = data.azurerm_client_config.current.tenant_id
+  sku_name                  = "standard"
+  rbac_authorization_enabled = true
+  purge_protection_enabled  = false # Dev environment — allow purge
+  tags                      = var.tags
+}
+
+# RBAC: UAMI → Key Vault Secrets User (read secrets at runtime)
+resource "azurerm_role_assignment" "agent_keyvault_reader" {
+  scope                = azurerm_key_vault.squad.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+}
+
+# RBAC: Deployer → Key Vault Secrets Officer (upload PEM via TF)
+resource "azurerm_role_assignment" "deployer_keyvault_officer" {
+  scope                = azurerm_key_vault.squad.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# NOTE: GitHub App private key is uploaded manually to Key Vault via:
+#   az keyvault secret set --vault-name "kv-squad-XXXX" --name "github-app-private-key" --file ./path-to.pem
+# This keeps the PEM out of Terraform state entirely.
+
+# --------------------------------------------------------------------------
 # Container App Job — Generic Squad Agent
 # Uses azapi_resource because azurerm doesn't support identity-based KEDA auth.
 # One job handles all agent types; AGENT_TYPE is parsed from queue message
@@ -188,12 +221,7 @@ resource "azapi_resource" "squad_agent_job" {
         replicaRetryLimit = 0
         triggerType     = "Event"
 
-        secrets = [
-          {
-            name  = "github-token"
-            value = var.github_token
-          }
-        ]
+        secrets = []
 
         registries = [
           {
@@ -236,7 +264,10 @@ resource "azapi_resource" "squad_agent_job" {
             }
             env = [
               { name = "GITHUB_REPO", value = var.github_repo },
-              { name = "GITHUB_TOKEN", secretRef = "github-token" },
+              { name = "GITHUB_APP_ID", value = var.github_app_id },
+              { name = "GITHUB_APP_INSTALLATION_ID", value = var.github_app_installation_id },
+              { name = "KEY_VAULT_NAME", value = azurerm_key_vault.squad.name },
+              { name = "KEY_VAULT_SECRET_NAME", value = "github-app-private-key" },
               { name = "QUEUE_NAME", value = var.queue_name },
               { name = "AZURE_STORAGE_ACCOUNT", value = local.storage_account_name },
               { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.squad_agent.client_id },
@@ -251,6 +282,7 @@ resource "azapi_resource" "squad_agent_job" {
     azurerm_role_assignment.agent_queue_reader,
     azurerm_role_assignment.agent_queue_contributor,
     azurerm_role_assignment.agent_acr_pull,
+    azurerm_role_assignment.agent_keyvault_reader,
   ]
 }
 

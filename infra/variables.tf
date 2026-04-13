@@ -54,6 +54,17 @@ variable "target_repos" {
   default     = []
 }
 
+variable "github_app_id" {
+  description = "GitHub App ID (numeric)"
+  type        = string
+}
+
+variable "github_app_installation_id" {
+  description = "GitHub App Installation ID"
+  type        = string
+}
+
+
 variable "agent_job_config" {
   description = "Configuration for the generic squad agent Container App Job"
   type = object({

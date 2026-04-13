@@ -10,9 +10,12 @@ set -euo pipefail
 #   { "issue_number": 42, "agent_type": "backend", "repo": "owner/repo" }
 #
 # Required env vars:
-#   AZURE_STORAGE_ACCOUNT - storage account name (e.g. stsquadacaa6b49feb)
-#   QUEUE_NAME            - queue name (e.g. squad-work-queue)
-#   GITHUB_TOKEN          - PAT or GitHub App token for gh CLI auth
+#   AZURE_STORAGE_ACCOUNT      - storage account name (e.g. stsquadacaa6b49feb)
+#   QUEUE_NAME                 - queue name (e.g. squad-work-queue)
+#   GITHUB_APP_ID              - GitHub App numeric ID
+#   GITHUB_APP_INSTALLATION_ID - GitHub App installation ID
+#   KEY_VAULT_NAME             - Azure Key Vault name storing the App private key
+#   KEY_VAULT_SECRET_NAME      - Key Vault secret name for the PEM
 # ---------------------------------------------------------------------------
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
@@ -21,7 +24,10 @@ die() { log "FATAL: $*"; exit 1; }
 # -- Validate required env vars ---------------------------------------------
 [[ -z "${AZURE_STORAGE_ACCOUNT:-}" ]] && die "AZURE_STORAGE_ACCOUNT is not set."
 [[ -z "${QUEUE_NAME:-}" ]] && die "QUEUE_NAME is not set."
-[[ -z "${GITHUB_TOKEN:-}" ]] && die "GITHUB_TOKEN is not set."
+[[ -z "${GITHUB_APP_ID:-}" ]] && die "GITHUB_APP_ID is not set."
+[[ -z "${GITHUB_APP_INSTALLATION_ID:-}" ]] && die "GITHUB_APP_INSTALLATION_ID is not set."
+[[ -z "${KEY_VAULT_NAME:-}" ]] && die "KEY_VAULT_NAME is not set."
+[[ -z "${KEY_VAULT_SECRET_NAME:-}" ]] && die "KEY_VAULT_SECRET_NAME is not set."
 
 # -- Authenticate with Azure using Managed Identity -------------------------
 log "Logging in with Managed Identity..."
@@ -71,12 +77,46 @@ log "=== Squad Agent: ${AGENT_TYPE} ==="
 log "Repository: ${GITHUB_REPO}"
 log "Issue:      #${ISSUE_NUMBER}"
 
+# -- GitHub App Authentication (JWT → Installation Token) -----------------
+log "Generating GitHub App installation token..."
+
+# Retrieve private key from Azure Key Vault (never written to disk)
+PEM=$(az keyvault secret show \
+  --vault-name "${KEY_VAULT_NAME}" \
+  --name "${KEY_VAULT_SECRET_NAME}" \
+  --query value -o tsv 2>/dev/null) || die "Failed to retrieve private key from Key Vault."
+
+[[ -z "${PEM}" ]] && die "Private key from Key Vault is empty."
+
+# Generate JWT (valid for 10 minutes)
+NOW=$(date +%s)
+EXPIRES=$((NOW + 600))
+
+HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+PAYLOAD=$(echo -n "{\"iat\":${NOW},\"exp\":${EXPIRES},\"iss\":\"${GITHUB_APP_ID}\"}" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign <(echo "${PEM}") | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+
+JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+
+# Exchange JWT for installation access token (1hr expiry)
+TOKEN_RESPONSE=$(curl -sf -X POST \
+  -H "Authorization: Bearer ${JWT}" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/app/installations/${GITHUB_APP_INSTALLATION_ID}/access_tokens") \
+  || die "Failed to exchange JWT for installation token."
+
+GITHUB_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.token // empty')
+[[ -z "${GITHUB_TOKEN}" ]] && die "Installation token is empty. Response: ${TOKEN_RESPONSE}"
+
+export GITHUB_TOKEN
+log "GitHub App installation token generated successfully (expires in 1hr)."
+
 # -- GitHub auth -------------------------------------------------------------
 log "Authenticating with GitHub..."
-# gh CLI auto-detects GITHUB_TOKEN env var — just verify it works
-gh auth status 2>/dev/null || die "gh auth failed. Check GITHUB_TOKEN."
+gh auth status 2>/dev/null || die "gh auth failed. Check installation token."
 
-# Configure gh as the git credential helper so git push uses the PAT
+# Configure gh as the git credential helper so git push uses the token
 gh auth setup-git 2>/dev/null
 
 # -- Dedup checks (prevent multiple containers working the same issue) -------
@@ -130,8 +170,8 @@ log "Confirming squad:processing label on issue #${ISSUE_NUMBER}..."
 gh issue edit "${ISSUE_NUMBER}" --repo "${GITHUB_REPO}" --add-label "squad:processing" 2>/dev/null || log "WARNING: Could not add squad:processing label."
 
 # -- Git identity (needed for commits) --------------------------------------
-git config --global user.name "squad-bot[${AGENT_TYPE}]"
-git config --global user.email "squad-bot@users.noreply.github.com"
+git config --global user.name "squad-aca-bot[bot]"
+git config --global user.email "3362344+squad-aca-bot[bot]@users.noreply.github.com"
 
 # -- Clone repo --------------------------------------------------------------
 log "Cloning ${GITHUB_REPO}..."

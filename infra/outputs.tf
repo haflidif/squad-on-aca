@@ -39,3 +39,7 @@ output "squad_agent_tenant_id" {
 output "function_app_name" {
   value = module.function_app.name
 }
+
+output "key_vault_name" {
+  value = azurerm_key_vault.squad.name
+}
