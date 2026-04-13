@@ -16,6 +16,7 @@ set -euo pipefail
 #   GITHUB_APP_INSTALLATION_ID - GitHub App installation ID
 #   KEY_VAULT_NAME             - Azure Key Vault name storing the App private key
 #   KEY_VAULT_SECRET_NAME      - Key Vault secret name for the PEM
+#   COPILOT_TOKEN_SECRET_NAME  - Key Vault secret name for the Copilot-licensed PAT
 # ---------------------------------------------------------------------------
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
@@ -28,6 +29,7 @@ die() { log "FATAL: $*"; exit 1; }
 [[ -z "${GITHUB_APP_INSTALLATION_ID:-}" ]] && die "GITHUB_APP_INSTALLATION_ID is not set."
 [[ -z "${KEY_VAULT_NAME:-}" ]] && die "KEY_VAULT_NAME is not set."
 [[ -z "${KEY_VAULT_SECRET_NAME:-}" ]] && die "KEY_VAULT_SECRET_NAME is not set."
+[[ -z "${COPILOT_TOKEN_SECRET_NAME:-}" ]] && die "COPILOT_TOKEN_SECRET_NAME is not set."
 
 # -- Authenticate with Azure using Managed Identity -------------------------
 log "Logging in with Managed Identity..."
@@ -111,6 +113,21 @@ GITHUB_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.token // empty')
 
 export GITHUB_TOKEN
 log "GitHub App installation token generated successfully (expires in 1hr)."
+
+# Save the App token — git/gh operations always use this
+APP_TOKEN="${GITHUB_TOKEN}"
+
+# -- Retrieve Copilot PAT from Key Vault ------------------------------------
+# GitHub Apps can't hold Copilot licenses. A Copilot-licensed user PAT is
+# required exclusively for the `copilot --yolo` invocation.
+log "Retrieving Copilot token from Key Vault..."
+COPILOT_TOKEN=$(az keyvault secret show \
+  --vault-name "${KEY_VAULT_NAME}" \
+  --name "${COPILOT_TOKEN_SECRET_NAME}" \
+  --query value -o tsv 2>/dev/null) || die "Failed to retrieve Copilot token from Key Vault."
+
+[[ -z "${COPILOT_TOKEN}" ]] && die "Copilot token from Key Vault is empty."
+log "Copilot token retrieved successfully."
 
 # -- GitHub auth -------------------------------------------------------------
 log "Authenticating with GitHub..."
@@ -213,8 +230,12 @@ Make all necessary code changes to resolve this issue. After making changes, sta
 
 # Temporarily allow failure so copilot errors don't kill the script
 set +e
+# Swap to Copilot-licensed PAT for AI operations (App tokens can't use Copilot)
+export GITHUB_TOKEN="${COPILOT_TOKEN}"
 echo "${COPILOT_PROMPT}" | copilot --yolo 2>&1 | tee /workspace/copilot-output.log
 COPILOT_EXIT=${PIPESTATUS[1]}
+# Swap back to App token for git push + PR creation
+export GITHUB_TOKEN="${APP_TOKEN}"
 set -e
 
 if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
