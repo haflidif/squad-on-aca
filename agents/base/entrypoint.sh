@@ -289,11 +289,28 @@ Issue: #${ISSUE_NUMBER}" || log "Nothing new to commit."
       | grep -v '^\s*git config' \
       | grep -v '^\s*git rev-parse' \
       | grep -v '2>/dev/null' \
-      | tail -15 \
+      | grep -v '\.squad/agents/.*/charter\.md' \
+      | grep -v '\.squad/agents/.*/history\.md' \
+      | grep -v '\.squad/decisions\.md' \
+      | grep -v '\.squad/routing\.md' \
+      | grep -v '\.squad/team\.md' \
+      | grep -v '\.squad/casting/' \
+      | grep -v 'Read.*charter.*shell' \
+      | grep -v 'Read.*history.*shell' \
+      | grep -v '(shell)$' \
+      | grep -v '^Agent started in background' \
+      | grep -v '^General-purpose' \
+      | grep -v '<system_notification>' \
+      | grep -v '</system_notification>' \
+      | grep -v 'read_agent' \
+      | grep -v 'Background agent.*completed' \
+      | tail -10 \
       || true)
   fi
 
-  DIFF_STATS=$(git diff --stat "HEAD~1..HEAD" 2>/dev/null || echo "No diff stats available.")
+  # Show diff stats for ALL revision commits (not just the last one)
+  DIFF_STATS=$(git diff --stat "origin/main..HEAD" 2>/dev/null | grep -v '\.squad/' || echo "No diff stats available.")
+  COMMIT_LOG=$(git log "origin/main..HEAD" --oneline 2>/dev/null | head -10 || echo "")
 
   gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPO}" \
     --body "🔧 **Revision applied** by \`${AGENT_TYPE}\`
@@ -303,6 +320,11 @@ ${AGENT_SUMMARY:-"Revision completed — check the updated diff for changes."}
 ### Changes
 \`\`\`
 ${DIFF_STATS}
+\`\`\`
+
+### Commits
+\`\`\`
+${COMMIT_LOG}
 \`\`\`"
 
   # -- Remove squad:revising label --------------------------------------------
