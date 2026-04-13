@@ -348,11 +348,12 @@ log "Building PR body with agent context..."
 COPILOT_STATUS=$(if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then echo "✅"; else echo "⚠️ fallback"; fi)
 
 if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
-  # Extract agent summary from copilot output, stripping CLI metadata noise
-  # (tool call markers, token stats, ANSI escape codes, trailing blanks)
+  # Extract agent summary from copilot output, stripping CLI noise.
+  # Removes: ANSI codes, tool markers, token stats, shell commands, file paths,
+  # blank lines, and copilot CLI metadata — leaving only agent activity and results.
   AGENT_SUMMARY=""
   if [[ -f /workspace/copilot-output.log ]]; then
-    AGENT_SUMMARY=$(tail -40 /workspace/copilot-output.log 2>/dev/null \
+    AGENT_SUMMARY=$(tail -50 /workspace/copilot-output.log 2>/dev/null \
       | sed 's/\x1b\[[0-9;]*m//g' \
       | grep -v '^\s*$' \
       | grep -v '^●' \
@@ -363,7 +364,27 @@ if [[ "${COPILOT_SUCCEEDED}" == "true" ]]; then
       | grep -v '^Duration\s' \
       | grep -v '^\s*Running\s*$' \
       | grep -v '^\s*Completed\s*$' \
-      | tail -20 \
+      | grep -v '^\s*│' \
+      | grep -v '/workspace/' \
+      | grep -v '^\s*cat ' \
+      | grep -v '^\s*ls ' \
+      | grep -v '^\s*cd ' \
+      | grep -v '^\s*find ' \
+      | grep -v '^\s*git config' \
+      | grep -v '^\s*git rev-parse' \
+      | grep -v '2>/dev/null' \
+      | grep -v '\.squad/agents/.*/charter\.md' \
+      | grep -v '\.squad/agents/.*/history\.md' \
+      | grep -v '\.squad/decisions\.md' \
+      | grep -v '\.squad/routing\.md' \
+      | grep -v '\.squad/team\.md' \
+      | grep -v '\.squad/casting/' \
+      | grep -v 'Read.*charter.*shell' \
+      | grep -v 'Read.*history.*shell' \
+      | grep -v '(shell)$' \
+      | grep -v '^Agent started in background' \
+      | grep -v '^General-purpose' \
+      | tail -15 \
       || true)
   fi
 
