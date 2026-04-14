@@ -22,7 +22,7 @@ Built on open standards:
 ## Architecture
 
 ```
-GitHub Issue (squad:din label)
+GitHub Issue (squad:{agent-name} label)
     ↓
 GitHub Actions Workflow
   (OIDC auth → zero secrets)
@@ -64,21 +64,22 @@ Enriched PR Body
   ```json
   {
     "issue_number": 42,
-    "agent_type": "backend",
+    "agent_type": "{agent-name}",
     "repo": "owner/repo",
     "title": "Issue title"
   }
   ```
+  > **Note**: `agent_type` is extracted from the label name (e.g., `squad:ripley` → `ripley`). Agent names come from your team's `.squad/team.md`, created during Squad initialization.
 - **TTL**: 24 hours per message
 - **Auth**: Identity-based (UAMI), no shared keys
 
 #### **GitHub Actions Workflow** (`squad-queue.yml`)
-- **Trigger**: Issue labeled `squad:*` (e.g., `squad:backend`, `squad:frontend`)
+- **Trigger**: Issue labeled `squad:*` (e.g., `squad:{agent-name}` — agent names come from your team's `.squad/team.md`)
 - **Steps**:
   1. Dedup check (skip if `squad:processing` label already set)
   2. OIDC login to Azure (federated credentials, zero secrets)
   3. Add `squad:processing` label to prevent duplicate processing
-  4. Extract agent type from label name (e.g., `squad:backend` → `backend`)
+  4. Extract agent type from label name (e.g., `squad:{agent-name}` → `{agent-name}`)
   5. Enqueue message to Storage Queue with identity-based auth
 - **Permissions**: `id-token: write`, `issues: write`, `contents: read`
 
@@ -139,7 +140,7 @@ The entrypoint implements the core agent lifecycle:
 
 ✅ **Full Squad Multi-Agent Orchestration** — Each container runs the full Squad framework. Agents can read `.squad/team.md`, dispatch work among team members, and persist learnings.
 
-✅ **Charter-Aware Agents** — Agents read team charter and decision history from `.squad/` repo state. Charter-driven routing via `@{agent_name}` mentions.
+✅ **Charter-Aware Agents** — Agents read team charter and decision history from `.squad/` repo state. Charter-driven routing via `@{agent-name}` mentions. Agent names come from Squad's casting system — initialized locally via `copilot --agent squad` and committed to `.squad/team.md`.
 
 ✅ **Enriched PR Descriptions** — PR body includes:
 - Agent summary (last 20 lines of Copilot output)
@@ -311,7 +312,7 @@ Terraform already set the repository variables, so the workflow will have everyt
 
 1. Go to your target repo on GitHub
 2. Create or pick an open issue
-3. Add a label matching your agent name, e.g., `squad:backend` or `squad:din`
+3. Add a label matching one of your agent names from `.squad/team.md` (e.g., `squad:{agent-name}`)
 4. Watch the workflow run → Container spins up → PR gets created!
 
 ---
@@ -378,7 +379,7 @@ The `GITHUB_APP_INSTALLATION_ID` is the ID from step 3 (check the URL after inst
 ### Step 1: Issue Labeling
 
 ```
-User labels GitHub issue #42 with "squad:backend"
+User labels GitHub issue #42 with "squad:{agent-name}"
 ↓
 GitHub fires "issues.labeled" webhook
 ↓
@@ -396,7 +397,7 @@ Workflow runs: "Squad Issue Queue"
   - Build message:
     {
       "issue_number": 42,
-      "agent_type": "backend",
+      "agent_type": "{agent-name}",
       "repo": "your-org/your-repo",
       "title": "Issue title"
     }
@@ -429,20 +430,20 @@ Container starts:
   - Check for existing branch ✅
   - git config user.name/user.email
   - gh repo clone your-org/your-repo
-  - Create branch: squad/backend/issue-42
+  - Create branch: squad/{agent-name}/issue-42
 ```
 
 ### Step 5: Copilot CLI Runs
 
 ```
-Read .squad/team.md to find "backend" agent's charter
+Read .squad/team.md to find "{agent-name}" agent's charter
   ↓
 Run Copilot CLI:
   echo "Resolve issue #42..." | copilot --yolo --agent squad
   ↓
 Copilot reads issue body, analyzes, writes code changes
   ↓
-Copilot commits changes: "squad(backend): ..."
+Copilot commits changes: "squad({agent-name}): ..."
 ```
 
 ### Step 6: PR Creation & Label Update
@@ -455,13 +456,13 @@ Entrypoint detects commits:
 Check .squad/ for state changes (decisions.md, history.md)
   - Commit if found
   ↓
-git push origin squad/backend/issue-42
+git push origin squad/{agent-name}/issue-42
   ↓
 gh pr create \
-  --title "squad(backend): resolve issue #42" \
+  --title "squad({agent-name}): resolve issue #42" \
   --body "## Agent Summary\n..." \
   --base main \
-  --head squad/backend/issue-42
+  --head squad/{agent-name}/issue-42
   ↓
 gh issue edit #42 --remove-label squad:processing --add-label squad:queued
 ```
@@ -470,7 +471,7 @@ gh issue edit #42 --remove-label squad:processing --add-label squad:queued
 
 ```
 PR #1000 created:
-  - Title: "squad(backend): resolve issue #42"
+  - Title: "squad({agent-name}): resolve issue #42"
   - Body includes:
     - Agent summary (Copilot output)
     - Diff stats
@@ -517,7 +518,7 @@ Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure co
 
 ### Key Decisions (Captured in `.squad/decisions.md`)
 
-- **Single Generic Job**: One Container App Job handles all agent types. Agent type comes from queue message. Adding new agents = zero infrastructure changes.
+- **Single Generic Job**: One Container App Job handles all agent types. Agent type comes from queue message. Adding new agents = zero infrastructure changes. Agent names come from Squad's casting system, defined in `.squad/team.md`.
 - **UAMI for Scaling**: KEDA uses Managed Identity for auth (no connection strings). Storage account blocks shared keys per subscription policy.
 - **Container Self-Dequeue**: Each container manages its own queue interaction (dequeue, delete). Enables dedup checks and failsafe behavior.
 - **Dual Auth Pattern**: App token for git/PR ops, Copilot PAT for `copilot --yolo`. Both stored in Key Vault, swapped at runtime.
@@ -579,15 +580,15 @@ gh label create "squad:queued" \
 
 ### 4. Add Custom Labels (Optional)
 
-Create labels matching your agent names (Squad will route to them):
+Create labels matching your agent names from `.squad/team.md` (Squad assigns unique names from a fictional universe during initialization):
 
 ```bash
-gh label create "squad:backend" --repo your-org/your-repo --color "0366D6"
-gh label create "squad:frontend" --repo your-org/your-repo --color "A2EEEF"
-gh label create "squad:din" --repo your-org/your-repo --color "D73A49"
+# Example: if Squad named your agents "ripley" and "data"
+gh label create "squad:ripley" --repo your-org/your-repo --color "0366D6"
+gh label create "squad:data" --repo your-org/your-repo --color "A2EEEF"
 ```
 
-Users label issues with these custom labels; the agent type is extracted from the label name.
+> **Note**: Your agent names will be different — they come from `squad init`. Check `.squad/team.md` for your team's actual names.
 
 ---
 
@@ -653,9 +654,13 @@ Edit `agents/base/entrypoint.sh`:
 
 ### Adding a New Agent Type
 
-1. **Create team charter**: Add `.squad/team.md` to your target repo with agent definitions (e.g., `backend`, `tester`)
-2. **Label the issue**: Use `squad:backend` or the agent name of your choice
-3. **No infrastructure changes**: The queue message will have `"agent_type": "backend"`, the container will run, Copilot will route to `@backend` in Squad
+Adding agents to your Squad team requires no infrastructure changes — only Squad initialization and labels:
+
+1. **Initialize your Squad team**: In your target repo, start a Copilot CLI session with the Squad agent manifest (`.github/agents/squad.agent.md`). Squad proposes a team with unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). Confirm the proposal and Squad creates the `.squad/` directory with `team.md`, `routing.md`, and agent charters.
+2. **Commit the `.squad/` directory**: Push the initialized team config to git. When the container clones the repo, it reads `.squad/team.md` to discover agents.
+3. **Create labels**: Add `squad:{agent-name}` labels on your target repo matching the agent names in `.squad/team.md`.
+4. **Label an issue**: Use `squad:{agent-name}` to trigger the pipeline. The queue message carries `"agent_type": "{agent-name}"`, the container runs `copilot --yolo --agent squad`, and Squad routes to the correct agent charter.
+5. **No infrastructure changes**: The single generic Container App Job handles all agent types.
 
 ---
 

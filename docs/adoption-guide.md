@@ -306,6 +306,58 @@ Terraform already set the repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_
 
 ---
 
+## Step 7.5: Initialize Your Squad Team on Target Repos
+
+Before testing, each target repo needs a Squad team. Squad (the framework) creates agent charters, routing rules, and team configuration — this platform (Squad on ACA) provides the serverless infrastructure to run those agents headlessly.
+
+### How Squad initialization works
+
+1. **Start a Copilot CLI session** in your target repo with the Squad agent manifest:
+   ```bash
+   cd /path/to/target-repo
+   # Ensure .github/agents/squad.agent.md exists (the Squad coordinator manifest)
+   # Start a Copilot session — Squad will propose a team
+   copilot --agent squad
+   ```
+
+2. **Squad proposes a team**: Squad's casting system assigns unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). You'll see a proposal with roles, specialties, and routing rules.
+
+3. **Confirm the proposal**: Once you approve, Squad creates the `.squad/` directory containing:
+   - `team.md` — Agent roster with names, roles, and specialties
+   - `routing.md` — Rules for dispatching work to agents
+   - Agent charter files — Per-agent instructions and context
+   - `decisions.md` / `history.md` — Institutional memory (grows over time)
+
+4. **Commit and push**:
+   ```bash
+   git add .squad/
+   git commit -m "feat: initialize Squad team"
+   git push
+   ```
+
+### Why this matters for the platform
+
+The `.squad/` directory is the bridge between Squad (local initialization) and Squad on ACA (headless execution):
+- **Locally**: You run `copilot --agent squad` to create and configure your team
+- **In the container**: The entrypoint runs `copilot --yolo --agent squad`, which reads the committed `.squad/team.md` to discover agents and route work
+- **Agent names become labels**: Each agent name in `team.md` maps to a `squad:{agent-name}` label on GitHub
+
+### Create agent labels
+
+After initialization, create labels on each target repo for your team's agents:
+
+```bash
+# Check .squad/team.md for your agent names, then create labels
+# Example: if your team has agents named "ripley", "data", and "gandalf"
+gh label create "squad:ripley" --repo your-org/your-repo --color "0366D6"
+gh label create "squad:data" --repo your-org/your-repo --color "A2EEEF"
+gh label create "squad:gandalf" --repo your-org/your-repo --color "D73A49"
+```
+
+> **Note**: The `squad:processing` and `squad:queued` lifecycle labels are auto-created by the entrypoint script. You only need to create agent-specific labels.
+
+---
+
 ## Step 8: Test End-to-End
 
 ### 8.1 Create a test issue
@@ -319,11 +371,14 @@ Body: Create a file called hello.txt with the content "Hello from Squad on ACA!"
 
 ### 8.2 Label the issue
 
-Add the label `squad:din` (or any `squad:*` label). If the label doesn't exist, create it first:
+Add the label `squad:{agent-name}` (using an agent name from your `.squad/team.md`). If the label doesn't exist, create it first:
 
 ```bash
-gh label create "squad:din" --repo your-org/your-repo --color "D73A49"
+# Example: if your Squad team has an agent named "ripley"
+gh label create "squad:ripley" --repo your-org/your-repo --color "D73A49"
 ```
+
+> **Note**: Your agent names come from Squad's casting system — each team gets unique names from a fictional universe. Run `squad init` locally to create your team, then check `.squad/team.md` for your actual agent names.
 
 ### 8.3 Watch the pipeline
 
@@ -334,9 +389,9 @@ gh label create "squad:din" --repo your-org/your-repo --color "D73A49"
 ### 8.4 Verify the PR
 
 The PR should have:
-- Title: `squad(din): resolve issue #N`
+- Title: `squad({agent-name}): resolve issue #N`
 - Body with: Agent Activity, Changes Made, Commits, Pipeline Status
-- Branch: `squad/din/issue-N`
+- Branch: `squad/{agent-name}/issue-N`
 
 ### 8.5 Test the revision loop
 
@@ -385,12 +440,15 @@ cp agents/workflows/squad-revise.yml /path/to/new-repo/.github/workflows/
 
 ### 9.4 Create labels (optional)
 
-The entrypoint auto-creates `squad:processing` and `squad:queued` labels, but you can pre-create agent-specific labels:
+The entrypoint auto-creates `squad:processing` and `squad:queued` labels, but you can pre-create agent-specific labels matching your Squad team names:
 
 ```bash
-gh label create "squad:backend" --repo your-org/new-repo --color "0366D6"
-gh label create "squad:frontend" --repo your-org/new-repo --color "A2EEEF"
+# Example: if your Squad team has agents named "ripley" and "data"
+gh label create "squad:ripley" --repo your-org/new-repo --color "0366D6"
+gh label create "squad:data" --repo your-org/new-repo --color "A2EEEF"
 ```
+
+> **Tip**: Check `.squad/team.md` in your target repo for your actual agent names. These names are assigned by Squad's casting system during initialization.
 
 ---
 

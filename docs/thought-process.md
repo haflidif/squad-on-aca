@@ -151,19 +151,19 @@ All other resources (Storage, ACR, ACA Environment, Function App) still use AVM 
 
 ## Why single generic job instead of per-agent jobs?
 
-**Decision**: One Container App Job handles all agent types (backend, frontend, tester, docs). The agent type is parsed from the queue message at runtime.
+**Decision**: One Container App Job handles all agent types. The agent type is parsed from the queue message at runtime — agent names come from Squad's casting system, defined in `.squad/team.md`.
 
 **Alternatives considered**:
-- **Per-agent jobs**: `job-squad-backend`, `job-squad-frontend`, `job-squad-tester`, etc.
+- **Per-agent jobs**: `job-squad-{agent-a}`, `job-squad-{agent-b}`, etc.
 - **Per-agent queues**: Separate queue for each agent type
 
 **Why single job wins**:
 
-1. **Zero infra changes for new agents**: Adding a new agent type (e.g., `squad:security`) requires only creating the label on GitHub. No Terraform changes, no new Container App Job, no new queue.
+1. **Zero infra changes for new agents**: Adding a new agent type (e.g., `squad:ripley`) requires only creating the label on GitHub and having the agent defined in `.squad/team.md`. No Terraform changes, no new Container App Job, no new queue.
 
 2. **Simplified scaling**: One KEDA trigger, one queue, one scaling policy. Per-agent jobs would need per-agent KEDA configs with per-agent RBAC.
 
-3. **Same image**: All agent types use the same container image. The entrypoint script parses `agent_type` from the message and passes `@{agent_type}` to Copilot's Squad framework, which routes to the correct agent charter.
+3. **Same image**: All agent types use the same container image. The entrypoint script parses `agent_type` from the message and passes `@{agent-name}` to Copilot's Squad framework, which routes to the correct agent charter in `.squad/team.md`.
 
 4. **Uniform resource allocation**: All agents get the same CPU/memory (1.0 CPU, 2Gi RAM). If per-agent tuning is needed later, it moves into container logic (e.g., the entrypoint could set resource limits based on agent type).
 
@@ -217,7 +217,7 @@ All other resources (Storage, ACR, ACA Environment, Function App) still use AVM 
 
 **Why?**
 
-1. **Charter-aware routing**: The prompt starts with `@{agent_type}`, which Squad routes to the correct agent charter in `.squad/team.md`. A "backend" agent gets backend-specific instructions.
+1. **Charter-aware routing**: The prompt starts with `@{agent-name}`, which Squad routes to the correct agent charter in `.squad/team.md`. Each agent gets its own context and instructions based on its role.
 
 2. **Multi-agent orchestration**: Inside a single container, Squad can spawn sub-agents if the charter allows. The "Lead" agent can delegate to "Tester" or "Docs" agents within the same invocation.
 

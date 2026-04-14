@@ -5,7 +5,7 @@ This GitHub Actions workflow replaces the Azure Function App as the issue-to-que
 ## Architecture
 
 ```
-GitHub Issue → [squad:backend label] → GitHub Actions workflow → Azure Storage Queue → KEDA → Container App Job → Copilot CLI → PR
+GitHub Issue → [squad:{agent-name} label] → GitHub Actions workflow → Azure Storage Queue → KEDA → Container App Job → Copilot CLI → PR
 ```
 
 ## Installation
@@ -83,7 +83,7 @@ The UAMI needs the following role on the storage account (or queue scope):
 
 ### Trigger
 
-The workflow triggers on the `issues: [labeled]` event. It only runs when the added label starts with `squad:` (e.g., `squad:backend`, `squad:frontend`).
+The workflow triggers on the `issues: [labeled]` event. It only runs when the added label starts with `squad:` (e.g., `squad:{agent-name}` — where agent names come from your team's `.squad/team.md`).
 
 ### Dedup flow
 
@@ -97,7 +97,7 @@ This makes the dedup bulletproof against infinite loops.
 ### Label lifecycle
 
 ```
-1. User adds "squad:backend" label to issue
+1. User adds "squad:{agent-name}" label to issue
 2. Workflow fires → dedup passes → OIDC login
 3. Workflow adds "squad:processing" label
 4. Workflow enqueues message to Storage Queue
@@ -114,7 +114,7 @@ The message matches the schema expected by `entrypoint.sh`:
 ```json
 {
   "issue_number": 42,
-  "agent_type": "backend",
+  "agent_type": "{agent-name}",
   "repo": "owner/repo",
   "title": "Add user authentication"
 }
@@ -127,7 +127,7 @@ The message is base64-encoded before being placed on the queue (Azure Storage Qu
 If the enqueue step fails (e.g., Azure auth issue), the `squad:processing` label will already be on the issue. To retry:
 
 1. Remove the `squad:processing` label from the issue.
-2. Remove and re-add the `squad:backend` (or relevant) label.
+2. Remove and re-add the `squad:{agent-name}` (or relevant) label.
 
 This triggers the workflow again with a clean dedup state.
 

@@ -25,7 +25,7 @@ sequenceDiagram
 
     Note over User,PR: NEW ISSUE FLOW
 
-    User->>GH: Label issue #42 with "squad:backend"
+    User->>GH: Label issue #42 with "squad:{agent-name}"
     GH->>WF: issues.labeled webhook fires
     WF->>WF: Dedup check — squad:processing label?
     WF->>AZ: OIDC token exchange (zero secrets)
@@ -49,14 +49,14 @@ sequenceDiagram
     Job->>Job: Generate JWT (RS256, 10min expiry)
     Job->>GH: Exchange JWT → installation token (1hr)
     Job->>KV: Retrieve Copilot PAT
-    Job->>GH: Clone repo, create branch<br/>squad/backend/issue-42
+    Job->>GH: Clone repo, create branch<br/>squad/{agent-name}/issue-42
     Job->>GH: Fetch issue title + body
     Job->>Copilot: echo prompt | copilot --yolo --agent squad
     Note over Job,Copilot: Token swap: GITHUB_TOKEN = Copilot PAT
-    Copilot->>Copilot: Read .squad/team.md, route to @backend
+    Copilot->>Copilot: Read .squad/team.md, route to @{agent-name}
     Copilot->>Job: Code changes + commits
     Note over Job,Copilot: Token swap back: GITHUB_TOKEN = App token
-    Job->>GH: git push origin squad/backend/issue-42
+    Job->>GH: git push origin squad/{agent-name}/issue-42
     Job->>PR: gh pr create (enriched body)
     Job->>GH: Swap labels: processing → queued
 
@@ -93,7 +93,7 @@ All Azure resources and their relationships:
 ```mermaid
 graph TB
     subgraph GitHub["GitHub"]
-        Issue["Issue<br/>(squad:backend label)"]
+        Issue["Issue<br/>(squad:{agent-name} label)"]
         WF_Queue["squad-queue.yml<br/>(Actions Workflow)"]
         WF_Revise["squad-revise.yml<br/>(Actions Workflow)"]
         App["squad-aca-bot<br/>(GitHub App)"]
@@ -336,10 +336,13 @@ KEDA can auto-dequeue messages, but this platform uses **container-managed deque
 ```json
 {
   "issue_number": 42,
-  "agent_type": "backend",
+  "agent_type": "{agent-name}",
   "repo": "owner/repo",
   "title": "Fix login redirect bug"
 }
+```
+
+> **Note**: `agent_type` matches the agent name from your `.squad/team.md` (e.g., `ripley`, `data`). These names are assigned by Squad's casting system during team initialization.
 ```
 
 ### Queue message schema (revision)
@@ -349,8 +352,8 @@ KEDA can auto-dequeue messages, but this platform uses **container-managed deque
   "type": "revise",
   "pr_number": 100,
   "issue_number": 42,
-  "branch": "squad/backend/issue-42",
-  "agent_type": "backend",
+  "branch": "squad/{agent-name}/issue-42",
+  "agent_type": "{agent-name}",
   "repo": "owner/repo",
   "head_sha": "abc123...",
   "feedback": "{\"reviews\":{...},\"inline_comments\":[...]}"

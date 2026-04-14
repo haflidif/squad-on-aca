@@ -144,7 +144,7 @@ If Copilot CLI fails (exit code ≠ 0), the container creates a **work artifact*
 **Mitigation**:
 - Check the PR body's "Pipeline Status" table — Copilot shows `⚠️ fallback` if it failed.
 - Check `.squad-work/issue-N.md` in the PR for Copilot's last 50 lines of output.
-- Fix the root cause (expired PAT, malformed issue body), remove the `squad:queued` label, and re-label with `squad:{agent}` to retry.
+- Fix the root cause (expired PAT, malformed issue body), remove the `squad:queued` label, and re-label with `squad:{agent-name}` to retry.
 
 ---
 
