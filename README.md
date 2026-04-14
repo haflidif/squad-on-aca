@@ -805,7 +805,7 @@ Squad on ACA is released under [MIT License](LICENSE).
 
 - **Documentation**: See `infra/`, `agents/`, `.squad/decisions.md`
 - **Issues**: File on GitHub
-- **Discussions**: Squad community forums
+
 
 ---
 
