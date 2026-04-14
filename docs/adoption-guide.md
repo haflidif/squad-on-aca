@@ -124,7 +124,6 @@ Edit `terraform.tfvars`:
 subscription_id              = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 github_app_id                = "123456"
 github_app_installation_id   = "98765432"
-github_token                 = "ghp_xxxx..."  # PAT for setting repo variables
 target_repos                 = ["your-org/your-repo"]
 
 # Optional (defaults shown)
@@ -142,7 +141,23 @@ agent_job_config = {
 }
 ```
 
-> **Note**: `github_token` is used **only** by Terraform to set GitHub Actions repository variables. It's not stored in any deployed resource.
+### Setting the GitHub Token
+
+**Never write secrets to files.** Set `github_token` as an environment variable before running Terraform:
+
+**PowerShell:**
+```powershell
+$env:TF_VAR_github_token = "ghp_your_token_here"
+```
+
+**Bash/Linux/macOS:**
+```bash
+export TF_VAR_github_token="ghp_your_token_here"
+```
+
+Terraform automatically reads `TF_VAR_*` environment variables and maps them to Terraform variables. This keeps secrets out of your file system.
+
+> **Note**: The `github_token` is used **only** by Terraform to set GitHub Actions repository variables. It's not stored in any deployed resource.
 
 ---
 

@@ -1,5 +1,11 @@
 subscription_id = "YOUR_SUBSCRIPTION_ID"
-github_token    = "YOUR_GITHUB_PAT"
+# github_token is set via environment variable, NOT in this file.
+# Security best practice: Never write secrets to files.
+# Set it before running Terraform:
+#   PowerShell: $env:TF_VAR_github_token = "ghp_..."
+#   Bash/Linux: export TF_VAR_github_token="ghp_..."
+# Terraform automatically reads TF_VAR_* environment variables.
+
 github_repo     = "haflidif/squad-on-aca"
 location        = "swedencentral"
 project_name    = "squad-aca"

@@ -230,8 +230,14 @@ github_app_id                = "123456"
 github_app_installation_id   = "98765432"
 target_repos                 = ["your-org/your-repo"]
 queue_name                   = "squad-work-queue"
-github_token                 = "YOUR_GITHUB_PAT_FOR_REPO_VARIABLES"
 EOF
+
+# Set the GitHub token as an environment variable (never write secrets to files)
+# PowerShell:
+$env:TF_VAR_github_token = "YOUR_GITHUB_PAT_FOR_REPO_VARIABLES"
+
+# Or Bash/Linux/macOS:
+export TF_VAR_github_token="YOUR_GITHUB_PAT_FOR_REPO_VARIABLES"
 
 # Initialize and apply
 terraform init
@@ -239,9 +245,13 @@ terraform apply
 ```
 
 **Important notes**:
-- `github_token` is a temporary PAT used only to set repository variables (SQUAD_AZURE_CLIENT_ID, etc.). It's not stored in state or infrastructure.
+- **Never write secrets to files.** Use environment variables instead:
+  - **PowerShell**: `$env:TF_VAR_github_token = "ghp_..."`
+  - **Bash/Linux/macOS**: `export TF_VAR_github_token="ghp_..."`
+  - Terraform automatically reads `TF_VAR_*` environment variables and maps them to variables.
+- The `github_token` is a temporary PAT used only to set repository variables (SQUAD_AZURE_CLIENT_ID, etc.). It's not stored in state or infrastructure.
 - `target_repos` is a list of `owner/repo` strings. You can add multiple repos.
-- The `github_token` should have `repo:admin` and `workflow` permissions.
+- The token should have `repo:admin` and `workflow` permissions.
 
 ### 5. Upload Secrets to Azure Key Vault
 
