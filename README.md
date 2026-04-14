@@ -801,11 +801,20 @@ Squad on ACA is released under [MIT License](LICENSE).
 
 ---
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | Mermaid diagrams, dual-auth pattern, KEDA scaling, RBAC matrix |
+| [Thought Process](docs/thought-process.md) | Why every design decision was made — alternatives considered |
+| [Limitations](docs/limitations.md) | Honest limitations with severity ratings and mitigations |
+| [Adoption Guide](docs/adoption-guide.md) | Step-by-step onboarding for new adopters |
+
+---
+
 ## Support
 
-- **Documentation**: See `infra/`, `agents/`, `.squad/decisions.md`
-- **Issues**: File on GitHub
-
+- **Issues**: [File on GitHub](https://github.com/haflidif/squad-on-aca/issues)
 
 ---
 
