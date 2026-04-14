@@ -96,15 +96,18 @@ This makes the dedup bulletproof against infinite loops.
 
 ### Label lifecycle
 
+> **Prerequisite**: The `squad:{agent-name}` label must already exist on the repo. Agent labels are created during Squad initialization (`squad init`), via the `sync-squad-labels.yml` workflow, or manually with `gh label create`. The pipeline labels (`squad:processing`, `squad:queued`) are auto-created by the container entrypoint.
+
 ```
-1. User adds "squad:{agent-name}" label to issue
+1. User adds "squad:{agent-name}" label to issue (label must already exist)
 2. Workflow fires → dedup passes → OIDC login
 3. Workflow adds "squad:processing" label
 4. Workflow enqueues message to Storage Queue
 5. (GitHub fires another labeled event for "squad:processing")
 6. Workflow fires again → dedup catches it → skips
 7. Container App Job picks up message → does work → creates PR
-8. PR body contains "Closes #N" → merging closes the issue
+8. Container swaps labels: squad:processing → squad:queued
+9. PR body contains "Closes #N" → merging closes the issue
 ```
 
 ### Queue message format

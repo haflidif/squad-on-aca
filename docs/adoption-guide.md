@@ -342,9 +342,11 @@ The `.squad/` directory is the bridge between Squad (local initialization) and S
 - **In the container**: The entrypoint runs `copilot --yolo --agent squad`, which reads the committed `.squad/team.md` to discover agents and route work
 - **Agent names become labels**: Each agent name in `team.md` maps to a `squad:{agent-name}` label on GitHub
 
-### Create agent labels
+### Create agent labels (required)
 
-After initialization, create labels on each target repo for your team's agents:
+Agent-specific labels (`squad:{agent-name}`) are **not** auto-created by the entrypoint — they must exist on the repo before users can label issues. Create them using one of these methods:
+
+**Option A: Manually with `gh` CLI** (simplest)
 
 ```bash
 # Check .squad/team.md for your agent names, then create labels
@@ -354,7 +356,31 @@ gh label create "squad:data" --repo your-org/your-repo --color "A2EEEF"
 gh label create "squad:gandalf" --repo your-org/your-repo --color "D73A49"
 ```
 
-> **Note**: The `squad:processing` and `squad:queued` lifecycle labels are auto-created by the entrypoint script. You only need to create agent-specific labels.
+**Option B: Via Squad's label sync workflow**
+
+Install Squad's `sync-squad-labels.yml` workflow on the target repo. It reads `.squad/team.md` and auto-creates/syncs `squad:{agent-name}` labels whenever the team roster changes.
+
+**Option C: During `squad init` / `squad upgrade`**
+
+When you run `squad init` or `squad upgrade` on a connected repo, Squad creates labels automatically — including the full label taxonomy (`go:*`, `type:*`, `priority:*`) and `squad:{member-name}` labels based on the team roster.
+
+> **Pipeline labels** (`squad:processing`, `squad:queued`) are auto-created by the container entrypoint — you don't need to create those manually.
+
+### Optional: Create GitHub issue templates
+
+Consider creating issue templates with squad labels pre-configured so users can easily assign issues to agents:
+
+```yaml
+# .github/ISSUE_TEMPLATE/squad-task.yml
+name: Squad Agent Task
+description: Create a task for a Squad agent
+labels: []  # Users select agent label when creating
+body:
+  - type: textarea
+    attributes:
+      label: Task Description
+      description: Describe what the agent should do
+```
 
 ---
 
@@ -371,14 +397,15 @@ Body: Create a file called hello.txt with the content "Hello from Squad on ACA!"
 
 ### 8.2 Label the issue
 
-Add the label `squad:{agent-name}` (using an agent name from your `.squad/team.md`). If the label doesn't exist, create it first:
+Add a `squad:{agent-name}` label (using an agent name from your `.squad/team.md`). The label **must already exist** on the repo — see Step 7.5 for how to create agent labels.
 
 ```bash
+# If the label doesn't exist yet, create it first
 # Example: if your Squad team has an agent named "ripley"
 gh label create "squad:ripley" --repo your-org/your-repo --color "D73A49"
 ```
 
-> **Note**: Your agent names come from Squad's casting system — each team gets unique names from a fictional universe. Run `squad init` locally to create your team, then check `.squad/team.md` for your actual agent names.
+> **Note**: Your agent names come from Squad's casting system — each team gets unique names from a fictional universe. Check `.squad/team.md` for your actual agent names.
 
 ### 8.3 Watch the pipeline
 
@@ -438,9 +465,12 @@ cp agents/workflows/squad-queue.yml /path/to/new-repo/.github/workflows/
 cp agents/workflows/squad-revise.yml /path/to/new-repo/.github/workflows/
 ```
 
-### 9.4 Create labels (optional)
+### 9.4 Initialize Squad and create labels
 
-The entrypoint auto-creates `squad:processing` and `squad:queued` labels, but you can pre-create agent-specific labels matching your Squad team names:
+Each new target repo needs Squad initialized and agent labels created:
+
+1. **Initialize Squad** on the new repo (see Step 7.5) — or copy `.squad/` from an existing target repo if using the same team.
+2. **Create agent labels** — these are required (not optional). The entrypoint only auto-creates `squad:processing` and `squad:queued` pipeline labels. Agent-specific labels must be created before users can label issues:
 
 ```bash
 # Example: if your Squad team has agents named "ripley" and "data"
@@ -448,7 +478,7 @@ gh label create "squad:ripley" --repo your-org/new-repo --color "0366D6"
 gh label create "squad:data" --repo your-org/new-repo --color "A2EEEF"
 ```
 
-> **Tip**: Check `.squad/team.md` in your target repo for your actual agent names. These names are assigned by Squad's casting system during initialization.
+Alternatively, install Squad's `sync-squad-labels.yml` workflow to auto-sync agent labels from `.squad/team.md`.
 
 ---
 
