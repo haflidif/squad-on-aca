@@ -25,3 +25,9 @@ Key project components:
 - Introduced MVP status badge to set expectations
 - Kept AVM modules table and cost breakdown for reference
 - Architecture diagram now shows single generic job, eliminating confusion about per-type infrastructure
+
+### 2026-04-14: Comprehensive docs/ Folder — Adoption-Ready Documentation
+- Created `docs/architecture.md` — deep architecture docs with 3 Mermaid diagrams (E2E sequence, component diagram, entrypoint flowchart), dual-auth pattern explanation, KEDA scaling model, message flow architecture, RBAC matrix, and container image architecture.
+- Created `docs/thought-process.md` — 10 detailed decision rationales covering Container App Jobs vs AKS, KEDA+queue vs webhooks, GitHub App vs PAT, dual-token pattern, identity-based auth, azapi vs AVM, single generic job, self-dequeue, yolo mode, Squad agent mode, and ACR caching.
+- Created `docs/limitations.md` — 13 documented limitations categorized by severity (critical/operational/minor) with mitigations: Copilot PAT dependency, runtime limits, no persistent workspace, manual secrets, Docker Hub rates, single queue, no retry, OIDC per-repo, App installation scope, Windows quirks, Squad state conflicts, branch collisions, PR body limits.
+- Created `docs/adoption-guide.md` — full step-by-step guide: prerequisites checklist, GitHub App creation, Terraform configuration, infrastructure deployment, secret upload, container build, workflow installation, E2E testing, adding repos, customization, revision loop setup, troubleshooting, and cost worksheet.
