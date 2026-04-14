@@ -96,7 +96,7 @@ This makes the dedup bulletproof against infinite loops.
 
 ### Label lifecycle
 
-> **Prerequisite**: The `squad:{agent-name}` label must already exist on the repo. Agent labels are created during Squad initialization (`squad init`), via the `sync-squad-labels.yml` workflow, or manually with `gh label create`. The pipeline labels (`squad:processing`, `squad:queued`) are auto-created by the container entrypoint.
+> **Prerequisite**: The `squad:{agent-name}` label must already exist on the repo. Agent labels are created automatically during `squad init` or `squad upgrade`. If needed, the `sync-squad-labels.yml` workflow keeps them in sync with the team roster, or you can create them manually with `gh label create`. The pipeline labels (`squad:processing`, `squad:queued`) are separate — they're auto-created by the container entrypoint, not by Squad.
 
 ```
 1. User adds "squad:{agent-name}" label to issue (label must already exist)

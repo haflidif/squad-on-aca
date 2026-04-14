@@ -151,7 +151,7 @@ The entrypoint implements the core agent lifecycle:
 
 ✅ **Team State Persistence** — `.squad/decisions.md` and `.squad/history.md` flow through PRs back into the repo. Decisions made by agents are preserved and available to future runs.
 
-✅ **Self-Healing Pipeline Labels** — The entrypoint auto-creates `squad:processing` and `squad:queued` pipeline labels if they don't exist. Agent-specific labels (`squad:{agent-name}`) must be created separately — either manually, via Squad's `sync-squad-labels.yml` workflow, or as part of onboarding.
+✅ **Two-Layer Label System** — Squad creates agent labels (`squad:{agent-name}`) automatically during `squad init` as part of its [label taxonomy](https://bradygaster.github.io/squad/docs/features/labels/). The platform adds its own operational labels (`squad:processing`, `squad:queued`) via the container entrypoint for dedup and status tracking.
 
 ✅ **Identity-Based Auth Everywhere** — No shared keys, no connection strings. All Azure services authenticated via Managed Identity. GitHub ops use temporary tokens (10-minute JWT, 1-hour installation token).
 
@@ -558,48 +558,41 @@ az identity federated-credential create \
   --audience "api://AzureADTokenExchange"
 ```
 
-### 3. Pipeline Labels (Auto-Created)
+### 3. Labels
 
-The container entrypoint auto-creates these **pipeline labels** if they don't exist:
+There are two categories of labels — created by different systems:
+
+**Agent labels — created by Squad (the framework)**
+
+When you run `squad init` or `squad upgrade` on a target repo, Squad automatically creates labels from its [label taxonomy](https://bradygaster.github.io/squad/docs/features/labels/), including:
+- `squad:{agent-name}` — one per team member, derived from `.squad/team.md` (allows multiple per issue for pair work)
+- `go:*` — verdict labels (yes/no/needs-research) — mutually exclusive
+- `type:*` — issue category — mutually exclusive
+- `priority:*` — urgency — mutually exclusive
+- `release:*` — release target — mutually exclusive
+
+Squad also creates automation workflows to maintain these labels:
+- `sync-squad-labels.yml` — keeps labels in sync with the team roster
+- `label-enforcement.yml` — enforces mutual exclusivity within namespaces
+- `squad-heartbeat.yml` — periodic triage and auto-assignment
+
+> **This platform only uses `squad:{agent-name}` labels** to trigger agent runs. The other namespaces are part of Squad's broader project management features.
+
+**Pipeline labels — created by the container entrypoint**
+
+The entrypoint auto-creates these operational labels if they don't exist:
 - `squad:processing` — Agent is actively working on this issue
 - `squad:queued` — PR created, awaiting review
 
-These are operational labels used for deduplication and lifecycle tracking. You can pre-create them for consistency:
+These are **not** part of Squad's label taxonomy — they're platform-specific labels added by Squad on ACA for deduplication and lifecycle tracking.
+
+**If labels are missing**
+
+If you need to create agent labels manually (e.g., on a repo where `squad init` hasn't been run yet):
 
 ```bash
-gh label create "squad:processing" \
-  --repo your-org/your-repo \
-  --color "FBCA04" \
-  --description "Squad agent is actively working on this issue"
-
-gh label create "squad:queued" \
-  --repo your-org/your-repo \
-  --color "0E8A16" \
-  --description "Squad agent created a PR — awaiting review"
+gh label create "squad:{agent-name}" --repo your-org/your-repo --color "008672"
 ```
-
-### 4. Agent Labels (Required — Must Be Created Before Use)
-
-Agent-specific labels like `squad:{agent-name}` are **not** auto-created by the entrypoint. They must exist on the repo before a user can apply them to an issue. Create them using one of these methods:
-
-**Option A: Manually with `gh` CLI** (simplest)
-
-```bash
-# Check .squad/team.md for your agent names, then create labels
-# Example: if Squad named your agents "ripley" and "data"
-gh label create "squad:ripley" --repo your-org/your-repo --color "0366D6"
-gh label create "squad:data" --repo your-org/your-repo --color "A2EEEF"
-```
-
-**Option B: Via Squad's label sync workflow**
-
-If Squad is initialized on the target repo, the `sync-squad-labels.yml` workflow reads `.squad/team.md` and auto-creates/syncs `squad:{agent-name}` labels. Install it from Squad's workflow templates.
-
-**Option C: During Squad initialization**
-
-When you run `squad init` or `squad upgrade` on a connected repo, Squad can create labels automatically as part of the initialization process, including the full label taxonomy (`squad:{member-name}` labels based on the team roster).
-
-> **Important**: The `squad-queue.yml` workflow triggers on `issues.labeled` — the label must already exist on the repo for a user to apply it to an issue.
 
 ---
 
@@ -665,11 +658,11 @@ Edit `agents/base/entrypoint.sh`:
 
 ### Adding a New Agent Type
 
-Adding agents to your Squad team requires no infrastructure changes — only Squad initialization and labels:
+Adding agents to your Squad team requires no infrastructure changes — only Squad initialization:
 
 1. **Initialize your Squad team**: In your target repo, start a Copilot CLI session with the Squad agent manifest (`.github/agents/squad.agent.md`). Squad proposes a team with unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). Confirm the proposal and Squad creates the `.squad/` directory with `team.md`, `routing.md`, and agent charters.
-2. **Commit the `.squad/` directory**: Push the initialized team config to git. When the container clones the repo, it reads `.squad/team.md` to discover agents.
-3. **Create agent labels** (required): Add `squad:{agent-name}` labels on your target repo matching the agent names in `.squad/team.md`. These are **not** auto-created by the entrypoint — create them manually with `gh label create`, via Squad's `sync-squad-labels.yml` workflow, or during `squad init`/`squad upgrade`.
+2. **Labels are created automatically**: `squad init` creates `squad:{agent-name}` labels on the repo for each team member, along with Squad's full label taxonomy. Squad also installs `sync-squad-labels.yml` to keep labels in sync with the roster.
+3. **Commit the `.squad/` directory**: Push the initialized team config to git. When the container clones the repo, it reads `.squad/team.md` to discover agents.
 4. **Label an issue**: Use `squad:{agent-name}` to trigger the pipeline. The queue message carries `"agent_type": "{agent-name}"`, the container runs `copilot --yolo --agent squad`, and Squad routes to the correct agent charter.
 5. **No infrastructure changes**: The single generic Container App Job handles all agent types.
 

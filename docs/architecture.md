@@ -182,7 +182,7 @@ flowchart TD
     GenJWT --> InstToken["Exchange JWT →<br/>installation access token (1hr)"]
     InstToken --> CopilotPAT["Retrieve Copilot PAT<br/>from Key Vault"]
     CopilotPAT --> GhAuth["gh auth setup-git"]
-    GhAuth --> EnsureLabels["Ensure pipeline labels exist<br/>(auto-creates squad:processing<br/>and squad:queued only)"]
+    GhAuth --> EnsureLabels["Ensure pipeline labels exist<br/>(auto-creates squad:processing<br/>and squad:queued — NOT agent labels)"]
     EnsureLabels --> MsgTypeCheck{MSG_TYPE?}
 
     MsgTypeCheck -->|"revise"| ReviseFlow
