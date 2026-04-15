@@ -18,6 +18,12 @@ Key project components:
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+### 2026-04-15: OSS Governance Files Published
+- Created **CONTRIBUTING.md** — comprehensive guide covering bug reporting, feature requests, PR workflow, local dev prerequisites (Terraform, Azure CLI, Docker, Python, GitHub CLI), code style (terraform fmt, Python black/ruff/pep8), and explicit note that .squad/ directory is Squad framework showcase and not contributor-modified.
+- Created **CODE_OF_CONDUCT.md** — Contributor Covenant v2.1 with proper attribution, covering expected community behavior, unacceptable harassment, and enforcement escalation.
+- Created **SECURITY.md** — Private disclosure workflows (GitHub Security Advisories preferred, email fallback), response timeline (48h), clear distinction between security issues (auth/creds/injection/misconfiguration) and regular bugs, infrastructure scope, and strict warnings about never committing secrets, subscription IDs, or .tfstate files.
+- All three files align with OSS publication checklist; addresses governance gap identified in April 14 audit.
+
 ### 2026-04-12: README v2 — Single Job + Event Flow + Two-Repo Architecture
 - Updated README to reflect single generic Container App Job decision (eliminated 4 hardcoded job diagram)
 - Added "How It Works" section explaining 7-step event flow: issue creation → Ralph triage → Function polling → queue → KEDA scaling → agent work → Scribe logging
@@ -31,3 +37,14 @@ Key project components:
 - Created `docs/thought-process.md` — 10 detailed decision rationales covering Container App Jobs vs AKS, KEDA+queue vs webhooks, GitHub App vs PAT, dual-token pattern, identity-based auth, azapi vs AVM, single generic job, self-dequeue, yolo mode, Squad agent mode, and ACR caching.
 - Created `docs/limitations.md` — 13 documented limitations categorized by severity (critical/operational/minor) with mitigations: Copilot PAT dependency, runtime limits, no persistent workspace, manual secrets, Docker Hub rates, single queue, no retry, OIDC per-repo, App installation scope, Windows quirks, Squad state conflicts, branch collisions, PR body limits.
 - Created `docs/adoption-guide.md` — full step-by-step guide: prerequisites checklist, GitHub App creation, Terraform configuration, infrastructure deployment, secret upload, container build, workflow installation, E2E testing, adding repos, customization, revision loop setup, troubleshooting, and cost worksheet.
+
+### 2026-04-14: Open-Source Readiness Audit Complete
+- Performed comprehensive 10-category audit: Secrets, LICENSE, README, Docs, Code Quality, .squad/ directory, GitHub Actions, Infrastructure, Container/Function code, Blog-worthiness
+- **Critical findings:** .pem file and tfstate files not properly in .gitignore (risk: accidental exposure). Requires immediate rotation of GitHub App private key.
+- **Status:** ⚠️ ALMOST READY — 3 critical (secrets) + 4 minor (governance) fixes needed. Estimated 1–2 hours to publish-ready.
+- **Blog potential:** ⭐⭐⭐⭐⭐ (5/5). Unique angle: Squad multi-agent orchestration on serverless (/month vs  AKS). Production-grade code, transparent decisions, comprehensive docs.
+- **Governance files missing:** CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md (easy to add, standard practice).
+- **.squad/ directory:** Recommend curated .squad-example/ directory to showcase Squad framework without exposing team internals.
+- **Strengths:** Excellent README, 8 supporting docs with architecture diagrams, parameterized Terraform (no hardcoding), identity-based auth throughout, well-reasoned code (554 lines Terraform, 184 Python, comprehensive bash entrypoint). Zero TODO/FIXME/HACK comments in production code.
+- **Decision:** Approved to proceed with publication path: fix secrets, add governance files, create Squad example directory. Decision document written to .squad/decisions/inbox/wedge-oss-readiness.md.
+- **Blog structure provided:** Hook on cost ( vs ), problem/solution/proof/CTA framework. Title: "Running AI Agents for /Month — Container App Jobs vs. AKS".
