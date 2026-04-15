@@ -36,10 +36,6 @@ output "squad_agent_tenant_id" {
   value       = azurerm_user_assigned_identity.squad_agent.tenant_id
 }
 
-output "function_app_name" {
-  value = module.function_app.name
-}
-
 output "key_vault_name" {
   value = azurerm_key_vault.squad.name
 }

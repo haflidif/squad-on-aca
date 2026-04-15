@@ -1,5 +1,33 @@
 # Decisions
 
+# Decision: Remove Function App Infrastructure
+
+**Author:** Chewie (IaC Dev)  
+**Status:** Implemented  
+**Date:** 2026-04-14
+
+**Context:** The Function App (timer-triggered issue poller) was the original mechanism for detecting new GitHub issues and enqueuing work to the Storage Queue. This has been fully replaced by GitHub Actions workflows (`squad-queue.yml` and `squad-revise.yml`) that authenticate via OIDC and push messages directly to the queue — no intermediate Azure compute needed.
+
+**Decision:** Remove all Function App infrastructure from `infra/main.tf`:
+1. `module "function_service_plan"` — Consumption (Y1) App Service Plan
+2. `module "function_app"` — Python 3.11 Function App with timer trigger
+3. Three `azurerm_role_assignment` resources granting the Function App's system-assigned managed identity access to the Storage Account (Blob Data Owner, Queue Data Contributor, Storage Account Contributor)
+4. `function_app_name` output from `outputs.tf`
+5. Updated `github_token` variable description — no longer used for issue polling, only for Terraform GitHub provider
+
+**What was preserved:**
+- Storage Account and Queue — still used by GitHub Actions (enqueue) and KEDA/Container App Job (dequeue)
+- `var.github_token` — still required by the `integrations/github` Terraform provider for managing Actions variables
+- All UAMI resources and RBAC — used by Container App Job and KEDA scaler
+
+**Consequences:**
+- Eliminates ~$0/month (Consumption plan was near-free) but removes unused infrastructure surface area
+- One fewer AVM module dependency (`avm-res-web-serverfarm`, `avm-res-web-site`)
+- Simplifies the Terraform state and reduces plan/apply time
+- The `function/` source directory still exists but is now dead code (separate cleanup)
+
+---
+
 # Decision: OIDC Federated Identity Credentials for GitHub Actions
 
 **Author:** Chewie (IaC Dev)  

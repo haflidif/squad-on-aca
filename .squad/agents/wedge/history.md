@@ -55,3 +55,15 @@ Key project components:
 - Mined all project sources: README.md, 8 docs/ files, .squad/decisions.md, .squad/team.md, all 7 agent history.md files, entrypoint.sh, main.tf, function_app.py, both workflow templates.
 - Angle: journey and discovery (not cost savings). Emphasis on struggles (GitHub App licensing gap, identity-based auth battles, KEDA azapi escape hatch, container self-dequeue surprise, Copilot TTY requirement, single-job simplification).
 - Designed as complete raw material so Blog Squad can write a 2,000–3,000 word post without reading source code.
+
+### 2026-04-15: Blog Source Material Updated — Function App → GitHub Actions Evolution
+- Added **Struggle 8: Function App → GitHub Actions Simplification** to `docs/blog-source-material.md`.
+- Documented the first approach: Python Azure Function with timer trigger, polling GitHub API every few minutes, enqueuing messages to Storage Queue via identity-based output binding. Bodhi built it — worked but added complexity.
+- Captured the "why we moved away": timer-based polling delay vs event-driven instant response, infrastructure overhead (service plan + function app + 3 RBAC assignments), another moving part to maintain, policy friction with `allowSharedKeyAccess=false`.
+- Detailed the replacement: `squad-queue.yml` GitHub Actions workflow triggering on `issues.labeled` event, OIDC federated auth (zero secrets), `az storage message put --auth-mode login`, zero Azure infrastructure beyond Storage Queue.
+- Added the lesson: sometimes the simplest solution isn't the first one; GitHub Actions is already authenticated, event-driven, deployed at scale; "build it, learn from it, simplify it" is productive iteration.
+- Added 2 new key quotes to "Key Quotes / Callout-Worthy Lines" section:
+  - "We built an Azure Function to poll GitHub. Then we realized GitHub Actions was already doing the polling for us."
+  - "One YAML file replaced an entire Function App, service plan, and three RBAC assignments."
+- This narrative adds authenticity to the blog: shows real evolution and learning, not just "we built it perfect from day 1".
+

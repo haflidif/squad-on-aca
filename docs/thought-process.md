@@ -145,7 +145,7 @@ The AVM module only supports `auth[].secretRef` for KEDA authentication, which r
 - Pinning the API version (`2025-01-01`)
 - Documenting the decision in `.squad/decisions.md`
 
-All other resources (Storage, ACR, ACA Environment, Function App) still use AVM modules.
+All other resources (Storage, ACR, ACA Environment) use AVM modules.
 
 ---
 

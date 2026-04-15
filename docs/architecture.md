@@ -124,9 +124,8 @@ graph TB
             LAW["Log Analytics<br/>Workspace"]
         end
 
-        subgraph Functions["Functions (Legacy Poller)"]
-            ASP["App Service Plan<br/>(Consumption Y1)"]
-            Func["Function App<br/>(Python 3.11)"]
+        subgraph Storage["Storage & Queues"]
+            SQ["Storage Queue<br/>(issue → agent routing)"]
         end
     end
 
@@ -404,9 +403,6 @@ All authentication is identity-based. Here is the complete RBAC map:
 | UAMI (squad-agent) | AcrPull | Container Registry | Pull container image |
 | UAMI (squad-agent) | AcrPush | Container Registry | Import base images from Docker Hub |
 | UAMI (squad-agent) | Key Vault Secrets User | Key Vault | Read PEM + Copilot PAT at runtime |
-| Function App (system MI) | Storage Blob Data Owner | Storage Account | Host runtime blob access |
-| Function App (system MI) | Storage Queue Data Contributor | Storage Account | Write messages via queue output binding |
-| Function App (system MI) | Storage Account Contributor | Storage Account | Host runtime management |
 | Deployer (current user) | Key Vault Secrets Officer | Key Vault | Upload PEM + PAT via `az keyvault secret set` |
 | GitHub Actions (OIDC) | *(via UAMI federated cred)* | — | Workflow authenticates as UAMI to enqueue messages |
 

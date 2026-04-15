@@ -28,7 +28,7 @@ variable "github_repo" {
 }
 
 variable "github_token" {
-  description = "GitHub PAT with repo scope for issue polling"
+  description = "GitHub PAT used by Terraform GitHub provider for managing Actions variables"
   type        = string
   sensitive   = true
 }

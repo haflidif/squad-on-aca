@@ -242,6 +242,36 @@ This is safe because:
 
 ---
 
+### Struggle 8: Function App → GitHub Actions Simplification
+
+**The first approach — Azure Function App (timer-based poller):**
+
+Bodhi (Function Dev) built a Python Azure Function with a timer trigger that polled GitHub every few minutes:
+- Used `requests` library to call the GitHub API, checking for issues labeled with `squad:{member}`
+- Enqueued messages to Storage Queue via identity-based output binding (`SquadStorage__queueServiceUri`)
+- Required its own infrastructure: App Service Plan (Consumption/Y1), Function App, system-assigned managed identity, 3 RBAC role assignments (Blob Data Owner, Queue Data Contributor, Storage Account Contributor)
+
+**Why we moved away:**
+- **Timer-based polling is inherently delayed** — minutes between checks vs event-driven instant response
+- **Infrastructure overhead** — required Azure service plan + function app + RBAC just to bridge GitHub → Queue
+- **Another moving part** — separate code to maintain, test, deploy, monitor
+- **Policy friction** — the subscription's `allowSharedKeyAccess=false` policy made the identity-based bindings complex (`SquadStorage__queueServiceUri` decision was necessary but verbose)
+
+**What replaced it — GitHub Actions workflow (`squad-queue.yml`):**
+- Triggers on **`issues.labeled` event** — instant response, zero polling delay
+- Uses **OIDC federated credentials** — authenticates to Azure with zero secrets stored in GitHub
+- Sends queue messages directly via `az storage message put --auth-mode login`
+- **Zero Azure infrastructure needed** beyond the Storage Queue itself
+- Single YAML file replaced: Python function code + `host.json` + `requirements.txt` + App Service Plan + Function App + 3 RBAC assignments
+
+**The lesson:**
+- Sometimes the simplest solution isn't the first one you build
+- GitHub Actions is already authenticated, already event-driven, already deployed at scale
+- The "obvious" bridge tool (Function App) was actually overengineered for this problem
+- **This is a great example of "build it, learn from it, simplify it"** — a productive iteration, not a failure
+
+---
+
 ## 4. The Squad Framework Integration
 
 ### How Squad Maps to ACA Jobs
@@ -428,7 +458,7 @@ The architecture isn't limited to GitHub issues. Any event that can produce a St
 | `infra/outputs.tf` | Terraform outputs for post-deploy configuration: Key Vault name, storage account name, agent client/tenant IDs. |
 | `agents/workflows/squad-queue.yml` | GitHub Actions template workflow for target repos. Triggers on `issues.labeled`, does dedup check, OIDC login, adds processing label, enqueues message. |
 | `agents/workflows/squad-revise.yml` | GitHub Actions template for `/squad revise` feedback loop. 6 guard checks, collects review + inline comments, enqueues revision message. |
-| `function/function_app.py` | Legacy Python Azure Function (timer-triggered issue poller). Replaced by squad-queue.yml workflow. Kept for reference. |
+
 | `.squad/team.md` | Squad team roster — defines all agents, their roles, and project context. |
 | `.squad/decisions.md` | Living decision log — every architectural choice with context, rationale, and consequences. |
 
@@ -502,6 +532,12 @@ Compare to: AKS cluster idle = ~$72/month. App Service always-on = $15–50/mont
 > **"The .squad/ directory is the team's brain. It flows through git, survives container death, and grows smarter with every PR."**
 > — How institutional memory works in ephemeral containers.
 
+> **"We built an Azure Function to poll GitHub. Then we realized GitHub Actions was already doing the polling for us."**
+> — The Function App → GitHub Actions evolution.
+
+> **"One YAML file replaced an entire Function App, service plan, and three RBAC assignments."**
+> — The power of starting event-driven instead of timer-based.
+
 ---
 
 ## 10. Raw Data for Blog Squad
@@ -535,8 +571,7 @@ squad-on-aca/
 │   ├── providers.tf               # azurerm, azapi, github providers
 │   └── github.tf                  # GitHub Actions variables management
 │
-├── function/
-│   ├── function_app.py            # Legacy issue poller (Python, timer-triggered)
+
 │   ├── host.json                  # Azure Functions host config
 │   └── requirements.txt           # Python dependencies
 │
@@ -620,4 +655,4 @@ The complete `decisions.md` is included in the repo at `.squad/decisions.md`. Ke
 
 ---
 
-*This document was compiled by Wedge (Lead Agent) from: README.md, docs/architecture.md, docs/thought-process.md, docs/limitations.md, docs/infrastructure.md, docs/faq.md, .squad/decisions.md, .squad/team.md, agents/base/entrypoint.sh, agents/workflows/squad-queue.yml, agents/workflows/squad-revise.yml, function/function_app.py, and all agent history.md files (wedge, chewie, lando, bodhi, cassian, ralph, scribe).*
+*This document was compiled by Wedge (Lead Agent) from: README.md, docs/architecture.md, docs/thought-process.md, docs/limitations.md, docs/infrastructure.md, docs/faq.md, .squad/decisions.md, .squad/team.md, agents/base/entrypoint.sh, agents/workflows/squad-queue.yml, agents/workflows/squad-revise.yml, and all agent history.md files (wedge, chewie, lando, bodhi, cassian, ralph, scribe).*

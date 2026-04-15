@@ -81,14 +81,14 @@ module "acr" {
   source  = "Azure/avm-res-containerregistry-registry/azurerm"
   version = "~> 0.5"
 
-  name                = local.acr_name
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  sku                      = "Basic"
-  admin_enabled            = true
-  zone_redundancy_enabled  = false
-  tags                     = var.tags
-  enable_telemetry         = false
+  name                    = local.acr_name
+  location                = azurerm_resource_group.main.location
+  resource_group_name     = azurerm_resource_group.main.name
+  sku                     = "Basic"
+  admin_enabled           = true
+  zone_redundancy_enabled = false
+  tags                    = var.tags
+  enable_telemetry        = false
 }
 
 # --------------------------------------------------------------------------
@@ -161,9 +161,9 @@ resource "azurerm_federated_identity_credential" "github_actions" {
 
   name      = "ghactions-${replace(replace(each.value, "/", "-"), ".", "-")}"
   parent_id = azurerm_user_assigned_identity.squad_agent.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:${each.value}:ref:refs/heads/main"
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = "https://token.actions.githubusercontent.com"
+  subject   = "repo:${each.value}:ref:refs/heads/main"
 }
 
 # --------------------------------------------------------------------------
@@ -171,14 +171,14 @@ resource "azurerm_federated_identity_credential" "github_actions" {
 # RBAC-based access only (no access policies)
 # --------------------------------------------------------------------------
 resource "azurerm_key_vault" "squad" {
-  name                      = "kv-squad-${local.name_suffix}"
-  location                  = azurerm_resource_group.main.location
-  resource_group_name       = azurerm_resource_group.main.name
-  tenant_id                 = data.azurerm_client_config.current.tenant_id
-  sku_name                  = "standard"
+  name                       = "kv-squad-${local.name_suffix}"
+  location                   = azurerm_resource_group.main.location
+  resource_group_name        = azurerm_resource_group.main.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
   rbac_authorization_enabled = true
-  purge_protection_enabled  = false # Dev environment — allow purge
-  tags                      = var.tags
+  purge_protection_enabled   = false # Dev environment — allow purge
+  tags                       = var.tags
 }
 
 # RBAC: UAMI → Key Vault Secrets User (read secrets at runtime)
@@ -228,9 +228,9 @@ resource "azapi_resource" "squad_agent_job" {
       environmentId = module.aca_environment.resource_id
 
       configuration = {
-        replicaTimeout  = var.agent_job_config.timeout_seconds
+        replicaTimeout    = var.agent_job_config.timeout_seconds
         replicaRetryLimit = 0
-        triggerType     = "Event"
+        triggerType       = "Event"
 
         secrets = []
 
@@ -298,85 +298,3 @@ resource "azapi_resource" "squad_agent_job" {
   ]
 }
 
-# --------------------------------------------------------------------------
-# Function App — Issue Poller (Timer Trigger)
-# AVM: Azure/avm-res-web-serverfarm/azurerm (Service Plan)
-# AVM: Azure/avm-res-web-site/azurerm (Function App)
-# --------------------------------------------------------------------------
-module "function_service_plan" {
-  source  = "Azure/avm-res-web-serverfarm/azurerm"
-  version = "~> 2.0"
-
-  name      = "asp-${local.name_prefix}-${local.name_suffix}"
-  location  = azurerm_resource_group.main.location
-  parent_id = azurerm_resource_group.main.id
-  os_type   = "Linux"
-  sku_name  = "Y1"
-
-  # Consumption plan does not support zone balancing or multiple workers
-  zone_balancing_enabled = false
-  worker_count           = 1
-
-  tags             = var.tags
-  enable_telemetry = false
-}
-
-module "function_app" {
-  source  = "Azure/avm-res-web-site/azurerm"
-  version = "~> 0.21"
-
-  name                          = "func-${local.name_prefix}-${local.name_suffix}"
-  location                      = azurerm_resource_group.main.location
-  parent_id                     = azurerm_resource_group.main.id
-  service_plan_resource_id      = module.function_service_plan.resource_id
-  kind                          = "functionapp"
-  public_network_access_enabled = true
-  tags                          = var.tags
-  enable_telemetry              = false
-
-  managed_identities = {
-    system_assigned = true
-  }
-
-  site_config = {
-    always_on = false # Required for Consumption (Y1) plan
-    application_stack = {
-      python = {
-        python_version = "3.11"
-      }
-    }
-  }
-
-  app_settings = {
-    FUNCTIONS_WORKER_RUNTIME         = "python"
-    AzureWebJobsStorage__accountName = module.storage.name
-    AzureWebJobsFeatureFlags         = "EnableWorkerIndexing"
-    WEBSITE_RUN_FROM_PACKAGE         = "https://${module.storage.name}.blob.core.windows.net/function-releases/squad-function.zip"
-    SquadStorage__queueServiceUri    = "https://${module.storage.name}.queue.core.windows.net"
-    SQUAD_QUEUE_NAME                 = var.queue_name
-    GITHUB_REPO                      = var.github_repo
-    GITHUB_TOKEN                     = var.github_token
-    SQUAD_LABELS                     = "squad"
-  }
-}
-
-# --------------------------------------------------------------------------
-# RBAC: Function App → Storage Account (identity-based access)
-# --------------------------------------------------------------------------
-resource "azurerm_role_assignment" "func_storage_blob_owner" {
-  scope                = module.storage.resource_id
-  role_definition_name = "Storage Blob Data Owner"
-  principal_id         = module.function_app.system_assigned_mi_principal_id
-}
-
-resource "azurerm_role_assignment" "func_storage_queue_contributor" {
-  scope                = module.storage.resource_id
-  role_definition_name = "Storage Queue Data Contributor"
-  principal_id         = module.function_app.system_assigned_mi_principal_id
-}
-
-resource "azurerm_role_assignment" "func_storage_account_contributor" {
-  scope                = module.storage.resource_id
-  role_definition_name = "Storage Account Contributor"
-  principal_id         = module.function_app.system_assigned_mi_principal_id
-}

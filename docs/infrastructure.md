@@ -14,8 +14,6 @@ Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure co
 | `azure/avm-res-storage-storageaccount` | Storage account + queues | RBAC-based auth, no shared keys |
 | `azure/avm-res-containerregistry-registry` | Container Registry (Basic) | Hosts `squad-agent:latest` image |
 | `azure/avm-res-app-managedenvironment` | ACA Managed Environment | Provides KEDA, Log Analytics integration |
-| `azure/avm-res-web-serverfarm` | App Service Plan (Consumption/Y1) | For Function App (issue poller) |
-| `azure/avm-res-web-site` | Function App | Python 3.11, identity-based storage |
 | `azapi_resource` (Container App Job) | Generic squad agent job | Custom `azapi_resource` due to identity-based KEDA auth not in AVM |
 
 ---

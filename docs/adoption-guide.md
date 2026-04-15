@@ -186,7 +186,6 @@ This creates:
 - Key Vault
 - User-Assigned Managed Identity + RBAC roles
 - Federated Identity Credentials (per target repo)
-- Function App + Service Plan (legacy issue poller)
 - GitHub Actions repository variables (per target repo)
 
 **Save the outputs** — you'll need them:
@@ -624,7 +623,6 @@ Fill in your expected usage to estimate monthly costs:
 | **Key Vault** | $0.03/10K operations + $0.06/rotation | ~$0.60/month |
 | **Container Registry** | Basic SKU fixed | $5.00/month |
 | **Log Analytics** | ~0.01 GB/issue × issues/month × $2.76/GB | ___ issues × $0.03 = $____ |
-| **Function App** | Consumption plan (if using legacy poller) | ~$0.00 (free tier) |
 | **Total fixed costs** | ACR + KV | **~$5.60/month** |
 | **Total variable costs** | Container + Logs | **$_____/month** |
 
