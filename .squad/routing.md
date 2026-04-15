@@ -8,7 +8,6 @@ How to decide who handles what.
 |-----------|----------|----------|
 | Terraform / IaC | Chewie | AVM modules, providers, variables, infra changes, resource config |
 | Docker / Containers | Lando | Dockerfile, entrypoint scripts, image optimization, build context |
-| Azure Function / Python | Bodhi | Function code, GitHub API, queue messages, timer triggers, bindings |
 | Architecture / Documentation | Wedge | README, diagrams, ADRs, scope decisions, cross-cutting design |
 | Code review | Wedge | Review PRs, check quality, suggest improvements |
 | Testing / Validation | Cassian | Write tests, edge cases, CI test stages, Terraform validation |

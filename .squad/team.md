@@ -15,7 +15,6 @@
 | Wedge | Lead | `.squad/agents/wedge/charter.md` | 🏗️ Active |
 | Chewie | IaC Dev | `.squad/agents/chewie/charter.md` | ⚙️ Active |
 | Lando | Container Dev | `.squad/agents/lando/charter.md` | 🐳 Active |
-| Bodhi | Function Dev | `.squad/agents/bodhi/charter.md` | ⚡ Active |
 | Cassian | Tester | `.squad/agents/cassian/charter.md` | 🧪 Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Active |
 | Ralph | Work Monitor | `.squad/agents/ralph/charter.md` | 🔄 Active |
