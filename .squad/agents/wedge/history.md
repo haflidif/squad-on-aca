@@ -48,3 +48,10 @@ Key project components:
 - **Strengths:** Excellent README, 8 supporting docs with architecture diagrams, parameterized Terraform (no hardcoding), identity-based auth throughout, well-reasoned code (554 lines Terraform, 184 Python, comprehensive bash entrypoint). Zero TODO/FIXME/HACK comments in production code.
 - **Decision:** Approved to proceed with publication path: fix secrets, add governance files, create Squad example directory. Decision document written to .squad/decisions/inbox/wedge-oss-readiness.md.
 - **Blog structure provided:** Hook on cost ( vs ), problem/solution/proof/CTA framework. Title: "Running AI Agents for /Month — Container App Jobs vs. AKS".
+
+### 2026-04-15: Compiled Comprehensive Blog Source Material
+- Created `docs/blog-source-material.md` — rich source document for Haflidi's Blog Squad to write the open-source announcement blog post / LinkedIn article.
+- 10 sections covering: origin story, architecture overview, 7 detailed struggles & breakthroughs, Squad framework integration, what works well, limitations, potential, technical reference, 10 punchy callout quotes, and raw data (file inventory, decisions summary, key code links).
+- Mined all project sources: README.md, 8 docs/ files, .squad/decisions.md, .squad/team.md, all 7 agent history.md files, entrypoint.sh, main.tf, function_app.py, both workflow templates.
+- Angle: journey and discovery (not cost savings). Emphasis on struggles (GitHub App licensing gap, identity-based auth battles, KEDA azapi escape hatch, container self-dequeue surprise, Copilot TTY requirement, single-job simplification).
+- Designed as complete raw material so Blog Squad can write a 2,000–3,000 word post without reading source code.
