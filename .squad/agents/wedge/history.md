@@ -62,8 +62,11 @@ Key project components:
 - Captured the "why we moved away": timer-based polling delay vs event-driven instant response, infrastructure overhead (service plan + function app + 3 RBAC assignments), another moving part to maintain, policy friction with `allowSharedKeyAccess=false`.
 - Detailed the replacement: `squad-queue.yml` GitHub Actions workflow triggering on `issues.labeled` event, OIDC federated auth (zero secrets), `az storage message put --auth-mode login`, zero Azure infrastructure beyond Storage Queue.
 - Added the lesson: sometimes the simplest solution isn't the first one; GitHub Actions is already authenticated, event-driven, deployed at scale; "build it, learn from it, simplify it" is productive iteration.
-- Added 2 new key quotes to "Key Quotes / Callout-Worthy Lines" section:
+- **Added "The Meta Moment" subsection**: When we retired the Function App, we also retired Bodhi (Function Dev agent). Architecture simplification cascaded from code → infrastructure → team composition. One YAML file replaced the Function App AND made an agent's entire role redundant. Bodhi's knowledge preserved in `.squad/agents/_alumni/` (honorable discharge, not deletion). Hints at deeper observation: "if AI agents can become redundant, what does that mean for the humans who work alongside them?"
+- Added 4 new key quotes (originally 2, now 4 including Bodhi meta quotes):
   - "We built an Azure Function to poll GitHub. Then we realized GitHub Actions was already doing the polling for us."
   - "One YAML file replaced an entire Function App, service plan, and three RBAC assignments."
-- This narrative adds authenticity to the blog: shows real evolution and learning, not just "we built it perfect from day 1".
+  - "We didn't just simplify the code — we simplified the team. Bodhi got retired when his entire job was replaced by one YAML file."
+  - "Bodhi's knowledge isn't lost. It's preserved in .squad/agents/_alumni/. Honorable discharge, not deletion."
+- This narrative adds authenticity and a delightful meta-storytelling beat: the AI agents are real enough to get laid off. Shows the project is alive, iterating, and optimizing ruthlessly.
 

@@ -56,7 +56,7 @@ module "storage" {
   account_tier                    = "Standard"
   account_replication_type        = "LRS"
   shared_access_key_enabled       = false # Enforced by subscription policy
-  public_network_access_enabled   = true
+  public_network_access_enabled   = true  # See issue #8 for private networking support
   default_to_oauth_authentication = true
   tags                            = var.tags
   enable_telemetry                = false
@@ -176,9 +176,10 @@ resource "azurerm_key_vault" "squad" {
   resource_group_name        = azurerm_resource_group.main.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  rbac_authorization_enabled = true
-  purge_protection_enabled   = false # Dev environment — allow purge
-  tags                       = var.tags
+  rbac_authorization_enabled       = true
+  purge_protection_enabled         = false # Dev environment — allow purge
+  public_network_access_enabled    = true  # See issue #8 for private networking support
+  tags                             = var.tags
 }
 
 # RBAC: UAMI → Key Vault Secrets User (read secrets at runtime)
