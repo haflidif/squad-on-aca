@@ -14,6 +14,7 @@ How to decide who handles what.
 | Scope & priorities | Wedge | What to build next, trade-offs, triage |
 | Session logging | Scribe | Automatic — never needs routing |
 | Work monitoring | Ralph | Backlog tracking, issue scanning, PR status |
+| RAI / content safety review | Rai | Credential/secret scans, injection risks, harmful/biased content, pre-ship & PR-merge checks |
 
 ## Issue Routing
 

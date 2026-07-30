@@ -18,6 +18,7 @@
 | Cassian | Tester | `.squad/agents/cassian/charter.md` | 🧪 Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Active |
 | Ralph | Work Monitor | `.squad/agents/ralph/charter.md` | 🔄 Active |
+| Rai | RAI Reviewer | `.squad/agents/Rai/charter.md` | 🛡️ Active |
 
 ## Project Context
 

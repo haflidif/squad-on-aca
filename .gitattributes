@@ -3,3 +3,4 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
+.squad/rai/audit-trail.md merge=union
