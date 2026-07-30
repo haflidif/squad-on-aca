@@ -219,3 +219,15 @@
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+### 2026-07-30T11:33:51+02:00: Issue #9 azd/Bicep — scope analysis
+
+**What:** Proceed with Issue #9 as additive azd/Bicep support, but scope it as a staged delivery rather than a single "port everything and move Terraform" change. Keep Terraform as the canonical path until Bicep parity is validated. If `infra/terraform/` is introduced, include migration-safe path updates for docs, examples, CI, local state/tfvars guidance, and any workflow or script references in the same PR.
+
+**Why:** The motivation is sound: Bicep avoids current Terraform provider lag around identity-based KEDA auth, removes local state burden for adopters, and aligns with Azure/Copilot users who expect `azd up`. The main risks are operational rather than resource-mapping: moving existing Terraform breaks current `cd infra` guidance and local `terraform.tfvars`/`tfstate` assumptions; Bicep cannot manage GitHub Actions variables, so post-provision GitHub setup remains necessary; and maintaining two IaC paths adds CI and parity-testing burden. Land the folder restructure and Terraform-path compatibility first, then Bicep core parity, then azd polish and docs.
+
+### 2026-07-30T11:33:51+02:00: Issue #9 — TF→Bicep technical assessment
+
+**What:** The current Terraform path provisions all Azure infrastructure from `infra\main.tf` using AVM modules plus `azurerm` resources, with the Container App Job implemented as `azapi_resource` `Microsoft.App/jobs@2025-01-01` and `schema_validation_enabled = false` so the KEDA Azure Queue scaler can use a user-assigned managed identity.
+
+**Why:** A Bicep/azd path is technically feasible because the ARM/Bicep schema for `Microsoft.App/jobs@2025-01-01` includes job identity, registry identity, event trigger scale rules, and scale-rule `identity`. Parity still requires post-deploy handling for GitHub Actions variables and manual or guided uploads of the `github-app-private-key` and `copilot-pat` Key Vault secrets, because those values are intentionally kept out of Terraform state and should remain out of ARM deployment history.

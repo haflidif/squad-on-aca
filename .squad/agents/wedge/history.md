@@ -70,3 +70,5 @@ Key project components:
   - "Bodhi's knowledge isn't lost. It's preserved in .squad/agents/_alumni/. Honorable discharge, not deletion."
 - This narrative adds authenticity and a delightful meta-storytelling beat: the AI agents are real enough to get laid off. Shows the project is alive, iterating, and optimizing ruthlessly.
 
+
+- **2026-07-30 — Issue #9 azd/Bicep scope analysis:** Analyzed GitHub issue #9 and recommended proceeding with additive azd/Bicep support in staged phases. Key outcome: keep Terraform canonical until Bicep parity is validated, land any `infra/terraform/` restructure with migration-safe doc/CI/path updates, then add Bicep core parity and azd polish.
