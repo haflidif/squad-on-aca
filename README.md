@@ -82,7 +82,7 @@ Create a GitHub App with **Issues**, **Pull Requests**, and **Contents** (all Re
 ### 3. Deploy with Terraform
 
 ```bash
-cd infra
+cd infra/terraform
 # Edit terraform.tfvars with your subscription ID, App ID, Installation ID, target repos
 # Set TF_VAR_github_token via environment variable (never in files)
 terraform init && terraform apply

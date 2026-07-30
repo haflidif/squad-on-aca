@@ -113,7 +113,7 @@ After clicking **Create GitHub App**:
 ## Step 3: Configure Terraform Variables
 
 ```bash
-cd infra
+cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -164,7 +164,7 @@ Terraform automatically reads `TF_VAR_*` environment variables and maps them to 
 ## Step 4: Deploy Infrastructure
 
 ```bash
-cd infra
+cd infra/terraform
 
 # Initialize Terraform
 terraform init
@@ -445,7 +445,7 @@ To onboard additional repositories:
 
 ### 9.1 Add to Terraform
 
-Edit `infra/terraform.tfvars`:
+Edit `infra/terraform/terraform.tfvars`:
 
 ```hcl
 target_repos = [
@@ -456,7 +456,7 @@ target_repos = [
 ```
 
 ```bash
-cd infra
+cd infra/terraform
 terraform apply
 ```
 

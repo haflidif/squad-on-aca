@@ -7,6 +7,9 @@
 !*.tfvars.example
 tfplan
 
+# Bicep build artifacts
+infra/bicep/*.json
+
 # Go
 app/vendor/
 app/bin/

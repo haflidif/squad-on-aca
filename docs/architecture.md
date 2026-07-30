@@ -285,7 +285,7 @@ Queue length > 0 → start container executions
 Queue length = 0 → scale to zero (no containers running)
 ```
 
-### Configuration (from `infra/main.tf`)
+### Configuration (from `infra/terraform/main.tf`)
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
