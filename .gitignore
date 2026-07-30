@@ -44,3 +44,6 @@ obj/
 *.pem
 docs/blog-source-material.md
 .squad/.cache/
+
+# Compiled Bicep ARM output (build artifact)
+infra/bicep/*.json

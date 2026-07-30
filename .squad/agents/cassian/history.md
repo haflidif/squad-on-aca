@@ -12,3 +12,4 @@ Agent Cassian initialized as Tester. Responsible for testing and validation acro
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+- **2026-07-30 — Issue #9 azd/Bicep delivered:** Validated Bicep build/lint, bicepparam build, Terraform validate from `infra/terraform/`, azure.yaml parsing, hook syntax, stale Terraform paths, and parity; fixed shell hook LF enforcement via `.gitattributes`.
