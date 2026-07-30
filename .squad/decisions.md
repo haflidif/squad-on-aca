@@ -209,6 +209,11 @@
 ✅ Blog post published (optional)  
 ✅ Ready for community contributions
 
+### 2026-04-15T14:32Z: Retire Bodhi (Function Dev)
+**By:** Haflidi Fridthjofsson (via Coordinator)
+**What:** Bodhi retired from the squad — Function App was removed from the project, role no longer needed.
+**Why:** The timer-based Azure Function poller was superseded by GitHub Actions workflows (squad-queue.yml, squad-revise.yml). No function code remains in the repo.
+
 ## Governance
 
 - All meaningful changes require team consensus

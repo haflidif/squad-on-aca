@@ -40,3 +40,4 @@ obj/
 
 *.pem
 docs/blog-source-material.md
+.squad/.cache/
