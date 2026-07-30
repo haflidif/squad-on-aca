@@ -4,6 +4,17 @@
 
 ---
 
+## Infrastructure-as-code paths
+
+Squad on ACA now includes two deployment paths that produce equivalent Azure resources:
+
+- `infra/terraform/` — the canonical and default Terraform path.
+- `infra/bicep/` — the Azure-native Bicep path used by `azd`.
+
+See [Terraform vs Bicep and azd: which should you choose?](adoption-guide.md#terraform-vs-bicep-and-azd-which-should-you-choose) for the tradeoffs.
+
+---
+
 ## End-to-End Flow
 
 The following sequence diagram traces a complete lifecycle from issue labeling through PR creation and the `/squad revise` feedback loop.
@@ -286,6 +297,8 @@ Queue length = 0 → scale to zero (no containers running)
 ```
 
 ### Configuration (from `infra/terraform/main.tf`)
+
+The Bicep path in `infra/bicep/` uses equivalent Container App Job settings.
 
 | Setting | Value | Purpose |
 |---------|-------|---------|

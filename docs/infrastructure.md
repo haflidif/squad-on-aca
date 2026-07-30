@@ -1,6 +1,17 @@
 # Infrastructure
 
-> Terraform modules, key architectural decisions, and infrastructure details for Squad on ACA.
+> Infrastructure modules, key architectural decisions, and infrastructure details for Squad on ACA.
+
+---
+
+## Deployment paths
+
+Squad on ACA has two infrastructure-as-code paths:
+
+- `infra/terraform/` — canonical and default. Use this path when you want Terraform workflows and explicit plan/apply behavior.
+- `infra/bicep/` — Azure-native alternative for `azd provision`, `azd deploy`, and `azd up`.
+
+Both paths create equivalent Azure resources. See [Terraform vs Bicep and azd: which should you choose?](adoption-guide.md#terraform-vs-bicep-and-azd-which-should-you-choose) for state, teardown, GitHub variable, and provider tradeoffs.
 
 ---
 
@@ -15,6 +26,12 @@ Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure co
 | `azure/avm-res-containerregistry-registry` | Container Registry (Basic) | Hosts `squad-agent:latest` image |
 | `azure/avm-res-app-managedenvironment` | ACA Managed Environment | Provides KEDA, Log Analytics integration |
 | `azapi_resource` (Container App Job) | Generic squad agent job | Custom `azapi_resource` due to identity-based KEDA auth not in AVM |
+
+---
+
+## Bicep modules
+
+The Bicep path starts at `infra/bicep/main.bicep` and uses modules under `infra/bicep/modules/` for monitoring, storage, Azure Container Registry, identity, Key Vault, and the Container App Job. It is designed for deployment through Azure Developer CLI while preserving parity with the Terraform path.
 
 ---
 

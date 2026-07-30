@@ -64,7 +64,7 @@ Enriched PR Body
 
 ## Quick Start
 
-> **Prerequisites**: Azure subscription, GitHub account with Copilot license, Terraform ≥ 1.5, Azure CLI, GitHub CLI.
+> **Prerequisites**: Azure subscription, GitHub account with Copilot license, Terraform ≥ 1.5 or Azure Developer CLI with Bicep, Azure CLI, GitHub CLI.
 > Full checklist → [Adoption Guide](docs/adoption-guide.md#prerequisites-checklist)
 
 ### 1. Clone
@@ -88,7 +88,16 @@ cd infra/terraform
 terraform init && terraform apply
 ```
 
-→ Full variable reference: [Adoption Guide — Deploy Infrastructure](docs/adoption-guide.md#step-3-deploy-infrastructure)
+→ Full variable reference: [Adoption Guide — Deploy Infrastructure](docs/adoption-guide.md#step-4-deploy-infrastructure)
+
+### Or deploy with azd (Bicep)
+
+```bash
+azd auth login
+azd up
+```
+
+→ Azure-native deployment path: [Adoption Guide — Deploy with Bicep and azd](docs/adoption-guide.md#alternative-deploy-with-bicep-and-azd)
 
 ### 4. Upload Secrets to Key Vault
 

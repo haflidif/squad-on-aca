@@ -29,7 +29,9 @@ Before you begin, verify you have everything:
 | Tool | Minimum Version | Install |
 |------|----------------|---------|
 | Terraform | >= 1.5 | [terraform.io](https://developer.hashicorp.com/terraform/install) |
+| Azure Developer CLI (`azd`) | Latest | [learn.microsoft.com](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) |
 | Azure CLI (`az`) | >= 2.55 | [docs.microsoft.com](https://learn.microsoft.com/cli/azure/install-azure-cli) |
+| Azure CLI Bicep (`az bicep`) | Latest | Run `az bicep install` or `az bicep upgrade` |
 | GitHub CLI (`gh`) | >= 2.40 | [cli.github.com](https://cli.github.com/) |
 | Docker (optional) | >= 24.0 | [docker.com](https://docs.docker.com/get-docker/) |
 | jq | >= 1.6 | [jqlang.github.io](https://jqlang.github.io/jq/download/) |
@@ -37,8 +39,26 @@ Before you begin, verify you have everything:
 ### Accounts & Access
 
 - [ ] Logged into Azure CLI: `az login` + `az account set --subscription <id>`
+- [ ] Logged into Azure Developer CLI: `azd auth login`
 - [ ] Logged into GitHub CLI: `gh auth login`
-- [ ] A GitHub PAT with `admin:org` or `repo` scope (for Terraform to set repo variables)
+- [ ] A GitHub PAT with `admin:org` or `repo` scope (for Terraform or the azd hook to set repo variables)
+
+---
+
+## Terraform vs Bicep and azd: which should you choose?
+
+Squad on ACA supports two infrastructure-as-code paths. Terraform remains the canonical and default path for this project. Bicep with `azd` is the Azure-native alternative for teams that prefer ARM deployments and the Azure Developer CLI workflow.
+
+| Concern | Terraform path (`infra/terraform/`) | Bicep and azd path (`infra/bicep/`) |
+|---------|-------------------------------------|-------------------------------------|
+| State management | Uses local Terraform state. A remote backend is not configured in this template. | Uses Azure Resource Manager idempotency through `azd provision`; no Terraform state file. |
+| Provider lag | Uses `azapi_resource` for the Container App Job because the Terraform provider does not expose identity-based KEDA scale rules yet. | Uses native ARM/Bicep resource definitions for the Container App Job. |
+| One-command deploy | Run `terraform init`, `terraform plan`, and `terraform apply`, then upload Key Vault secrets. | Run `azd up` to provision and deploy, then upload Key Vault secrets when the post-provision guidance prompts you. |
+| GitHub Actions variables | Terraform uses the GitHub provider to set repository variables after you provide `TF_VAR_github_token`. | The `azd` post-provision hook uses `gh` CLI to set repository variables. |
+| Teardown | Run `terraform destroy` from `infra/terraform/`. | Run `azd down` from the repository root. |
+| Best fit | Default choice when you want the canonical path, explicit plans, and Terraform workflows. | Azure-native choice when you want `azd up`, ARM idempotency, and a Bicep-first workflow. |
+
+Both paths create equivalent Azure resources: Resource Group, Log Analytics Workspace, Storage Account and queue, Container Registry, Container Apps environment, Container App Job, Key Vault, User-Assigned Managed Identity, RBAC, and federated credentials.
 
 ---
 
@@ -233,6 +253,94 @@ az keyvault secret set \
 
 ---
 
+## Alternative: deploy with Bicep and azd
+
+Use this path if you want Azure-native deployment while keeping the same runtime architecture. The Terraform path remains the default and canonical path; this Bicep path coexists with it.
+
+### Prerequisites
+
+Install and sign in to the same tools used by the post-provision hooks:
+
+```bash
+azd auth login
+az login
+az bicep version || az bicep install
+gh auth login
+```
+
+Your `gh` login needs permission to set repository variables on each target repo.
+
+### Configure Bicep parameters
+
+The Bicep entry point is `infra/bicep/main.bicep`, with sample values in `infra/bicep/main.bicepparam`. Set these required values before provisioning:
+
+| Parameter | Description |
+|-----------|-------------|
+| `githubAppId` | GitHub App ID from Step 2 |
+| `githubAppInstallationId` | GitHub App installation ID from Step 2 |
+| `deployerPrincipalId` | Object ID for the user or service principal running deployment |
+
+Common optional parameters include `location`, `projectName`, `environment`, `githubRepo`, `queueName`, `targetRepos`, `agentCpu`, `agentMemory`, `agentMaxExecutions`, and `agentTimeoutSeconds`.
+
+Get your deployer principal ID with:
+
+```bash
+az ad signed-in-user show --query id -o tsv
+```
+
+### Run the azd flow
+
+From the repository root, run:
+
+```bash
+azd up
+```
+
+`azd up` runs provisioning and deployment end to end. If you need to split the flow, use:
+
+```bash
+azd provision
+azd deploy
+```
+
+The post-provision hook handles the GitHub Actions repository variables for each target repo by calling `gh` CLI. It sets:
+
+- `SQUAD_AZURE_CLIENT_ID`
+- `SQUAD_AZURE_TENANT_ID`
+- `SQUAD_AZURE_SUBSCRIPTION_ID`
+- `SQUAD_STORAGE_ACCOUNT`
+- `SQUAD_QUEUE_NAME`
+
+### Upload Key Vault secrets
+
+Secret values stay out of Bicep and out of deployment state. After provisioning, upload the two runtime secrets to the Key Vault created by the deployment:
+
+```bash
+az keyvault secret set \
+  --vault-name "<key-vault-name>" \
+  --name "github-app-private-key" \
+  --file /path/to/your-app.pem
+
+az keyvault secret set \
+  --vault-name "<key-vault-name>" \
+  --name "copilot-pat" \
+  --value "ghp_YOUR_COPILOT_LICENSED_PAT"
+```
+
+The `azd` post-provision hook prints guidance for this step, but it does not store secret values in source control or IaC state.
+
+### Tear down Bicep resources
+
+When you no longer need the environment, run:
+
+```bash
+azd down
+```
+
+Review the prompt carefully before confirming deletion.
+
+---
+
 ## Step 6: Build and Push Container Image
 
 ### Option A: Build remotely with ACR (recommended)
@@ -241,7 +349,7 @@ az keyvault secret set \
 cd agents/base
 
 # Import base images first (one-time)
-ACR_NAME=$(cd ../../infra && terraform output -raw acr_name)
+ACR_NAME=$(cd ../../infra/terraform && terraform output -raw acr_name)
 
 az acr import --name "${ACR_NAME}" \
   --source docker.io/library/golang:1.23.4-bookworm \
@@ -260,7 +368,7 @@ az acr build --registry "${ACR_NAME}" --image squad-agent:latest .
 ```bash
 cd agents/base
 
-ACR_LOGINSERVER=$(cd ../../infra && terraform output -raw acr_login_server)
+ACR_LOGINSERVER=$(cd ../../infra/terraform && terraform output -raw acr_login_server)
 
 # Update Dockerfile FROM lines to use your ACR name
 # (replace crsquadacaa6b49feb with your ACR login server prefix)
