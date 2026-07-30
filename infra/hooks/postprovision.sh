@@ -5,11 +5,9 @@
 # Runs after `azd provision` completes.  Three responsibilities:
 #
 #   A) Build + push squad-agent image to ACR via `az acr build`.
-#      The agents/base/Dockerfile references base images cached in the *old*
-#      ACR (crsquadacaa6b49feb.azurecr.io) — a Dockerfile design limitation
-#      noted for Chewie (parameterize FROM with build args in a future PR).
-#      Workaround: import the two base images from Docker Hub into the new ACR
-#      first, then patch the Dockerfile path before building.
+#      Imports golang and debian base images from Docker Hub into the new ACR
+#      first (avoids rate limits), then builds using --build-arg BASE_ACR_HOST
+#      to point the Dockerfile's ARG-parameterized FROM lines at the new ACR.
 #
 #   B) Key Vault secret guidance.
 #      Checks whether `github-app-private-key` and `copilot-pat` exist.
@@ -88,13 +86,6 @@ echo ""
 echo -e "${CYAN}--- A) Building squad-agent image ---${NC}"
 echo ""
 
-# The agents/base/Dockerfile references hardcoded ACR base image paths from
-# the original deployment (crsquadacaa6b49feb.azurecr.io).  We need to:
-#   1. Import those base images from Docker Hub into the new ACR.
-#   2. Patch the Dockerfile references to the new ACR before building.
-# TODO (Chewie): Parameterize the FROM lines with ARG BASE_ACR_HOST so this
-# workaround is no longer needed. Tracking: squad/9-azd-bicep-support.
-
 echo "📦 Importing base images from Docker Hub into ${ACR_LOGIN_SERVER} ..."
 echo "   (This avoids Docker Hub rate limits by caching in your ACR)"
 echo "   golang:1.23.4-bookworm ..."
@@ -120,25 +111,13 @@ az acr import \
 echo ""
 echo "🔨 Building squad-agent:latest and pushing to ${ACR_LOGIN_SERVER} ..."
 
-# Patch Dockerfile FROM lines to reference the new ACR (workaround for hardcoded old ACR)
-ORIGINAL_DOCKERFILE="agents/base/Dockerfile"
-PATCHED_DOCKERFILE="agents/base/Dockerfile.azd-build"
-
-# Replace any .azurecr.io host in FROM lines with the new ACR login server
-sed 's|[a-z0-9]*\.azurecr\.io|'"${ACR_LOGIN_SERVER}"'|g' \
-  "$ORIGINAL_DOCKERFILE" > "$PATCHED_DOCKERFILE"
-
-echo "   (Using patched Dockerfile: FROM references updated to ${ACR_LOGIN_SERVER})"
-
 az acr build \
   --registry "$ACR_NAME" \
   --image "squad-agent:latest" \
-  --file "$PATCHED_DOCKERFILE" \
+  --file "agents/base/Dockerfile" \
+  --build-arg "BASE_ACR_HOST=${ACR_LOGIN_SERVER}/" \
   "agents/base/" \
   --only-show-errors
-
-# Clean up patched Dockerfile
-rm -f "$PATCHED_DOCKERFILE"
 
 echo -e "${GREEN}✓ squad-agent:latest pushed to ${ACR_LOGIN_SERVER}${NC}"
 echo ""

@@ -23,6 +23,10 @@ param githubAppId             = 'YOUR_GITHUB_APP_ID'
 param githubAppInstallationId = 'YOUR_GITHUB_APP_INSTALLATION_ID'
 param deployerPrincipalId     = 'YOUR_DEPLOYER_OBJECT_ID'   // az ad signed-in-user show --query id -o tsv
 
+// Set to 'ServicePrincipal' when deploying via CI/CD or azd with a service principal.
+// Set to 'User' (default) for interactive deployments with az login as a human user.
+param deployerPrincipalType   = 'User'
+
 // ---------------------------------------------------------------------------
 // Optional — defaults match Terraform parity
 // ---------------------------------------------------------------------------

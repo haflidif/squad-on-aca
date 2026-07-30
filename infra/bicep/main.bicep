@@ -67,6 +67,16 @@ param agentTimeoutSeconds int = 1800
 param deployerPrincipalId string
 
 @description('''
+  Principal type of the deployer. Use 'ServicePrincipal' for CI/CD pipelines,
+  Managed Identities, or azd with a service principal. Use 'User' for interactive
+  deployments. 'Group' for Azure AD groups.
+  CI/SP deployers must set this to 'ServicePrincipal' — leaving it as 'User' will
+  cause the Key Vault Secrets Officer role assignment to fail for non-user principals.
+''')
+@allowed(['User', 'ServicePrincipal', 'Group'])
+param deployerPrincipalType string = 'User'
+
+@description('''
   Stable 8-char hex suffix for globally-unique resource names.
   Defaults to a deterministic value derived from subscription + project + environment.
   Override with the same value on redeployments to keep names stable.
@@ -223,7 +233,7 @@ module keyvault './modules/keyvault.bicep' = {
       {
         principalId:            deployerPrincipalId
         roleDefinitionIdOrName: roleIds.keyVaultSecretsOfficer
-        principalType:          'User'
+        principalType:          deployerPrincipalType
       }
     ]
   }

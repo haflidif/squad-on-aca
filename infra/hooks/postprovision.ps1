@@ -4,11 +4,9 @@
 # Runs after `azd provision` completes.  Three responsibilities:
 #
 #   A) Build + push squad-agent image to ACR via `az acr build`.
-#      The agents/base/Dockerfile references base images cached in the *old*
-#      ACR (crsquadacaa6b49feb.azurecr.io) — a Dockerfile design limitation
-#      noted for Chewie (parameterize FROM with build args in a future PR).
-#      Workaround: import the two base images from Docker Hub into the new ACR
-#      first, then patch the Dockerfile path before building.
+#      Imports golang and debian base images from Docker Hub into the new ACR
+#      first (avoids rate limits), then builds using --build-arg BASE_ACR_HOST
+#      to point the Dockerfile's ARG-parameterized FROM lines at the new ACR.
 #
 #   B) Key Vault secret guidance.
 #      Checks whether `github-app-private-key` and `copilot-pat` exist.
@@ -91,13 +89,6 @@ Write-Host ""
 Write-Host "--- A) Building squad-agent image ---" -ForegroundColor Cyan
 Write-Host ""
 
-# The agents/base/Dockerfile references hardcoded ACR base image paths from
-# the original deployment (crsquadacaa6b49feb.azurecr.io).  We need to:
-#   1. Import those base images from Docker Hub into the new ACR.
-#   2. Patch the Dockerfile references to the new ACR before building.
-# TODO (Chewie): Parameterize the FROM lines with ARG BASE_ACR_HOST so this
-# workaround is no longer needed. Tracking: squad/9-azd-bicep-support.
-
 Write-Host "Importing base images from Docker Hub into ${AcrLoginServer} ..."
 Write-Host "  (This avoids Docker Hub rate limits by caching in your ACR)"
 
@@ -128,25 +119,13 @@ try {
 Write-Host ""
 Write-Host "Building squad-agent:latest and pushing to ${AcrLoginServer} ..."
 
-# Patch Dockerfile FROM lines to reference the new ACR
-$OriginalDockerfile = "agents/base/Dockerfile"
-$PatchedDockerfile  = "agents/base/Dockerfile.azd-build"
-
-$content = Get-Content $OriginalDockerfile -Raw
-# Replace any .azurecr.io hostname in FROM lines with the new ACR login server
-$patched = $content -replace '[a-z0-9]+\.azurecr\.io', $AcrLoginServer
-Set-Content -Path $PatchedDockerfile -Value $patched -NoNewline
-
-Write-Host "  (Using patched Dockerfile: FROM references updated to $AcrLoginServer)"
-
 az acr build `
     --registry $AcrName `
     --image "squad-agent:latest" `
-    --file $PatchedDockerfile `
+    --file "agents/base/Dockerfile" `
+    --build-arg "BASE_ACR_HOST=${AcrLoginServer}/" `
     "agents/base/" `
     --only-show-errors
-
-Remove-Item -Path $PatchedDockerfile -Force -ErrorAction SilentlyContinue
 
 Write-Host "✓ squad-agent:latest pushed to $AcrLoginServer" -ForegroundColor Green
 Write-Host ""
