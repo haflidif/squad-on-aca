@@ -297,6 +297,22 @@ Bicep accepts `targetRepos` as an array; azd env vars are strings. The postprovi
 **Known environment constraint:** This subscription has an Azure Policy that forces Key Vault `publicNetworkAccess=Disabled`, which blocks public-plane secret upload for dummy secrets. That is an environment constraint, not a Bicep defect; the Terraform path has the same behavior under this policy.
 
 **Evidence:** Cassian delivered `infra/tests/whatif.{sh,ps1}`, `infra/tests/smoke-test.{sh,ps1}`, `infra/tests/e2e.{sh,ps1}`, and `docs/e2e-testing.md`. Live smoke result was 20 PASS after the fixes; the remaining Key Vault secret-upload failures were policy-blocked non-bugs. Commits: `7f5e4cb`, `3c1da5d`, `f26b9d5`, `00f9644`.
+
+### 2026-07-31T08:22:39+02:00: Issue #9 — SecurityControl=ignore exemption tag
+
+**Author:** Chewie (IaC Dev)
+**Outcome:** ACCEPTED — IaC now applies the `SecurityControl=ignore` exemption tag in both deployment paths; live azd/Bicep e2e subsequently passed full smoke validation.
+
+**What:** Added the shared exemption tag to both IaC tag defaults:
+- Bicep: `SecurityControl: 'ignore'` in `infra\bicep\main.bicep` `var tags`
+- Terraform: `SecurityControl = "ignore"` in `infra\terraform\variables.tf` `variable "tags"` default
+
+Because both paths propagate shared tags to deployed resources, the Key Vault and the rest of the stack are exempted consistently across azd/Bicep and Terraform deployments.
+
+**Why:** The user's subscription has an Azure Policy that forced Key Vault `publicNetworkAccess=Disabled`, overriding the IaC setting and blocking the public-plane `az keyvault secret set` calls used to upload the GitHub App private key, Copilot PAT, and dummy e2e secrets. The user confirmed `SecurityControl=ignore` exempts resources from that subscription policy.
+
+**Production caveat:** The exemption tag is applied to all deployments by default, including production. Production users in security-constrained subscriptions should consider parameterizing it behind an opt-in variable so the policy bypass is explicit and environment-specific.
+
 ## Governance
 
 - All meaningful changes require team consensus
