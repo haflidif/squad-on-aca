@@ -340,6 +340,12 @@ Pass `--run-job` (bash) or `-RunJob` (PowerShell) to trigger one job execution a
 - Requires the postprovision hook to have already pushed `squad-agent:latest`.
 - May fail if Key Vault secrets (`github-app-private-key`, `copilot-pat`) are not uploaded.
 
+> **Note**: `--run-job` triggers a single execution via `az containerapp job start`. It is a
+> functional health check, not a KEDA queue-driven scale test. For a live scale-from-queue test —
+> seeding real messages and observing KEDA launch executions autonomously — see the
+> [live scale test procedure](infrastructure.md#how-to-run-a-live-scale-test) in the
+> infrastructure reference.
+
 ---
 
 ## Resource naming reference
