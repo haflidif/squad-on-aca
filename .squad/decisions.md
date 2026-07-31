@@ -298,20 +298,50 @@ Bicep accepts `targetRepos` as an array; azd env vars are strings. The postprovi
 
 **Evidence:** Cassian delivered `infra/tests/whatif.{sh,ps1}`, `infra/tests/smoke-test.{sh,ps1}`, `infra/tests/e2e.{sh,ps1}`, and `docs/e2e-testing.md`. Live smoke result was 20 PASS after the fixes; the remaining Key Vault secret-upload failures were policy-blocked non-bugs. Commits: `7f5e4cb`, `3c1da5d`, `f26b9d5`, `00f9644`.
 
-### 2026-07-31T08:22:39+02:00: Issue #9 — SecurityControl=ignore exemption tag
+### ~~2026-07-31T08:22:39+02:00: Issue #9 — SecurityControl=ignore exemption tag~~ **[SUPERSEDED by 2026-07-31T10:19:38+02:00 below]**
 
 **Author:** Chewie (IaC Dev)
-**Outcome:** ACCEPTED — IaC now applies the `SecurityControl=ignore` exemption tag in both deployment paths; live azd/Bicep e2e subsequently passed full smoke validation.
+**Outcome:** ~~ACCEPTED~~ **SUPERSEDED** — the always-on tag approach was reverted. See the decision dated 2026-07-31T10:19:38+02:00.
 
-**What:** Added the shared exemption tag to both IaC tag defaults:
-- Bicep: `SecurityControl: 'ignore'` in `infra\bicep\main.bicep` `var tags`
-- Terraform: `SecurityControl = "ignore"` in `infra\terraform\variables.tf` `variable "tags"` default
+**What:** ~~Added the shared exemption tag to both IaC tag defaults:~~
+~~- Bicep: `SecurityControl: 'ignore'` in `infra\bicep\main.bicep` `var tags`~~
+~~- Terraform: `SecurityControl = "ignore"` in `infra\terraform\variables.tf` `variable "tags"` default~~
 
-Because both paths propagate shared tags to deployed resources, the Key Vault and the rest of the stack are exempted consistently across azd/Bicep and Terraform deployments.
+**Reason for supersession:** Hardcoding the exemption tag on every deployment is a security posture problem. The tag now must be injected manually at deploy time via a `tags` override parameter. See the replacement decision below.
 
-**Why:** The user's subscription has an Azure Policy that forced Key Vault `publicNetworkAccess=Disabled`, overriding the IaC setting and blocking the public-plane `az keyvault secret set` calls used to upload the GitHub App private key, Copilot PAT, and dummy e2e secrets. The user confirmed `SecurityControl=ignore` exempts resources from that subscription policy.
+### 2026-07-31T10:19:38+02:00: Issue #9 — drop hardcoded SecurityControl tag; expose tags as overridable parameter
 
-**Production caveat:** The exemption tag is applied to all deployments by default, including production. Production users in security-constrained subscriptions should consider parameterizing it behind an opt-in variable so the policy bypass is explicit and environment-specific.
+**Author:** Chewie (IaC Dev)
+**Branch:** squad/9-azd-bicep-support
+**Commit:** d80df3f
+**Status:** Implemented — supersedes the always-on SecurityControl tag (2026-07-31T08:22:39+02:00)
+
+**What:** The `SecurityControl: 'ignore'` / `SecurityControl = "ignore"` tag has been removed from all IaC defaults. Tags are now an overridable parameter in both paths:
+
+- **Bicep:** `var tags` → `param tags object` with default `{ project: 'squad-on-aca', managed_by: 'bicep' }`. SecurityControl key is absent from the default.
+- **Terraform:** `variable "tags"` default is `{ project = "squad-on-aca", managed_by = "terraform" }`. SecurityControl key is absent from the default. `var.tags` is consumed directly by all resources (no `effective_tags` local).
+
+When a deployer needs the exemption (e.g. e2e testing on the internal MCAPS tenant), they pass the full tags object with SecurityControl included at deploy time:
+- **Bicep:** `--parameters tags='{"project":"squad-on-aca","managed_by":"bicep","SecurityControl":"ignore"}'`
+- **Terraform:** `-var 'tags={"project":"squad-on-aca","managed_by":"terraform","SecurityControl":"ignore"}'`
+
+E2e test scripts are unchanged — no auto-injection of the tag.
+
+**Why:** Hardcoding `SecurityControl=ignore` on every deployment is a security posture problem: unnecessary exemption in production, violates least-privilege, and causes security auditors / Defender for Cloud / MCAPS to flag blanket policy exemptions. A boolean opt-in flag was considered and rejected in favour of exposing the existing `tags` parameter as overridable (simpler surface, more flexible, consistent with Terraform's existing pattern, no automation of a narrow manual concern).
+
+**Impact:**
+
+| Component | Change |
+|-----------|--------|
+| `infra/bicep/main.bicep` | `var tags` → `param tags object` with clean default (no SecurityControl) |
+| `infra/bicep/main.bicepparam` | No change to param listing (tags has a default) |
+| `infra/terraform/variables.tf` | SecurityControl removed from `variable "tags"` default |
+| `infra/terraform/main.tf` | No structural change; all resources consume `var.tags` directly |
+| `infra/tests/*.sh / *.ps1` | No change — no auto-injection of exemption flag |
+| `docs/e2e-testing.md` | Troubleshooting note: tag not applied by default; manual override shown |
+| `docs/infrastructure.md` | Key Vault section: tag not applied by default; manual override shown |
+
+**Validation:** `az bicep build --file infra/bicep/main.bicep` exit 0; `terraform validate` exit 0.
 
 ### 2026-07-31T10:11:43+02:00: Issue #9 — TF↔Bicep scaling parity audit (commit 22e33c6)
 
