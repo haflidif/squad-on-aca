@@ -273,7 +273,7 @@ Use the e2e test suite's opt-in job execution test. This triggers one execution 
 - **Access**: RBAC-based, no access policies
 - **UAMI permissions**: Key Vault Secrets User (read-only at runtime)
 - **Network access**: Public network access is enabled. The `SecurityControl=ignore` tag is **not
-  applied by default**. When running e2e against a policy-restricted tenant (e.g. internal MCAPS),
+  applied by default**. When running e2e against a policy-restricted tenant,
   add it manually via the tags parameter override at deploy time — for example:
   `--parameters tags='{"project":"squad-on-aca","managed_by":"bicep","SecurityControl":"ignore"}'`
   (Bicep) or `-var 'tags={"project":"squad-on-aca","managed_by":"terraform","SecurityControl":"ignore"}'`

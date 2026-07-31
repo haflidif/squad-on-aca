@@ -427,7 +427,7 @@ az keyvault secret set --vault-name <kv-name> \
 > **Policy-constrained subscriptions**: If your subscription enforces `publicNetworkAccess: Disabled`
 > on Key Vaults, secret upload via `az keyvault secret set` requires public access to be permitted.
 > The `SecurityControl=ignore` tag is **not applied by default**. When running e2e against a
-> policy-restricted tenant (e.g. internal MCAPS), add it manually via the tags parameter override:
+> policy-restricted tenant, add it manually via the tags parameter override:
 > ```bash
 > az deployment sub create ... \
 >   --parameters tags='{"project":"squad-on-aca","managed_by":"bicep","SecurityControl":"ignore"}'

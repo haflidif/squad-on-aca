@@ -283,7 +283,7 @@ Bicep accepts `targetRepos` as an array; azd env vars are strings. The postprovi
 
 **Author:** Cassian (Tester)
 **Branch:** `squad/9-azd-bicep-support`
-**Outcome:** ACCEPTED — live e2e succeeded against subscription `ME-MngEnvMCAP938677-haflidif-9` in `swedencentral`; teardown completed cleanly.
+**Outcome:** ACCEPTED — live e2e succeeded against `a test subscription` in `swedencentral`; teardown completed cleanly.
 
 **What:** The real azd/Bicep e2e strategy is layered validation: keep CI deferred for now, provide what-if validation plus manual ephemeral live deploy scripts, smoke-test the provisioned infrastructure, and always tear down via trap/`finally` unless explicitly skipped for debugging.
 
@@ -321,13 +321,13 @@ Bicep accepts `targetRepos` as an array; azd env vars are strings. The postprovi
 - **Bicep:** `var tags` → `param tags object` with default `{ project: 'squad-on-aca', managed_by: 'bicep' }`. SecurityControl key is absent from the default.
 - **Terraform:** `variable "tags"` default is `{ project = "squad-on-aca", managed_by = "terraform" }`. SecurityControl key is absent from the default. `var.tags` is consumed directly by all resources (no `effective_tags` local).
 
-When a deployer needs the exemption (e.g. e2e testing on the internal MCAPS tenant), they pass the full tags object with SecurityControl included at deploy time:
+When a deployer needs the exemption (e.g. e2e testing on a policy-restricted tenant), they pass the full tags object with SecurityControl included at deploy time:
 - **Bicep:** `--parameters tags='{"project":"squad-on-aca","managed_by":"bicep","SecurityControl":"ignore"}'`
 - **Terraform:** `-var 'tags={"project":"squad-on-aca","managed_by":"terraform","SecurityControl":"ignore"}'`
 
 E2e test scripts are unchanged — no auto-injection of the tag.
 
-**Why:** Hardcoding `SecurityControl=ignore` on every deployment is a security posture problem: unnecessary exemption in production, violates least-privilege, and causes security auditors / Defender for Cloud / MCAPS to flag blanket policy exemptions. A boolean opt-in flag was considered and rejected in favour of exposing the existing `tags` parameter as overridable (simpler surface, more flexible, consistent with Terraform's existing pattern, no automation of a narrow manual concern).
+**Why:** Hardcoding `SecurityControl=ignore` on every deployment is a security posture problem: unnecessary exemption in production, violates least-privilege, and causes security auditors / Defender for Cloud to flag blanket policy exemptions. A boolean opt-in flag was considered and rejected in favour of exposing the existing `tags` parameter as overridable (simpler surface, more flexible, consistent with Terraform's existing pattern, no automation of a narrow manual concern).
 
 **Impact:**
 
