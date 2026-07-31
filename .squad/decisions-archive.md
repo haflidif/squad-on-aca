@@ -1,4 +1,6 @@
-# Decisions
+# Decisions (archive)
+
+> Historical decision ledger predating the current `.squad/decisions.md` (entries through 2026-04-15). Preserved for reference; the active ledger is `.squad/decisions.md`.
 
 # Decision: Remove Function App Infrastructure
 
