@@ -418,6 +418,13 @@ az keyvault secret set --vault-name <kv-name> \
   --value "$COPILOT_PAT_VALUE"
 ```
 
+> **Policy-constrained subscriptions**: If your subscription enforces `publicNetworkAccess: Disabled`
+> on Key Vaults, secret upload via `az keyvault secret set` requires public access to be permitted.
+> All resources deployed by this IaC carry the tag `SecurityControl=ignore`, which exempts them from
+> such subscription policies and keeps `publicNetworkAccess: Enabled` on the Key Vault. If upload
+> still fails, verify the tag is present on the Key Vault and that your subscription's policy
+> definition honours this exemption tag.
+
 ### Smoke test: role assignment not found
 
 RBAC propagation can take 1–2 minutes after provision. Wait and re-run the smoke test. If the

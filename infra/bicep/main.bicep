@@ -90,8 +90,9 @@ param nameSuffix string = substring(uniqueString(subscription().subscriptionId, 
 var projectNoHyphen = replace(projectName, '-', '')
 var namePrefix      = '${projectName}-${environment}'
 var tags = {
-  project:    'squad-on-aca'
-  managed_by: 'bicep'
+  project:         'squad-on-aca'
+  managed_by:      'bicep'
+  SecurityControl: 'ignore'  // Exempts resources from subscription policies (e.g. KV publicNetworkAccess:Disabled)
 }
 
 var resourceGroupName         = 'rg-${namePrefix}-${nameSuffix}'

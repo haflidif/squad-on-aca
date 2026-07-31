@@ -43,8 +43,9 @@ variable "tags" {
   description = "Tags applied to all resources"
   type        = map(string)
   default = {
-    project    = "squad-on-aca"
-    managed_by = "terraform"
+    project         = "squad-on-aca"
+    managed_by      = "terraform"
+    SecurityControl = "ignore" # Exempts resources from subscription policies (e.g. KV publicNetworkAccess:Disabled)
   }
 }
 

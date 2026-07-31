@@ -110,6 +110,10 @@ Full decision log is in `.squad/decisions.md`. Key architectural choices:
   - `copilot-pat`: Copilot-licensed GitHub PAT (uploaded manually)
 - **Access**: RBAC-based, no access policies
 - **UAMI permissions**: Key Vault Secrets User (read-only at runtime)
+- **Network access**: Public network access is enabled. The Key Vault (and all resources) carry the
+  tag `SecurityControl=ignore`, which exempts them from subscription policies that would otherwise
+  override `publicNetworkAccess` to `Disabled`. This tag is required for out-of-band secret upload
+  (`az keyvault secret set`) on policy-constrained subscriptions.
 
 ### Dual Auth Pattern
 GitHub Apps cannot hold Copilot licenses. Squad on ACA uses a dual-token approach:
