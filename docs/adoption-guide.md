@@ -62,7 +62,7 @@ Both paths create equivalent Azure resources: Resource Group, Log Analytics Work
 
 ---
 
-## Step 1: Fork or Clone
+## Step 1: Fork or clone
 
 ### Fork (recommended for customization)
 
@@ -130,7 +130,23 @@ After clicking **Create GitHub App**:
 
 ---
 
-## Step 3: Configure Terraform Variables
+## Choose your IaC path
+
+Two supported IaC paths create equivalent Azure resources. Complete one path (A or B), then continue at [Step 6](#step-6-build-and-push-container-image).
+
+| | [Path A: Terraform](#path-a-terraform) | [Path B: Bicep + azd](#path-b-bicep--azd) |
+|---|---|---|
+| Best fit | Default, canonical path — explicit plans, Terraform workflows | Azure-native — `azd up`, ARM idempotency, Bicep-first workflow |
+
+Not sure which to pick? See [Terraform vs Bicep and azd: which should you choose?](#terraform-vs-bicep-and-azd-which-should-you-choose)
+
+---
+
+## Path A: Terraform
+
+The canonical, default path — explicit plans, Terraform state, and Terraform workflows. Follow Path A · Steps 3–5, then continue at [Step 6](#step-6-build-and-push-container-image).
+
+### Path A · Step 3: Configure Terraform variables
 
 ```bash
 cd infra/terraform
@@ -161,7 +177,7 @@ agent_job_config = {
 }
 ```
 
-### Setting the GitHub Token
+### Setting the GitHub token
 
 **Never write secrets to files.** Set `github_token` as an environment variable before running Terraform:
 
@@ -181,7 +197,7 @@ Terraform automatically reads `TF_VAR_*` environment variables and maps them to 
 
 ---
 
-## Step 4: Deploy Infrastructure
+### Path A · Step 4: Deploy infrastructure
 
 ```bash
 cd infra/terraform
@@ -221,7 +237,7 @@ Key outputs:
 
 ---
 
-## Step 5: Upload Secrets to Key Vault
+### Path A · Step 5: Upload secrets to Key Vault
 
 Two secrets must be uploaded manually (they're intentionally kept out of Terraform state):
 
@@ -253,13 +269,15 @@ az keyvault secret set \
 
 ---
 
-## Alternative: deploy with Bicep and azd
+## Path B: Bicep + azd
 
-Use this path if you want Azure-native deployment while keeping the same runtime architecture. The Terraform path remains the default and canonical path; this Bicep path coexists with it.
+Azure-native alternative using Bicep and the Azure Developer CLI. Follow Path B · Steps 3–5, then continue at [Step 6](#step-6-build-and-push-container-image).
+
+> **What `azd up` already does for you:** The post-provision hook (`infra/hooks/postprovision.sh` / `.ps1`) builds and pushes the agent container image to ACR and sets the GitHub Actions repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, `SQUAD_AZURE_SUBSCRIPTION_ID`, `SQUAD_STORAGE_ACCOUNT`, `SQUAD_QUEUE_NAME`) on each target repo. **You can skip Step 6** (and the repo-variable portion of later steps) unless you are customizing the agent image.
 
 ### Prerequisites
 
-Install and sign in to the same tools used by the post-provision hooks:
+Install and sign in to the tools used by the post-provision hooks:
 
 ```bash
 azd auth login
@@ -270,7 +288,7 @@ gh auth login
 
 Your `gh` login needs permission to set repository variables on each target repo.
 
-### Configure Bicep parameters
+### Path B · Step 3: Configure Bicep parameters
 
 The Bicep entry point is `infra/bicep/main.bicep`, with sample values in `infra/bicep/main.bicepparam`. Set these required values before provisioning:
 
@@ -288,7 +306,7 @@ Get your deployer principal ID with:
 az ad signed-in-user show --query id -o tsv
 ```
 
-### Run the azd flow
+### Path B · Step 4: Run azd
 
 From the repository root, run:
 
@@ -303,7 +321,7 @@ azd provision
 azd deploy
 ```
 
-The post-provision hook handles the GitHub Actions repository variables for each target repo by calling `gh` CLI. It sets:
+The post-provision hook sets the following GitHub Actions repository variables on each target repo by calling `gh` CLI:
 
 - `SQUAD_AZURE_CLIENT_ID`
 - `SQUAD_AZURE_TENANT_ID`
@@ -311,23 +329,37 @@ The post-provision hook handles the GitHub Actions repository variables for each
 - `SQUAD_STORAGE_ACCOUNT`
 - `SQUAD_QUEUE_NAME`
 
-### Upload Key Vault secrets
+### Path B · Step 5: Upload secrets to Key Vault
 
-Secret values stay out of Bicep and out of deployment state. After provisioning, upload the two runtime secrets to the Key Vault created by the deployment:
+Secret values stay out of Bicep and out of deployment state. After provisioning, find the Key Vault name and upload the two runtime secrets.
+
+Get the Key Vault name:
+
+```bash
+# Option 1: from azd environment outputs (if exposed as an output)
+azd env get-values | grep KEY_VAULT
+
+# Option 2: always works
+KV_NAME=$(az keyvault list -g <resource-group> --query "[0].name" -o tsv)
+```
+
+Then upload:
 
 ```bash
 az keyvault secret set \
-  --vault-name "<key-vault-name>" \
+  --vault-name "${KV_NAME}" \
   --name "github-app-private-key" \
   --file /path/to/your-app.pem
 
 az keyvault secret set \
-  --vault-name "<key-vault-name>" \
+  --vault-name "${KV_NAME}" \
   --name "copilot-pat" \
   --value "ghp_YOUR_COPILOT_LICENSED_PAT"
 ```
 
-The `azd` post-provision hook prints guidance for this step, but it does not store secret values in source control or IaC state.
+For Copilot PAT requirements, see [Generating the Copilot PAT](#generating-the-copilot-pat) under Path A · Step 5.
+
+The post-provision hook prints guidance for this step, but it does not store secret values in source control or IaC state.
 
 ### Tear down Bicep resources
 
@@ -341,7 +373,35 @@ Review the prompt carefully before confirming deletion.
 
 ---
 
-## Step 6: Build and Push Container Image
+## Both paths converge here
+
+Whether you deployed with **Path A (Terraform)** or **Path B (Bicep + azd)**, continue with Step 6. If you used `azd up`, read the leading note in Step 6 — you may be able to skip it entirely.
+
+---
+
+## Step 6: Build and push container image
+
+> **azd (Path B) users:** The post-provision hook already built and pushed the agent image to ACR as part of `azd up`. **You can skip this step** unless you are customizing the agent image.
+
+Before building, set your ACR name and login server.
+
+**If you deployed with Terraform (Path A):**
+
+```bash
+ACR_NAME=$(cd infra/terraform && terraform output -raw acr_name)
+ACR_LOGINSERVER=$(cd infra/terraform && terraform output -raw acr_login_server)
+```
+
+**If you deployed with Bicep + azd (Path B):**
+
+```bash
+# Option 1: from azd environment outputs (if exposed as an output)
+azd env get-values | grep ACR
+
+# Option 2: always works
+ACR_NAME=$(az acr list -g <resource-group> --query "[0].name" -o tsv)
+ACR_LOGINSERVER=$(az acr show -n "${ACR_NAME}" --query loginServer -o tsv)
+```
 
 ### Option A: Build remotely with ACR (recommended)
 
@@ -349,8 +409,6 @@ Review the prompt carefully before confirming deletion.
 cd agents/base
 
 # Import base images first (one-time)
-ACR_NAME=$(cd ../../infra/terraform && terraform output -raw acr_name)
-
 az acr import --name "${ACR_NAME}" \
   --source docker.io/library/golang:1.23.4-bookworm \
   --image base/golang:1.23.4-bookworm
@@ -368,8 +426,6 @@ az acr build --registry "${ACR_NAME}" --image squad-agent:latest .
 ```bash
 cd agents/base
 
-ACR_LOGINSERVER=$(cd ../../infra/terraform && terraform output -raw acr_login_server)
-
 # Update Dockerfile FROM lines to use your ACR name
 # (replace crsquadacaa6b49feb with your ACR login server prefix)
 
@@ -383,7 +439,7 @@ docker push "${ACR_LOGINSERVER}/squad-agent:latest"
 
 ---
 
-## Step 7: Install Workflow Templates on Target Repos
+## Step 7: Install workflow templates on target repos
 
 For each repository in your `target_repos` list, copy the workflow files:
 
@@ -409,11 +465,11 @@ git commit -m "feat: add Squad on ACA workflow templates"
 git push
 ```
 
-Terraform already set the repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, etc.), so the workflows will have everything they need.
+The repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, etc.) were set during deployment — by Terraform (Path A) or by the `azd` post-provision hook (Path B) — so the workflows will have everything they need.
 
 ---
 
-## Step 7.5: Initialize Your Squad Team on Target Repos
+## Step 7.5: Initialize your Squad team on target repos
 
 Before testing, each target repo needs a Squad team. [Squad](https://bradygaster.github.io/squad/) (the framework) creates agent charters, routing rules, team configuration, and labels — this platform (Squad on ACA) provides the serverless infrastructure to run those agents headlessly.
 
@@ -503,7 +559,7 @@ body:
 
 ---
 
-## Step 8: Test End-to-End
+## Step 8: Test end-to-end
 
 ### 8.1 Create a test issue
 
@@ -547,13 +603,13 @@ The PR should have:
 
 ---
 
-## Step 9: Add More Target Repos
+## Step 9: Add more target repos
 
 To onboard additional repositories:
 
-### 9.1 Add to Terraform
+### 9.1 Add the repo to your IaC
 
-Edit `infra/terraform/terraform.tfvars`:
+**Path A: Terraform** — Edit `infra/terraform/terraform.tfvars`:
 
 ```hcl
 target_repos = [
@@ -568,7 +624,15 @@ cd infra/terraform
 terraform apply
 ```
 
-This creates:
+**Path B: Bicep + azd** — Add the repo to `targetRepos` in `infra/bicep/main.bicepparam`, then re-provision:
+
+```bash
+azd provision
+```
+
+The post-provision hook wires the new repo's GitHub Actions variables and federated credentials automatically.
+
+Both paths create:
 - Federated identity credentials for each new repo
 - GitHub Actions variables on each new repo
 
@@ -682,7 +746,9 @@ The revision flow is an optional but recommended addition:
 
 **Cause**: UAMI client ID mismatch or missing role assignments.
 **Solution**:
-1. Verify `AZURE_CLIENT_ID` env var matches the UAMI: `terraform output squad_agent_client_id`
+1. Verify `AZURE_CLIENT_ID` matches the UAMI client ID:
+   - Path A (Terraform): `cd infra/terraform && terraform output -raw squad_agent_client_id`
+   - Path B (Bicep + azd): `az identity list -g <resource-group> --query "[0].clientId" -o tsv`
 2. Verify RBAC roles: `az role assignment list --assignee <UAMI-principal-id>`
 3. Wait 5 minutes — RBAC propagation can take time after initial deployment.
 

@@ -88,16 +88,16 @@ cd infra/terraform
 terraform init && terraform apply
 ```
 
-→ Full variable reference: [Adoption Guide — Deploy Infrastructure](docs/adoption-guide.md#step-4-deploy-infrastructure)
+→ Full variable reference: [Adoption Guide — Deploy infrastructure](docs/adoption-guide.md#path-a--step-4-deploy-infrastructure)
 
-### Or deploy with azd (Bicep)
+### Or deploy with Bicep + azd (Path B)
 
 ```bash
 azd auth login
 azd up
 ```
 
-→ Azure-native deployment path: [Adoption Guide — Deploy with Bicep and azd](docs/adoption-guide.md#alternative-deploy-with-bicep-and-azd)
+→ Azure-native deployment path: [Adoption Guide — Path B: Bicep + azd](docs/adoption-guide.md#path-b-bicep--azd)
 
 ### 4. Upload Secrets to Key Vault
 
