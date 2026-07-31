@@ -279,8 +279,27 @@ Bicep accepts `targetRepos` as an array; azd env vars are strings. The postprovi
 
 **Why:** Issue #9 adds Azure-native Bicep support without replacing Terraform. The documentation needs to make both paths discoverable, explain when to choose each one, and preserve the security boundary that keeps Key Vault secret values out of IaC state.
 
+### 2026-07-31T08:22:39+02:00: Issue #9 — azd/Bicep e2e live-run strategy and outcomes
+
+**Author:** Cassian (Tester)
+**Branch:** `squad/9-azd-bicep-support`
+**Outcome:** ACCEPTED — live e2e succeeded against subscription `ME-MngEnvMCAP938677-haflidif-9` in `swedencentral`; teardown completed cleanly.
+
+**What:** The real azd/Bicep e2e strategy is layered validation: keep CI deferred for now, provide what-if validation plus manual ephemeral live deploy scripts, smoke-test the provisioned infrastructure, and always tear down via trap/`finally` unless explicitly skipped for debugging.
+
+**Infra-only e2e boundary:** Routine e2e runs use dummy GitHub App IDs and placeholder Key Vault secret values to validate infrastructure shape and secret-name wiring. They do not pass `--run-job` by default; job execution remains opt-in after real secrets are uploaded.
+
+**Fixes proven by live run:**
+- Container App Job now defaults `containerImage` to `mcr.microsoft.com/hello-world:latest` so first provision succeeds before ACR contains `squad-agent:latest`; the postprovision hook updates the job image after `az acr build`.
+- What-if/e2e scripts pass the `.bicepparam` file and overrides as separate `--parameters` flags, not one combined argument.
+- Smoke tests use ARM management-plane checks (`az rest`) for Storage Queue and Key Vault secret presence, avoiding deployer data-plane RBAC requirements.
+
+**Known environment constraint:** This subscription has an Azure Policy that forces Key Vault `publicNetworkAccess=Disabled`, which blocks public-plane secret upload for dummy secrets. That is an environment constraint, not a Bicep defect; the Terraform path has the same behavior under this policy.
+
+**Evidence:** Cassian delivered `infra/tests/whatif.{sh,ps1}`, `infra/tests/smoke-test.{sh,ps1}`, `infra/tests/e2e.{sh,ps1}`, and `docs/e2e-testing.md`. Live smoke result was 20 PASS after the fixes; the remaining Key Vault secret-upload failures were policy-blocked non-bugs. Commits: `7f5e4cb`, `3c1da5d`, `f26b9d5`, `00f9644`.
 ## Governance
 
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+

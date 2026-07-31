@@ -73,3 +73,5 @@ Key project components:
 
 - **2026-07-30 — Issue #9 azd/Bicep scope analysis:** Analyzed GitHub issue #9 and recommended proceeding with additive azd/Bicep support in staged phases. Key outcome: keep Terraform canonical until Bicep parity is validated, land any `infra/terraform/` restructure with migration-safe doc/CI/path updates, then add Bicep core parity and azd polish.
 - **2026-07-30 — Issue #9 azd/Bicep delivered:** Documented the additive azd/Bicep path alongside canonical Terraform, including prerequisites, commands, post-provision secret handling, GitHub variable setup, teardown, comparison notes, and limitations.
+
+- **2026-07-31 — Issue #9 e2e docs outcome:** Cassian delivered live azd/Bicep e2e testing docs and scripts. Final guidance: use what-if plus manual ephemeral deploy for real e2e validation, keep CI deferred, keep job execution opt-in, always tear down by default, and document the Key Vault public-network policy constraint as environment-specific rather than a Bicep defect.
