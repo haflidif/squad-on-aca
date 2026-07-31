@@ -98,29 +98,24 @@ Write-Host ""
 Write-Host "  NOTE: This is a DRY RUN — no resources will be created or modified." -ForegroundColor Green
 Write-Host ""
 
-# ---- Build parameters list -----------------------------------------------
-$params = @(
-    $ParamsFile,
-    "githubAppId=$GithubAppId",
-    "githubAppInstallationId=$GithubInstallationId",
-    "deployerPrincipalId=$DeployerPrincipalId",
-    "deployerPrincipalType=$DeployerType",
-    "environment=$Environment",
-    "projectName=$ProjectName"
-)
-if ($NameSuffix) {
-    $params += "nameSuffix=$NameSuffix"
-}
-
 # ---- Run what-if ---------------------------------------------------------
+# Each override is a separate --parameters flag; joining them into one string
+# would cause az to treat the whole blob as a single parameter name.
 $azArgs = @(
     'deployment', 'sub', 'what-if',
     '--subscription',  $Subscription,
     '--location',      $Location,
     '--template-file', $TemplateFile,
-    '--parameters',    ($params -join ' '),
+    '--parameters',    $ParamsFile,
+    '--parameters',    "githubAppId=$GithubAppId",
+    '--parameters',    "githubAppInstallationId=$GithubInstallationId",
+    '--parameters',    "deployerPrincipalId=$DeployerPrincipalId",
+    '--parameters',    "deployerPrincipalType=$DeployerType",
+    '--parameters',    "environment=$Environment",
+    '--parameters',    "projectName=$ProjectName",
     '--result-format', 'FullResourcePayloads'
 )
+if ($NameSuffix) { $azArgs += @('--parameters', "nameSuffix=$NameSuffix") }
 
 az @azArgs
 $rc = $LASTEXITCODE

@@ -127,20 +127,27 @@ echo -e "  ${GREEN}NOTE: This is a DRY RUN — no resources will be created or m
 echo ""
 
 # ---- Run what-if ---------------------------------------------------------
-az deployment sub what-if \
-  --subscription  "${SUBSCRIPTION}" \
-  --location      "${LOCATION}" \
-  --template-file "${TEMPLATE_FILE}" \
-  --parameters    "${PARAMS_FILE}" \
-  --parameters \
-    "githubAppId=${GITHUB_APP_ID}" \
-    "githubAppInstallationId=${GITHUB_INSTALLATION_ID}" \
-    "deployerPrincipalId=${DEPLOYER_PRINCIPAL_ID}" \
-    "deployerPrincipalType=${DEPLOYER_TYPE}" \
-    "environment=${ENVIRONMENT}" \
-    "projectName=${PROJECT_NAME}" \
-    "${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}" \
+# Each override uses its own --parameters flag; passing them as space-separated
+# values to a single flag causes az to mis-parse the first value as the param name.
+WHAT_IF_ARGS=(
+  deployment sub what-if
+  --subscription  "${SUBSCRIPTION}"
+  --location      "${LOCATION}"
+  --template-file "${TEMPLATE_FILE}"
+  --parameters    "${PARAMS_FILE}"
+  --parameters    "githubAppId=${GITHUB_APP_ID}"
+  --parameters    "githubAppInstallationId=${GITHUB_INSTALLATION_ID}"
+  --parameters    "deployerPrincipalId=${DEPLOYER_PRINCIPAL_ID}"
+  --parameters    "deployerPrincipalType=${DEPLOYER_TYPE}"
+  --parameters    "environment=${ENVIRONMENT}"
+  --parameters    "projectName=${PROJECT_NAME}"
   --result-format FullResourcePayloads
+)
+for ep in "${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}"; do
+  WHAT_IF_ARGS+=(--parameters "${ep}")
+done
+
+az "${WHAT_IF_ARGS[@]}"
 
 echo ""
 echo "=================================================================="
