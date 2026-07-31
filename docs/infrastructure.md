@@ -272,12 +272,12 @@ Use the e2e test suite's opt-in job execution test. This triggers one execution 
   - `copilot-pat`: Copilot-licensed GitHub PAT (uploaded manually)
 - **Access**: RBAC-based, no access policies
 - **UAMI permissions**: Key Vault Secrets User (read-only at runtime)
-- **Network access**: Public network access is enabled. The `enableSecurityControlExemption`
-  parameter (default: `false`, opt-in) applies the tag `SecurityControl=ignore` when set to `true`,
-  which exempts resources from subscription policies that would otherwise override
-  `publicNetworkAccess` to `Disabled`. This tag is only needed for e2e testing on policy-restricted
-  tenants (e.g. internal MCAPS) — normal production deployments must leave this parameter unset.
-  The e2e scripts enable it automatically.
+- **Network access**: Public network access is enabled. The `SecurityControl=ignore` tag is **not
+  applied by default**. When running e2e against a policy-restricted tenant (e.g. internal MCAPS),
+  add it manually via the tags parameter override at deploy time — for example:
+  `--parameters tags='{"project":"squad-on-aca","managed_by":"bicep","SecurityControl":"ignore"}'`
+  (Bicep) or `-var 'tags={"project":"squad-on-aca","managed_by":"terraform","SecurityControl":"ignore"}'`
+  (Terraform). Normal production deployments must NOT include this tag.
 
 ### Dual Auth Pattern
 GitHub Apps cannot hold Copilot licenses. Squad on ACA uses a dual-token approach:

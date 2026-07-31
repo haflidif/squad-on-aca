@@ -160,8 +160,6 @@ try {
         azd env set GITHUB_APP_INSTALLATION_ID     $GithubInstallationId
         azd env set DEPLOYER_PRINCIPAL_ID          $DeployerPrincipalId
         azd env set DEPLOYER_PRINCIPAL_TYPE        $DeployerType
-        # Enable SecurityControl=ignore tag exemption for e2e runs on policy-restricted tenants (e.g. MCAPS)
-        azd env set enableSecurityControlExemption "true"
 
         Write-Host "azd environment configured." -ForegroundColor Green
         Write-Host ""

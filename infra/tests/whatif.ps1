@@ -113,7 +113,6 @@ $azArgs = @(
     '--parameters',    "deployerPrincipalType=$DeployerType",
     '--parameters',    "environment=$Environment",
     '--parameters',    "projectName=$ProjectName",
-    '--parameters',    "enableSecurityControlExemption=true",
     '--result-format', 'FullResourcePayloads'
 )
 if ($NameSuffix) { $azArgs += @('--parameters', "nameSuffix=$NameSuffix") }

@@ -83,8 +83,11 @@ param deployerPrincipalType string = 'User'
 ''')
 param nameSuffix string = substring(uniqueString(subscription().subscriptionId, projectName, environment), 0, 8)
 
-@description('Apply the SecurityControl=ignore tag to exempt resources from subscription Azure Policy. Only needed for e2e testing in policy-restricted tenants (e.g. internal MCAPS). Leave false for normal deployments.')
-param enableSecurityControlExemption bool = false
+@description('Tags applied to all resources. Override at deploy time to add extra tags (e.g. SecurityControl=ignore when testing on a policy-restricted tenant).')
+param tags object = {
+  project:    'squad-on-aca'
+  managed_by: 'bicep'
+}
 
 // ---------------------------------------------------------------------------
 // Computed locals
@@ -92,12 +95,6 @@ param enableSecurityControlExemption bool = false
 
 var projectNoHyphen = replace(projectName, '-', '')
 var namePrefix      = '${projectName}-${environment}'
-var baseTags = {
-  project:    'squad-on-aca'
-  managed_by: 'bicep'
-}
-// Merge SecurityControl=ignore only when explicitly opted in (e2e/MCAPS tenants only)
-var tags = union(baseTags, enableSecurityControlExemption ? { SecurityControl: 'ignore' } : {})
 
 var resourceGroupName         = 'rg-${namePrefix}-${nameSuffix}'
 var storageAccountName        = 'st${projectNoHyphen}${nameSuffix}'

@@ -48,12 +48,6 @@ variable "tags" {
   }
 }
 
-variable "enable_security_control_exemption" {
-  description = "Apply the SecurityControl=ignore tag to exempt resources from subscription Azure Policy. Only needed for e2e testing in policy-restricted tenants (e.g. internal MCAPS). Leave false for normal deployments."
-  type        = bool
-  default     = false
-}
-
 variable "target_repos" {
   description = "GitHub repositories (owner/repo format) allowed to authenticate via OIDC federated credentials"
   type        = list(string)
