@@ -11,3 +11,4 @@
 ## Learnings
 
 _None yet._
+- **2026-07-30 — Issue #9 azd/Bicep delivered:** Completed credential and secret handling scans for the new Bicep and azd hook path with Yellow overall verdict and no critical leaks; advisory notes covered ACR admin parity and file-based secret upload guidance.

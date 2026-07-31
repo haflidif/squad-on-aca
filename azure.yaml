@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+# ---------------------------------------------------------------------------
+# Squad on ACA — Azure Developer CLI project definition
+#
+# One-command deploy:  azd up
+# One-command teardown: azd down
+#
+# Prerequisites:
+#   azd auth login
+#   azd env new <env-name>           # e.g. dev
+#   azd env set GITHUB_APP_ID               <your-github-app-id>
+#   azd env set GITHUB_APP_INSTALLATION_ID  <your-installation-id>
+#   # Optional — defaults to [] (federated OIDC not wired until set):
+#   azd env set TARGET_REPOS  '["owner/repo1","owner/repo2"]'
+#
+# AZURE_PRINCIPAL_ID is resolved automatically by azd (deploying identity).
+# All other Bicep parameters have defaults defined in infra/bicep/main.bicep.
+#
+# After azd up, the post-provision hook will:
+#   1. Build and push agents/base/Dockerfile → ACR as squad-agent:latest
+#   2. Check Key Vault secrets (github-app-private-key, copilot-pat) and print
+#      guidance if they are missing — values are NEVER embedded in this file.
+#   3. Set 5 GitHub Actions repository variables on every repo in TARGET_REPOS.
+#
+# NOTE: Terraform is the canonical IaC path. Bicep/azd coexist under infra/bicep/.
+# Choose one deployment path per environment — do not mix.
+# ---------------------------------------------------------------------------
+name: squad-on-aca
+
+metadata:
+  template: squad-on-aca@0.0.1
+
+# ---------------------------------------------------------------------------
+# Infrastructure: Bicep at subscription scope
+# Entrypoint: infra/bicep/main.bicep  (targetScope = 'subscription')
+# ---------------------------------------------------------------------------
+infra:
+  provider: bicep
+  path: infra/bicep
+  module: main
+
+# ---------------------------------------------------------------------------
+# Services: Container App Job — no native azd service type
+#
+# azd's `host: containerapp` targets Container App *instances*.
+# squad-agent runs as an event-driven Container App JOB (KEDA azure-queue).
+# Because azd has no native Container App Job service type (as of azd 1.x),
+# image build + push is handled in the postprovision hook via `az acr build`.
+# The Bicep module references <acrLoginServer>/squad-agent:latest; on first
+# deploy the job definition is created before the image exists — the job will
+# not execute until the postprovision hook pushes the image.
+# ---------------------------------------------------------------------------
+# (no services block — image build handled by postprovision hook)
+
+# ---------------------------------------------------------------------------
+# Hooks (cross-platform: posix = sh, windows = pwsh)
+# ---------------------------------------------------------------------------
+hooks:
+  # preprovision: validate required env vars; resolve TARGET_REPOS; print guidance
+  preprovision:
+    posix:
+      shell: sh
+      run: infra/hooks/preprovision.sh
+      interactive: true
+    windows:
+      shell: pwsh
+      run: infra/hooks/preprovision.ps1
+      interactive: true
+  # postprovision: build/push image; check KV secrets; set GH Actions variables
+  postprovision:
+    posix:
+      shell: sh
+      run: infra/hooks/postprovision.sh
+      interactive: true
+    windows:
+      shell: pwsh
+      run: infra/hooks/postprovision.ps1
+      interactive: true

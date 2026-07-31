@@ -4,3 +4,6 @@
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
 .squad/rai/audit-trail.md merge=union
+
+# Shell hooks must stay LF-only; CRLF breaks bash -n and azd POSIX hooks.
+*.sh text eol=lf

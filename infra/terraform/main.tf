@@ -21,7 +21,7 @@ locals {
 resource "azurerm_resource_group" "main" {
   name     = "rg-${local.name_prefix}-${local.name_suffix}"
   location = var.location
-  tags     = var.tags
+  tags = var.tags
 }
 
 # --------------------------------------------------------------------------
@@ -35,7 +35,7 @@ module "log_analytics" {
   name                = "law-${local.name_prefix}-${local.name_suffix}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  tags                = var.tags
+  tags = var.tags
   enable_telemetry    = false
 
   log_analytics_workspace_internet_ingestion_enabled = true
@@ -58,7 +58,7 @@ module "storage" {
   shared_access_key_enabled       = false # Enforced by subscription policy
   public_network_access_enabled   = true  # See issue #8 for private networking support
   default_to_oauth_authentication = true
-  tags                            = var.tags
+  tags = var.tags
   enable_telemetry                = false
 
   network_rules = {
@@ -87,7 +87,7 @@ module "acr" {
   sku                     = "Basic"
   admin_enabled           = true
   zone_redundancy_enabled = false
-  tags                    = var.tags
+  tags = var.tags
   enable_telemetry        = false
 }
 
@@ -102,7 +102,7 @@ module "aca_environment" {
   name                = "cae-${local.name_prefix}-${local.name_suffix}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  tags                = var.tags
+  tags = var.tags
   enable_telemetry    = false
 
   zone_redundancy_enabled = false
@@ -120,7 +120,7 @@ resource "azurerm_user_assigned_identity" "squad_agent" {
   name                = "id-squad-agent-${local.name_suffix}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  tags                = var.tags
+  tags = var.tags
 }
 
 # RBAC: UAMI → Storage Queue Data Reader (KEDA scaler reads queue length)
@@ -179,7 +179,7 @@ resource "azurerm_key_vault" "squad" {
   rbac_authorization_enabled       = true
   purge_protection_enabled         = false # Dev environment — allow purge
   public_network_access_enabled    = true  # See issue #8 for private networking support
-  tags                             = var.tags
+  tags = var.tags
 }
 
 # RBAC: UAMI → Key Vault Secrets User (read secrets at runtime)
@@ -215,7 +215,7 @@ resource "azapi_resource" "squad_agent_job" {
   name      = "job-squad-agent-${local.name_suffix}"
   location  = azurerm_resource_group.main.location
   parent_id = azurerm_resource_group.main.id
-  tags      = var.tags
+  tags = var.tags
 
   schema_validation_enabled = false # azapi schema doesn't know about identity-based KEDA auth yet
 
