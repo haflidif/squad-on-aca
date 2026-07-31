@@ -368,6 +368,35 @@ E2e test scripts are unchanged — no auto-injection of the tag.
 - `docs/infrastructure.md` — new "Autoscaling: KEDA queue-based scaling" section with parameter table, identity model, full parity table, and live scale test procedure (Options A and B)
 - `docs/e2e-testing.md` — `--run-job` description clarified: distinct from a KEDA queue-driven scale test; links to live scale test procedure
 
+### 2026-07-31T13:43:39+02:00: Chewie — docs restructure: dual-IaC adoption guide (commit 103147d)
+
+**Author:** Chewie (IaC engineer)
+**Branch:** docs/dual-iac-adoption-guide
+**Commit:** 103147d
+**Scope:** Docs only — no infra changes.
+
+**What:** `docs/adoption-guide.md` restructured from a linear Terraform-native flow with Bicep/azd wedged in mid-stream, to a parallel two-path structure:
+
+- Steps 1–2 remain shared prerequisites (IaC-neutral).
+- New "Choose your IaC path" section after Step 2 gives readers a clear fork: Path A (Terraform, canonical) or Path B (Bicep + azd, Azure-native), with a comparison table.
+- `## Path A: Terraform` and `## Path B: Bicep + azd` are now peer sections with parallel step headings.
+- "Both paths converge here" transition connects both paths back to shared Steps 6–9.
+- Steps 6–9 are now IaC-neutral: each step provides both a Terraform variant and an Azure CLI / azd variant.
+
+`README.md` §3 updated: azd sub-section renamed to "Or deploy with Bicep + azd (Path B)" and links updated to new anchors.
+
+**Key facts documented (verified):**
+- `azd up` postprovision hook already builds/pushes image and sets all 5 GitHub Actions repo variables — azd users can skip Step 6 if they haven't customized the agent image.
+- Resource names without Terraform state: `az acr list -g <rg> --query "[0].name" -o tsv`; `az keyvault list -g <rg> --query "[0].name" -o tsv`; or `azd env get-values | grep <KEY>`.
+- To onboard a new repo on the Bicep path: add to `targetRepos` in `infra/bicep/main.bicepparam`, then `azd provision`.
+
+**Anchor changes:**
+
+| Old anchor | New anchor | Updated in |
+|---|---|---|
+| `#alternative-deploy-with-bicep-and-azd` | `#path-b-bicep--azd` | `README.md` |
+| `#step-4-deploy-infrastructure` | `#path-a--step-4-deploy-infrastructure` | `README.md` |
+
 ## Governance
 
 - All meaningful changes require team consensus
