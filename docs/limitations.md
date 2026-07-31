@@ -135,7 +135,7 @@ The Dockerfile references base images cached in ACR, but the **initial import** 
 
 - Anonymous pulls: 100 per 6 hours per IP
 - Authenticated pulls: 200 per 6 hours
-- `az acr build` pulls from Docker Hub if the ACR-cached image hasn't been imported yet
+- `az acr build` needs the ACR-cached images to exist before the build starts
 
 **Mitigation**:
 - Import base images **once** before the first `az acr build`:
@@ -145,7 +145,9 @@ The Dockerfile references base images cached in ACR, but the **initial import** 
   az acr import --name <acr> --source docker.io/library/debian:bookworm-20240701-slim \
     --image base/debian:bookworm-20240701-slim
   ```
-- The Dockerfile `FROM` references already point at ACR — after import, Docker Hub is never contacted.
+- The `azd` post-provision hook imports these base images automatically.
+- When you build manually, pass `--build-arg BASE_ACR_HOST=<your-acr-login-server>/` to `az acr build` so the Dockerfile `FROM` lines resolve to your ACR instead of the default bootstrap ACR.
+- After import and the build-argument override, Docker Hub is never contacted.
 - Re-import when upgrading base image versions.
 
 ---
@@ -224,7 +226,12 @@ The GitHub App must be installed on each target repository individually (or org-
 
 ```bash
 # Windows workaround
-az acr build --registry <acr> --image squad-agent:latest . --no-logs
+az acr build \
+  --registry <acr> \
+  --image squad-agent:latest \
+  --build-arg "BASE_ACR_HOST=<your-acr-login-server>/" \
+  . \
+  --no-logs
 ```
 
 This only affects the build command — the built image works identically on all platforms.
