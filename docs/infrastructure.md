@@ -272,10 +272,12 @@ Use the e2e test suite's opt-in job execution test. This triggers one execution 
   - `copilot-pat`: Copilot-licensed GitHub PAT (uploaded manually)
 - **Access**: RBAC-based, no access policies
 - **UAMI permissions**: Key Vault Secrets User (read-only at runtime)
-- **Network access**: Public network access is enabled. The Key Vault (and all resources) carry the
-  tag `SecurityControl=ignore`, which exempts them from subscription policies that would otherwise
-  override `publicNetworkAccess` to `Disabled`. This tag is required for out-of-band secret upload
-  (`az keyvault secret set`) on policy-constrained subscriptions.
+- **Network access**: Public network access is enabled. The `enableSecurityControlExemption`
+  parameter (default: `false`, opt-in) applies the tag `SecurityControl=ignore` when set to `true`,
+  which exempts resources from subscription policies that would otherwise override
+  `publicNetworkAccess` to `Disabled`. This tag is only needed for e2e testing on policy-restricted
+  tenants (e.g. internal MCAPS) — normal production deployments must leave this parameter unset.
+  The e2e scripts enable it automatically.
 
 ### Dual Auth Pattern
 GitHub Apps cannot hold Copilot licenses. Squad on ACA uses a dual-token approach:

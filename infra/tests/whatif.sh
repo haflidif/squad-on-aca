@@ -141,6 +141,7 @@ WHAT_IF_ARGS=(
   --parameters    "deployerPrincipalType=${DEPLOYER_TYPE}"
   --parameters    "environment=${ENVIRONMENT}"
   --parameters    "projectName=${PROJECT_NAME}"
+  --parameters    "enableSecurityControlExemption=true"
   --result-format FullResourcePayloads
 )
 for ep in "${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}"; do

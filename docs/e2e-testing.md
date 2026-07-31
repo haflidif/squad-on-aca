@@ -426,10 +426,17 @@ az keyvault secret set --vault-name <kv-name> \
 
 > **Policy-constrained subscriptions**: If your subscription enforces `publicNetworkAccess: Disabled`
 > on Key Vaults, secret upload via `az keyvault secret set` requires public access to be permitted.
-> All resources deployed by this IaC carry the tag `SecurityControl=ignore`, which exempts them from
-> such subscription policies and keeps `publicNetworkAccess: Enabled` on the Key Vault. If upload
-> still fails, verify the tag is present on the Key Vault and that your subscription's policy
-> definition honours this exemption tag.
+> The `enableSecurityControlExemption` parameter (default: `false`) applies the `SecurityControl=ignore`
+> tag, which exempts resources from such subscription policies and keeps `publicNetworkAccess: Enabled`
+> on the Key Vault. **This is opt-in and off by default.** The e2e scripts (`whatif.sh`, `whatif.ps1`,
+> `e2e.sh`, `e2e.ps1`) enable it automatically for live testing on policy-restricted tenants.
+> Normal production deployments must NOT set this parameter.
+> To enable it manually for a one-off deployment in a policy-restricted tenant:
+> ```bash
+> az deployment sub create ... --parameters enableSecurityControlExemption=true
+> ```
+> If upload still fails, verify the tag is present on the Key Vault and that your subscription's
+> policy definition honours this exemption tag.
 
 ### Smoke test: role assignment not found
 

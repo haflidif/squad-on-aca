@@ -47,3 +47,8 @@ param agentTimeoutSeconds = 1800
 // nameSuffix is auto-derived from subscription + project + environment by default.
 // Override here to keep resource names stable across redeployments in the same env:
 //   param nameSuffix = 'a1b2c3d4'
+
+// E2E / policy-restricted tenants only (e.g. internal MCAPS):
+// Set to true to apply SecurityControl=ignore tag, exempting resources from Azure Policy
+// (e.g. policies that force KV publicNetworkAccess=Disabled). Leave false for normal deployments.
+param enableSecurityControlExemption = false

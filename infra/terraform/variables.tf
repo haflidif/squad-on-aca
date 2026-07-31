@@ -43,10 +43,15 @@ variable "tags" {
   description = "Tags applied to all resources"
   type        = map(string)
   default = {
-    project         = "squad-on-aca"
-    managed_by      = "terraform"
-    SecurityControl = "ignore" # Exempts resources from subscription policies (e.g. KV publicNetworkAccess:Disabled)
+    project    = "squad-on-aca"
+    managed_by = "terraform"
   }
+}
+
+variable "enable_security_control_exemption" {
+  description = "Apply the SecurityControl=ignore tag to exempt resources from subscription Azure Policy. Only needed for e2e testing in policy-restricted tenants (e.g. internal MCAPS). Leave false for normal deployments."
+  type        = bool
+  default     = false
 }
 
 variable "target_repos" {
