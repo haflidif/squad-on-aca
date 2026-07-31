@@ -403,3 +403,9 @@ E2e test scripts are unchanged — no auto-injection of the tag.
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
 
+
+### 2026-07-31T14:48:51+02:00: Chewie — BASE_ACR_HOST manual build docs fix (commit 86ec4ea, PR #12)
+
+**What:** Updated the manual image build documentation to pass `--build-arg BASE_ACR_HOST=<your-acr-login-server>/` for both ACR and local Docker builds.
+
+**Why:** The agent Dockerfile has a default bootstrap ACR host. Manual adopters need to override that default so builds use base images imported into their own ACR without editing the Dockerfile.
