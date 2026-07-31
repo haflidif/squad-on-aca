@@ -313,6 +313,31 @@ Because both paths propagate shared tags to deployed resources, the Key Vault an
 
 **Production caveat:** The exemption tag is applied to all deployments by default, including production. Production users in security-constrained subscriptions should consider parameterizing it behind an opt-in variable so the policy bypass is explicit and environment-specific.
 
+### 2026-07-31T10:11:43+02:00: Issue #9 — TF↔Bicep scaling parity audit (commit 22e33c6)
+
+**Author:** Chewie (IaC Dev)
+**Branch:** squad/9-azd-bicep-support
+**Outcome:** FULL PARITY — no code fixes required
+
+**What:** Field-by-field comparison of all Container App Job KEDA scaling configuration between `infra/terraform/main.tf` (`azapi_resource.squad_agent_job`) and `infra/bicep/modules/container-app-job.bicep` / `infra/bicep/main.bicep`. All 25 fields compared across API version, trigger type, replica timeout/retry, registry wiring, parallelism, scale min/max/polling, queue scaler rule (name, type, queueName, queueLength, accountName, identity, auth), container resources, identity type, env vars, and all 9 parameter defaults.
+
+**Result:** Every field is ✅ MATCH. One intentional design difference: container image defaults to `mcr.microsoft.com/hello-world:latest` in Bicep (MCR placeholder, avoids chicken-and-egg on first deploy) vs. ACR image in Terraform. This is not a parity defect — it is an established design choice proven in the live e2e run.
+
+**Build verified:** `az bicep build --file infra/bicep/main.bicep` exits 0 (clean compile).
+
+**Validation status:**
+
+| Method | Status |
+|--------|--------|
+| Field-by-field parity with canonical Terraform | ✅ Verified 2026-07-31 |
+| `az bicep build` clean compile | ✅ Verified 2026-07-31 |
+| `azd provision` + smoke test (all assertions passed) | ✅ Verified 2026-07-31 live e2e run |
+| Live queue-based scale event | ❌ Not performed in issue #9 (declarative parity is sufficient evidence) |
+
+**Documentation updated:**
+- `docs/infrastructure.md` — new "Autoscaling: KEDA queue-based scaling" section with parameter table, identity model, full parity table, and live scale test procedure (Options A and B)
+- `docs/e2e-testing.md` — `--run-job` description clarified: distinct from a KEDA queue-driven scale test; links to live scale test procedure
+
 ## Governance
 
 - All meaningful changes require team consensus
