@@ -452,3 +452,5 @@ az acr import --name <acr> --source docker.io/library/golang:1.23.4-bookworm \
 az acr import --name <acr> --source docker.io/library/debian:bookworm-20240701-slim \
   --image base/debian:bookworm-20240701-slim
 ```
+
+When you build manually, pass `--build-arg BASE_ACR_HOST=<your-acr-login-server>/` so the parameterized Dockerfile `FROM` lines use your ACR instead of the default bootstrap ACR.

@@ -381,7 +381,7 @@ Whether you deployed with **Path A (Terraform)** or **Path B (Bicep + azd)**, co
 
 ## Step 6: Build and push container image
 
-> **azd (Path B) users:** The post-provision hook already built and pushed the agent image to ACR as part of `azd up`. **You can skip this step** unless you are customizing the agent image.
+> **azd (Path B) users:** The post-provision hook already imports the base images, then builds and pushes the agent image to ACR as part of `azd up`. **You can skip this step** unless you are customizing the agent image.
 
 Before building, set your ACR name and login server.
 
@@ -418,24 +418,28 @@ az acr import --name "${ACR_NAME}" \
   --image base/debian:bookworm-20240701-slim
 
 # Build and push (add --no-logs on Windows to avoid encoding issues)
-az acr build --registry "${ACR_NAME}" --image squad-agent:latest .
+az acr build \
+  --registry "${ACR_NAME}" \
+  --image squad-agent:latest \
+  --build-arg "BASE_ACR_HOST=${ACR_LOGINSERVER}/" \
+  .
 ```
+
+The `BASE_ACR_HOST` build argument overrides the Dockerfile default so the `FROM` lines use your ACR. Run the base-image import commands first so those images exist in your registry.
 
 ### Option B: Build locally with Docker
 
 ```bash
 cd agents/base
 
-# Update Dockerfile FROM lines to use your ACR name
-# (replace crsquadacaa6b49feb with your ACR login server prefix)
-
-docker build -t squad-agent:latest .
+# Import base images first with the commands from Option A, then sign in so Docker can pull them
 az acr login --name "${ACR_NAME}"
+docker build --build-arg "BASE_ACR_HOST=${ACR_LOGINSERVER}/" -t squad-agent:latest .
 docker tag squad-agent:latest "${ACR_LOGINSERVER}/squad-agent:latest"
 docker push "${ACR_LOGINSERVER}/squad-agent:latest"
 ```
 
-> **Important**: The Dockerfile `FROM` lines reference a specific ACR name. Update them to match your ACR login server, or use `az acr build` which handles this automatically.
+> **Important**: The Dockerfile `FROM` lines use the `BASE_ACR_HOST` build argument. Pass your ACR login server with a trailing slash; do not change the Dockerfile. Option A is simpler because the build runs inside ACR after the base images are imported.
 
 ---
 
@@ -682,7 +686,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 Rebuild and push:
 
 ```bash
-az acr build --registry "${ACR_NAME}" --image squad-agent:latest ./agents/base
+az acr build \
+  --registry "${ACR_NAME}" \
+  --image squad-agent:latest \
+  --build-arg "BASE_ACR_HOST=${ACR_LOGINSERVER}/" \
+  ./agents/base
 ```
 
 ### Changing the Copilot model
@@ -781,7 +789,12 @@ The revision flow is an optional but recommended addition:
 **Cause**: Docker build output contains emoji/unicode that Windows terminal can't render.
 **Solution**: Add `--no-logs` to suppress streaming output:
 ```bash
-az acr build --registry <acr> --image squad-agent:latest . --no-logs
+az acr build \
+  --registry <acr> \
+  --image squad-agent:latest \
+  --build-arg "BASE_ACR_HOST=<your-acr-login-server>/" \
+  . \
+  --no-logs
 ```
 
 ---
