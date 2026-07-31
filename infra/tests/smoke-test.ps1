@@ -250,19 +250,21 @@ try {
     Write-Fail "Storage account '$StorageAccount' — not found or access denied"
 }
 
+# Queue existence: use ARM management plane (storage data plane needs queue-level RBAC
+# that the deployer may not have; ARM control plane only needs Contributor on the RG)
+$subId = az account show --query id -o tsv 2>$null
+$queueResourceId = "/subscriptions/$subId/resourceGroups/$ResourceGroup/providers/Microsoft.Storage/storageAccounts/$StorageAccount/queueServices/default/queues/$QueueName"
 try {
-    $queueExists = az storage queue exists `
-        --account-name $StorageAccount `
-        --name $QueueName `
-        --auth-mode login `
-        --query "exists" -o tsv 2>$null
-    if ($queueExists -eq 'true') {
+    $queueName = az rest --method GET `
+        --url "https://management.azure.com${queueResourceId}?api-version=2023-04-01" `
+        --query "name" -o tsv 2>$null
+    if ($queueName -eq $QueueName) {
         Write-Pass "Storage queue '$QueueName' exists"
     } else {
         Write-Fail "Storage queue '$QueueName' not found in account '$StorageAccount'"
     }
 } catch {
-    Write-Fail "Storage queue check failed — '$QueueName' in '$StorageAccount'"
+    Write-Fail "Storage queue '$QueueName' — ARM check failed: $_"
 }
 
 # ==========================================================================
@@ -413,13 +415,17 @@ function Test-KvSecret([string]$secretName) {
             --vault-name $KeyVault `
             --name $secretName `
             --query "id" -o tsv 2>$null
+        $rc = $LASTEXITCODE
         if ($secretId) {
             Write-Pass "Key Vault secret '$secretName' exists (value not displayed)"
+        } elseif ($rc -ne 0) {
+            # Non-zero exit with no output: network policy blocked access (not missing secret)
+            Write-Fail "Key Vault secret '$secretName' — network access blocked (subscription policy may force private access on KV)"
         } else {
             Write-Fail "Key Vault secret '$secretName' not found in '$KeyVault' — upload after provision"
         }
     } catch {
-        Write-Fail "Key Vault secret '$secretName' — check failed (RBAC propagation may still be in progress)"
+        Write-Fail "Key Vault secret '$secretName' — check failed: $_"
     }
 }
 

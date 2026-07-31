@@ -130,6 +130,25 @@ az acr build `
 Write-Host "✓ squad-agent:latest pushed to $AcrLoginServer" -ForegroundColor Green
 Write-Host ""
 
+# Update the Container App Job to use the real image now that it is in ACR.
+# On initial provision the job starts with a public placeholder image (see
+# infra/bicep/modules/container-app-job.bicep); this step wires in the real image.
+if ($AgentJobName -and $ResourceGroupName) {
+    Write-Host "Updating Container App Job image to ${AcrLoginServer}/squad-agent:latest ..."
+    try {
+        az containerapp job update `
+            --name $AgentJobName `
+            --resource-group $ResourceGroupName `
+            --image "${AcrLoginServer}/squad-agent:latest" `
+            --only-show-errors 2>&1 | Out-Null
+        Write-Host "✓ Container App Job image updated" -ForegroundColor Green
+    } catch {
+        Write-Host "Warning: Could not update job image — run manually:" -ForegroundColor Yellow
+        Write-Host "  az containerapp job update --name $AgentJobName --resource-group $ResourceGroupName --image ${AcrLoginServer}/squad-agent:latest"
+    }
+}
+Write-Host ""
+
 # ---------------------------------------------------------------------------
 # B) Key Vault secret guidance
 # ---------------------------------------------------------------------------

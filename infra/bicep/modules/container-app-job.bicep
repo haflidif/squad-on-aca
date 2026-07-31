@@ -65,6 +65,21 @@ param maxExecutions int = 10
 @description('Job replica timeout in seconds')
 param timeoutSeconds int = 1800
 
+@description('''
+  Initial container image for the job.
+  Defaults to a public MCR placeholder so provisioning succeeds even before the
+  postprovision hook has pushed squad-agent:latest to ACR.
+
+  ARM validates the container image is reachable at provision time.  The private
+  ACR image does not exist on first deploy (chicken-and-egg), so using a public
+  MCR image here lets the job provision cleanly.
+
+  After azd provision (or az deployment sub create), the postprovision hook runs
+  az acr build to push squad-agent:latest, then az containerapp job update to
+  point the job at the real image.  Subsequent executions use squad-agent:latest.
+''')
+param containerImage string = 'mcr.microsoft.com/hello-world:latest'
+
 // ---------------------------------------------------------------------------
 // Container App Job (raw Microsoft.App/jobs resource)
 // Identity-based KEDA auth: uamiResourceId used in scaler rule identity field.
@@ -127,7 +142,7 @@ resource squadAgentJob 'Microsoft.App/jobs@2025-01-01' = {
       containers: [
         {
           name: 'squad-agent'
-          image: '${acrLoginServer}/squad-agent:latest'
+          image: containerImage
           resources: {
             cpu: json(cpu)
             memory: memory

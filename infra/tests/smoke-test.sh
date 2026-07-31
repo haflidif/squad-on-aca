@@ -270,13 +270,12 @@ else
   fail "Storage account shared key access — expected false (disabled), got: ${SA_SHARED_KEY}"
 fi
 
-# Queue existence: use az storage queue exists with --auth-mode login
-QUEUE_EXISTS=$(az storage queue exists \
-  --account-name "${STORAGE_ACCOUNT}" \
-  --name "${QUEUE_NAME}" \
-  --auth-mode login \
-  --query "exists" -o tsv 2>/dev/null || echo "false")
-if [[ "$QUEUE_EXISTS" == "true" ]]; then
+# Queue existence: use ARM management plane (storage data plane needs queue-level RBAC
+# that the deployer may not have; ARM control plane only needs Contributor on the RG)
+SUB_ID=$(az account show --query id -o tsv 2>/dev/null)
+QUEUE_URI="https://management.azure.com/subscriptions/${SUB_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STORAGE_ACCOUNT}/queueServices/default/queues/${QUEUE_NAME}?api-version=2023-04-01"
+QUEUE_NAME_RESULT=$(az rest --method GET --url "${QUEUE_URI}" --query "name" -o tsv 2>/dev/null || echo "")
+if [[ "$QUEUE_NAME_RESULT" == "${QUEUE_NAME}" ]]; then
   pass "Storage queue '${QUEUE_NAME}' exists"
 else
   fail "Storage queue '${QUEUE_NAME}' not found in account '${STORAGE_ACCOUNT}'"
@@ -407,13 +406,15 @@ fi
 # Check secret NAMES only — never echo values
 check_secret() {
   local secret_name="$1"
-  local secret_id
+  local secret_id rc
   secret_id=$(az keyvault secret show \
     --vault-name "${KEY_VAULT}" \
     --name "${secret_name}" \
-    --query "id" -o tsv 2>/dev/null || echo "")
+    --query "id" -o tsv 2>/dev/null) ; rc=$?
   if [[ -n "$secret_id" ]]; then
     pass "Key Vault secret '${secret_name}' exists (value not displayed)"
+  elif [[ $rc -ne 0 ]]; then
+    fail "Key Vault secret '${secret_name}' — network access blocked (subscription policy may force private access on KV)"
   else
     fail "Key Vault secret '${secret_name}' not found in '${KEY_VAULT}' — upload after provision"
   fi

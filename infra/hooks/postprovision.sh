@@ -122,6 +122,25 @@ az acr build \
 echo -e "${GREEN}✓ squad-agent:latest pushed to ${ACR_LOGIN_SERVER}${NC}"
 echo ""
 
+# Update the Container App Job to use the real image now that it is in ACR.
+# On initial provision the job starts with a public placeholder image (see
+# infra/bicep/modules/container-app-job.bicep); this step wires in the real image.
+if [[ -n "$AGENT_JOB_NAME" && -n "$RESOURCE_GROUP_NAME" ]]; then
+  echo "🔄 Updating Container App Job image to ${ACR_LOGIN_SERVER}/squad-agent:latest ..."
+  az containerapp job update \
+    --name "${AGENT_JOB_NAME}" \
+    --resource-group "${RESOURCE_GROUP_NAME}" \
+    --image "${ACR_LOGIN_SERVER}/squad-agent:latest" \
+    --only-show-errors \
+  && echo -e "${GREEN}✓ Container App Job image updated${NC}" \
+  || echo -e "${YELLOW}⚠ Could not update job image — run manually:${NC}
+    az containerapp job update \\
+      --name ${AGENT_JOB_NAME} \\
+      --resource-group ${RESOURCE_GROUP_NAME} \\
+      --image ${ACR_LOGIN_SERVER}/squad-agent:latest"
+fi
+echo ""
+
 # ---------------------------------------------------------------------------
 # B) Key Vault secret guidance
 # ---------------------------------------------------------------------------
