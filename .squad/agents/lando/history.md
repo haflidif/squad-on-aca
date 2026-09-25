@@ -24,3 +24,15 @@ Agent Lando initialized as Container Dev. Responsible for the agent base Dockerf
 - **2026-07-30 — Issue #9 azd/Bicep delivered:** Added `azure.yaml` and cross-platform pre/post-provision hooks so operators can use `azd up`; hooks build/push the agent image to ACR, print Key Vault secret guidance, and set the five `SQUAD_*` GitHub variables.
 
 - **2026-07-31 — Issue #9 postprovision live-run fix:** Cassian's live e2e run proved the postprovision hook must update the Container App Job image after `az acr build`; first provision uses the MCR hello-world placeholder until ACR contains `squad-agent:latest`. The e2e/what-if scripts also now pass `.bicepparam` and overrides as separate `--parameters` flags.
+
+
+## 2026-09-25 — ACA Sandbox runtime provider seam
+
+Implemented the initial PR 2 refactor from `agents/base/entrypoint.sh` into `agents/base/lib/` and `agents/base/providers/`, including Dockerfile updates and a provider seam defaulting to `aca-job`. Reviewer rejection triggered lockout; Wedge owned the approved revision.
+
+
+## 2026-09-26 — PR 4 persona sandbox image initial implementation
+
+Implemented the initial PR 4 persona sandbox worker image and runner under `agents/sandbox/**`, including `owned_paths` in persona dispatch. Cassian rejected review round 1 with six findings: credential scope, renames, symlinks, ignored files, contract mismatch, and weak tests. Lando was locked out from further revisions on this artifact.
+
+Final PR 4 outcome: Cassian approved round 4 after Wedge's final revision. Validation passed 18 sandbox tests and 14 contract tests; Docker build was not run because the daemon was unavailable. Lasting learning: offline tests must also verify image packaging coverage, and persona processes must not be able to see runner output paths.

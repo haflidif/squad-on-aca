@@ -75,3 +75,17 @@ Key project components:
 - **2026-07-30 — Issue #9 azd/Bicep delivered:** Documented the additive azd/Bicep path alongside canonical Terraform, including prerequisites, commands, post-provision secret handling, GitHub variable setup, teardown, comparison notes, and limitations.
 
 - **2026-07-31 — Issue #9 e2e docs outcome:** Cassian delivered live azd/Bicep e2e testing docs and scripts. Final guidance: use what-if plus manual ephemeral deploy for real e2e validation, keep CI deferred, keep job execution opt-in, always tear down by default, and document the Key Vault public-network policy constraint as environment-specific rather than a Bicep defect.
+
+
+## 2026-09-25 — ACA Sandbox contracts and runtime revision
+
+Led the one-sandbox-per-persona ACA Sandbox model. Delivered the approved PR 1 versioned execution contracts under `contracts/aca-sandbox/v1/`. Owned the PR 2 runtime revision after reviewer lockout of the initial author, establishing that legacy queue messages resolve to `aca-job` and unsupported provider metadata is validated before queue acknowledgement.
+
+
+## 2026-09-26 — PR 4 persona sandbox deadlock resolution
+
+Owned PR 4 revisions after Lando's initial sandbox worker implementation was rejected. First revision scoped credentials, disabled rename diffs, added symlink and ignored-file scans, required `owned_paths` in task and dispatch, added segment-aware `path-scope.js`, and gated bash test skips. Cassian later rejected round 2, and Wedge was locked out.
+
+A deadlock followed after Lando, Wedge, and Chewie were each rejected on `agents/sandbox/**`. Haflidi lifted Wedge's lockout in decision `feb6a61a-b876-47d8-a137-340964306d0b`. Wedge completed the final revision: Copilot runs under `env -i` with an allowlist, persona processes cannot see runner output paths, output tampering returns `output_tampered`, cleanup uses one early `EXIT` trap, the Docker build context is repo-root with `Dockerfile.dockerignore`, and tests verify `path-scope.js` image COPY coverage. Cassian approved round 4.
+
+Final validation passed 18 sandbox tests and 14 contract tests. Docker build was not run because the daemon was unavailable. Lasting learning: offline tests must verify image packaging coverage, and persona processes must not see output paths.

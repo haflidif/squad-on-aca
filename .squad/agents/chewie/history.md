@@ -40,3 +40,20 @@ Agent Chewie initialized as IaC Dev. Responsible for all Terraform infrastructur
 
 - **2026-07-31 — Issue #9 scaling parity audit (TF ↔ Bicep):** Performed a full field-by-field comparison of the Container App Job KEDA scaling configuration between Terraform (`azapi_resource.squad_agent_job` in `infra/terraform/main.tf`) and Bicep (`infra/bicep/modules/container-app-job.bicep` + `main.bicep`). All 25+ scaling-relevant fields MATCH. Only intentional design difference: Bicep uses a public MCR placeholder image by default (chicken-and-egg fix); real image applied by postprovision hook. No fixes required — Bicep already matched Terraform. `az bicep build` passes clean. Documented autoscaling behavior in `docs/infrastructure.md` (new "Autoscaling: KEDA queue-based scaling" section with full parity table, parameter explanations, identity model, validation status, and live scale test instructions). Decision recorded in `.squad/decisions/inbox/chewie-issue-9-scaling-parity.md`. KEY LEARNING: KEDA `azure-queue` scaler must use the UAMI RESOURCE ID (not client ID) in the `identity` field of scale rules — both paths do this correctly. Live queue-driven scale test was NOT performed in #9; see `docs/infrastructure.md#how-to-run-a-live-scale-test` for procedure.
 - 2026-07-31T14:48:51+02:00 — Fixed manual BASE_ACR_HOST build-arg docs for adopter ACR base images (commit 86ec4ea, PR #12).
+
+
+## 2026-09-25 — ACA Sandbox infrastructure planning
+
+Mapped infrastructure implications for the one-sandbox-per-persona model, including Sandbox Groups and RBAC considerations. Outcome was planning input only; no code changes.
+
+
+## 2026-09-25 — PR 3 ACA Sandbox infrastructure
+
+Delivered PR 3 Terraform support for ACA Sandbox Groups behind `enable_aca_sandbox` defaulting to `false`. Added `infra/terraform/sandbox.tf` with `azapi_resource` for `Microsoft.App/sandboxGroups@2026-07-01`, a dedicated sandbox dispatcher UAMI, and only `Container Apps SandboxGroup Data Owner` at Sandbox Group scope. Added conditional variables/outputs, narrowed AVM module constraints to patch ranges, updated docs, and recorded the decision. Cassian approved the implementation.
+
+
+## 2026-09-26 — PR 4 credential gate revision and lockout
+
+Completed the PR 4 round 2 revision for persona sandbox credential handling by adding a staged-then-scan credential gate in a private `700` directory and a minimal `credential_leak` result. Cassian rejected round 3 because persona processes could still write around the gate through `SQUAD_OUTPUT_DIR`, `path-scope.js` was missing from the image, and the cleanup trap was installed too late. Chewie was locked out from further revisions on this artifact.
+
+Final PR 4 outcome: Haflidi lifted Wedge's lockout to resolve the deadlock, Wedge completed the final runner revision, and Cassian approved round 4. Validation passed 18 sandbox tests and 14 contract tests; Docker build was not run because the daemon was unavailable. Lasting learning: offline tests must verify image packaging coverage, and persona processes must not see runner output paths.
