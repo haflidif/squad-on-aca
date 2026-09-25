@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/queue-message.schema.json",
+  "title": "Versioned ACA Job queue message variants",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/legacy"
+    },
+    {
+      "$ref": "#/$defs/revise"
+    },
+    {
+      "$ref": "#/$defs/fanout"
+    }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "properties": {
+        "issue_number": { "type": "integer", "minimum": 1 },
+        "agent_type": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "title": { "type": "string", "minLength": 1 }
+      }
+    },
+    "legacy": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["issue_number", "agent_type", "repo", "title"]
+        }
+      ]
+    },
+    "revise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "pr_number", "issue_number", "branch", "agent_type", "repo", "head_sha", "feedback"],
+      "properties": {
+        "type": { "const": "revise" },
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "issue_number": { "type": "integer", "minimum": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "agent_type": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "head_sha": { "$ref": "common.schema.json#/$defs/sha" },
+        "feedback": { "type": "string" }
+      }
+    },
+    "fanout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "message_type",
+        "run_id",
+        "task_id",
+        "logical_member_id",
+        "resolved_persistent_name",
+        "charter_ref",
+        "roster",
+        "baseline_sha",
+        "provider"
+      ],
+      "properties": {
+        "type": { "const": "fanout" },
+        "message_type": { "type": "string", "enum": ["persona.dispatch", "integration.dispatch"] },
+        "run_id": { "type": "string", "minLength": 1 },
+        "parent_run_id": { "type": "string", "minLength": 1 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "logical_member_id": { "type": "string", "minLength": 1 },
+        "resolved_persistent_name": { "type": "string", "minLength": 1 },
+        "charter_ref": { "type": "string", "minLength": 1 },
+        "roster": { "$ref": "common.schema.json#/$defs/roster" },
+        "baseline_sha": { "$ref": "common.schema.json#/$defs/sha" },
+        "provider": { "$ref": "common.schema.json#/$defs/provider" },
+        "required_capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

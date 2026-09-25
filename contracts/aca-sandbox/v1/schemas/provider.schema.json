@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/provider.schema.json",
+  "title": "ACA Sandbox provider contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provider"],
+  "properties": {
+    "schema_version": {
+      "$ref": "common.schema.json#/$defs/schemaVersion"
+    },
+    "provider": {
+      "$ref": "common.schema.json#/$defs/provider"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_concurrent_tasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_artifact_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

@@ -74,7 +74,11 @@ RUN ln -sf /usr/lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/co
 
 WORKDIR /workspace
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY entrypoint.sh /opt/squad-runtime/entrypoint.sh
+COPY lib /opt/squad-runtime/lib
+COPY providers /opt/squad-runtime/providers
+RUN chmod -R a+rX /opt/squad-runtime \
+    && chmod +x /opt/squad-runtime/entrypoint.sh \
+    && ln -sf /opt/squad-runtime/entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -1,0 +1,4 @@
+# Deprecated for the persona worker image.
+# Build from the repository root with:
+# docker build -f agents/sandbox/Dockerfile .
+# The active allowlist is agents/sandbox/Dockerfile.dockerignore.

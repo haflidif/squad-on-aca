@@ -2,3 +2,7 @@
 *
 !Dockerfile
 !entrypoint.sh
+!lib/
+!lib/**
+!providers/
+!providers/**

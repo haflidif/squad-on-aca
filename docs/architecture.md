@@ -173,7 +173,14 @@ graph TB
 
 ## Entrypoint Decision Tree
 
-The `agents/base/entrypoint.sh` script orchestrates the entire agent lifecycle. This flowchart maps every decision point:
+The `agents/base/entrypoint.sh` script is the container entrypoint and thin
+orchestrator. It sources focused runtime modules from `agents/base/lib/` plus
+provider dispatch modules from `agents/base/providers/`. Messages without
+provider metadata always resolve to `aca-job` for legacy queue compatibility;
+environment variables do not reroute legacy messages. Selecting `aca-sandbox`
+currently fails loudly before queue acknowledgement because sandbox provisioning
+is not implemented yet. This flowchart maps every runtime decision point for the
+existing ACA Job provider:
 
 ```mermaid
 flowchart TD
@@ -185,8 +192,10 @@ flowchart TD
     QueueEmpty -->|Yes| CleanExit([Exit 0 — clean])
     QueueEmpty -->|No| ParseMsg["Parse message ID,<br/>popReceipt, content"]
     ParseMsg --> Decode["Base64 decode<br/>message content"]
-    Decode --> ExtractFields["Extract: type, issue_number,<br/>agent_type, repo,<br/>pr_number, branch, head_sha"]
-    ExtractFields --> DeleteMsg["Delete message from queue<br/>(prevent reprocessing)"]
+    Decode --> ExtractFields["Extract: type, issue_number,<br/>agent_type, repo,<br/>provider, pr_number, branch, head_sha"]
+    ExtractFields --> ProviderCheck{Provider?}
+    ProviderCheck -->|"aca-sandbox / unsupported"| SandboxStub[/"FATAL before ack<br/>message remains queued"/]
+    ProviderCheck -->|"aca-job / absent"| DeleteMsg["Delete message from queue<br/>(prevent reprocessing)"]
     DeleteMsg --> AppAuth["Retrieve PEM from Key Vault"]
     AppAuth --> GenJWT["Generate JWT<br/>(RS256, 10min expiry)"]
     GenJWT --> InstToken["Exchange JWT →<br/>installation access token (1hr)"]
@@ -343,19 +352,108 @@ KEDA can auto-dequeue messages, but this platform uses **container-managed deque
 
 ## Message Flow Architecture
 
+### ACA Sandbox contract boundary
+
+PR 1 adds versioned, machine-validatable contracts under
+`contracts/aca-sandbox/v1/`. The contracts describe coordinator execution
+plans, persona dispatch and results, artifact manifests, integration results,
+provider identity, and the existing queue message with optional extensions.
+They establish data boundaries only. The current ACA Job entrypoint and queue
+runtime continue to use their existing behavior.
+
+The lifecycle is:
+
+```text
+Squad initialization
+  -> dynamic roster snapshot (logical member ID, resolved name, charter, capabilities, revision/hash)
+  -> coordinator plan (baseline SHA, owned tasks, dependencies, provider)
+  -> persona dispatch/result
+  -> artifact manifest
+  -> integration result
+```
+
+Roster values are resolved from the initialized Squad state at execution time.
+No dynamic contract encodes a cast name, fixed role, or team size. A baseline
+SHA and roster revision/hash travel with fan-out work so every future worker
+can prove which source and roster snapshot it used. Providers are an opaque boundary:
+contracts identify the provider and its contract version, while provisioning
+and worker execution remain outside this PR.
+
+PR 3 adds the first optional infrastructure for that future provider. Terraform
+creates an ACA Sandbox Group only when `enable_aca_sandbox = true`. The Sandbox
+Group is a regional `Microsoft.App/sandboxGroups@2026-07-01` resource created
+through `azapi_resource` because the AzureRM provider has no native resource for
+it. The default flag value is `false`, so existing ACA Job deployments remain
+unchanged.
+
+The sandbox dispatcher has its own user-assigned managed identity. That identity
+receives exactly one RBAC grant: `Container Apps SandboxGroup Data Owner` scoped
+to the Sandbox Group. Persona sandboxes get no managed identity and no inherited
+access to Key Vault, ACR push, Storage Queue, or GitHub write tokens. The current
+shared ACA Job identity remains in place for compatibility, and splitting it is
+deferred to a later hardening PR.
+
+Dispatcher outputs include the Sandbox Group ID, Sandbox Group name, dispatcher
+client ID, dispatcher principal ID, and the per-sandbox defaults for CPU
+(`1000m`), memory (`2048Mi`), and auto-suspend (`300` seconds). These defaults
+are runtime sandbox create parameters, not Sandbox Group properties. ACR
+authentication for Sandbox Groups is still unverified and is tracked as a PR 5
+follow-up.
+
+PR 4 adds the persona sandbox worker image under `agents/sandbox/`. The image is
+separate from the legacy ACA Job runtime. It includes Git, Node.js, jq, and the
+Copilot CLI, but it intentionally omits Azure CLI login flows, Key Vault access,
+Storage Queue tooling, GitHub CLI publication tooling, and GitHub App JWT
+helpers. The trusted dispatcher is expected to create the sandbox, pre-stage a
+repository working copy at the dispatch `baseline_sha`, inject the Copilot
+credential as an environment variable, and collect output artifacts.
+
+The in-sandbox runner clones only the pre-staged repository path supplied by the
+dispatcher and removes the clone remote before running Copilot. It fails closed
+if the cloned HEAD differs from the dispatch baseline. Dispatch envelopes include
+`owned_paths`, interpreted as exact file paths or directory prefixes. After
+Copilot exits, the runner unsets credential environment variables, writes a
+binary git patch for audit, and rejects any patch that changes paths outside
+`owned_paths` or touches protected control-plane paths. The protected paths are
+`.squad/**` and `.github/workflows/**`.
+
+Squad built-ins such as Coordinator, Scribe, Ralph, Rai, and optional
+`@copilot` are modeled as `function` or `system` roster membership. They are
+not project persona assumptions. Project personas are resolved dynamically from
+the initialized roster.
+
+The legacy queue payload remains valid:
+
+```json
+{
+  "issue_number": 42,
+  "agent_type": "example-agent",
+  "repo": "example-owner/example-repo",
+  "title": "Illustrative legacy ACA Job task"
+}
+```
+
+The queue contract has explicit legacy ACA Job, revision, and provider-extended
+fan-out variants. The legacy variant remains exactly the emitted
+`issue_number`, `agent_type`, `repo`, and `title` shape. Fan-out messages use a
+structured provider object and dynamic member identity instead of treating
+`agent_type` as a persona name. See `contracts/aca-sandbox/v1/README.md` and
+its illustrative fixtures for the complete contract set.
+
 ### Queue message schema (new issue)
 
 ```json
 {
   "issue_number": 42,
-  "agent_type": "{agent-name}",
+  "agent_type": "example-legacy-routing-key",
   "repo": "owner/repo",
   "title": "Fix login redirect bug"
 }
 ```
 
-> **Note**: `agent_type` matches the agent name from your `.squad/team.md` (e.g., `ripley`, `data`). These names are assigned by Squad's casting system during team initialization.
-```
+> **Compatibility note**: `agent_type` is a legacy opaque routing value retained
+> for the current ACA Job runtime. It is not the identity field for dynamic
+> Sandbox work.
 
 ### Queue message schema (revision)
 
@@ -364,8 +462,8 @@ KEDA can auto-dequeue messages, but this platform uses **container-managed deque
   "type": "revise",
   "pr_number": 100,
   "issue_number": 42,
-  "branch": "squad/{agent-name}/issue-42",
-  "agent_type": "{agent-name}",
+  "branch": "squad/example-legacy-routing-key/issue-42",
+  "agent_type": "example-legacy-routing-key",
   "repo": "owner/repo",
   "head_sha": "abc123...",
   "feedback": "{\"reviews\":{...},\"inline_comments\":[...]}"
@@ -440,7 +538,10 @@ The Docker image uses a two-stage build for minimal runtime size:
 │  ├── git, curl, jq, openssl                 │
 │  ├── python3 + azure-cli (pip)              │
 │  ├── Node.js 22 (fresh install)             │
-│  └── entrypoint.sh                          │
+│  └── /opt/squad-runtime/                    │
+│     ├── entrypoint.sh                       │
+│     ├── lib/*.sh runtime modules            │
+│     └── providers/*.sh provider dispatch    │
 └─────────────────────────────────────────────┘
 ```
 

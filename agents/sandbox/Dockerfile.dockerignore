@@ -1,0 +1,12 @@
+*
+!agents/
+!agents/sandbox/
+!agents/sandbox/lib/
+!agents/sandbox/lib/**
+!agents/sandbox/runner/
+!agents/sandbox/runner/**
+!contracts/
+!contracts/aca-sandbox/
+!contracts/aca-sandbox/v1/
+!contracts/aca-sandbox/v1/tools/
+!contracts/aca-sandbox/v1/tools/path-scope.js

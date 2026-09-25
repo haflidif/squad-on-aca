@@ -36,10 +36,10 @@ Edit `agents/base/entrypoint.sh`:
 
 Adding agents to your Squad team requires no infrastructure changes — only Squad initialization:
 
-1. **Initialize your Squad team**: In your target repo, start a Copilot CLI session with the Squad agent manifest (`.github/agents/squad.agent.md`). Squad proposes a team with unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). Confirm the proposal and Squad creates the `.squad/` directory with `team.md`, `routing.md`, and agent charters.
+1. **Initialize your Squad team**: In your target repo, start a Copilot CLI session with the Squad agent manifest (`.github/agents/squad.agent.md`). Squad resolves a roster with stable logical member IDs, persistent display names, memberships, capabilities, and charters. Confirm the proposal and Squad creates the `.squad/` directory with `team.md`, `routing.md`, and agent charters.
 2. **Labels are created automatically**: `squad init` creates `squad:{agent-name}` labels on the repo for each team member, along with Squad's full label taxonomy. Squad also installs `sync-squad-labels.yml` to keep labels in sync with the roster.
 3. **Commit the `.squad/` directory**: Push the initialized team config to git. When the container clones the repo, it reads `.squad/team.md` to discover agents.
-4. **Label an issue**: Use `squad:{agent-name}` to trigger the pipeline. The queue message carries `"agent_type": "{agent-name}"`, the container runs `copilot --yolo --agent squad`, and Squad routes to the correct agent charter.
+4. **Label an issue**: Use the existing `squad:*` workflow to trigger the legacy ACA Job pipeline. Its `agent_type` field remains an opaque compatibility value. Dynamic Sandbox dispatch uses the resolved logical member ID, persistent name, charter reference, capabilities, and roster snapshot instead.
 5. **No infrastructure changes**: The single generic Container App Job handles all agent types.
 
 ---

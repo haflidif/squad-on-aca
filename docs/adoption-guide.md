@@ -487,7 +487,7 @@ Before testing, each target repo needs a Squad team. [Squad](https://bradygaster
    copilot --agent squad
    ```
 
-2. **Squad proposes a team**: Squad's casting system assigns unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). You'll see a proposal with roles, specialties, and routing rules.
+2. **Squad proposes a team**: Squad initialization resolves stable logical member IDs, persistent names, membership kinds, capabilities, and charter references. You'll see a proposal with routing rules and a roster snapshot.
 
 3. **Confirm the proposal**: Once you approve, Squad creates:
 
@@ -536,7 +536,7 @@ The platform adds its own **operational labels** (`squad:processing`, `squad:que
 If `squad init` didn't create labels (e.g., running on a repo without GitHub CLI access), you can create them manually:
 
 ```bash
-# Check .squad/team.md for your agent names
+# Check .squad/team.md for the initialized roster and logical member IDs
 # Example: if your team has agents named "ripley", "data", and "gandalf"
 gh label create "squad:ripley" --repo your-org/your-repo --color "008672"
 gh label create "squad:data" --repo your-org/your-repo --color "008672"

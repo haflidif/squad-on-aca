@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/persona-dispatch.schema.json",
+  "title": "ACA Sandbox persona task and dispatch envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "message_type",
+    "run_id",
+    "task_id",
+    "owner",
+    "objective",
+    "dependencies",
+    "baseline_sha",
+    "roster",
+    "provider",
+    "owned_paths"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "common.schema.json#/$defs/schemaVersion"
+    },
+    "message_type": {
+      "type": "string",
+      "const": "persona.dispatch"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+    },
+    "owner": {
+      "$ref": "common.schema.json#/$defs/member"
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/dependency"
+      },
+      "uniqueItems": true
+    },
+    "baseline_sha": {
+      "$ref": "common.schema.json#/$defs/sha"
+    },
+    "roster": {
+      "$ref": "common.schema.json#/$defs/roster"
+    },
+    "provider": {
+      "$ref": "common.schema.json#/$defs/provider"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/artifactRef"
+      }
+    },
+    "owned_paths": {
+      "$ref": "common.schema.json#/$defs/ownedPaths"
+    }
+  }
+}

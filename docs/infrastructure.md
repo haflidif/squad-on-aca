@@ -26,6 +26,7 @@ Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure co
 | `azure/avm-res-containerregistry-registry` | Container Registry (Basic) | Hosts `squad-agent:latest` image |
 | `azure/avm-res-app-managedenvironment` | ACA Managed Environment | Provides KEDA, Log Analytics integration |
 | `azapi_resource` (Container App Job) | Generic squad agent job | Custom `azapi_resource` due to identity-based KEDA auth not in AVM |
+| `azapi_resource` (ACA Sandbox Group) | Optional Sandbox security boundary | Created only when `enable_aca_sandbox = true` |
 
 ---
 
@@ -39,11 +40,81 @@ The Bicep path starts at `infra/bicep/main.bicep` and uses modules under `infra/
 
 These decisions are also captured in `.squad/decisions.md`:
 
-- **Single Generic Job**: One Container App Job handles all agent types. Agent type comes from queue message. Adding new agents = zero infrastructure changes. Agent names come from Squad's casting system, defined in `.squad/team.md`.
+- **Single Generic Job**: One Container App Job handles all legacy queue routing values. Adding dynamic Sandbox members does not require infrastructure changes because member identity is resolved from the Squad roster at dispatch time.
 - **UAMI for Scaling**: KEDA uses Managed Identity for auth (no connection strings). Storage account blocks shared keys per subscription policy.
 - **Container Self-Dequeue**: Each container manages its own queue interaction (dequeue, delete). Enables dedup checks and failsafe behavior.
 - **Dual Auth Pattern**: App token for git/PR ops, Copilot PAT for `copilot --yolo`. Both stored in Key Vault, swapped at runtime.
 - **Graceful Fallback**: If Copilot fails, work artifact is created so PR still gets made.
+- **Sandbox Dispatcher Boundary**: ACA Sandbox infrastructure is off by default. When enabled, the sandbox dispatcher uses a dedicated managed identity with SandboxGroup data-plane access only.
+
+---
+
+## Optional ACA Sandbox infrastructure
+
+Terraform exposes `enable_aca_sandbox` as a feature flag for PR 3 infrastructure.
+The default is `false`. With the flag off, Terraform creates no sandbox
+resources, no sandbox identity, and no sandbox RBAC assignments. Existing ACA
+Job resources and outputs are unchanged.
+
+When `enable_aca_sandbox = true`, Terraform creates:
+
+- `Microsoft.App/sandboxGroups@2026-07-01` with `azapi_resource`.
+- A dedicated user-assigned managed identity named `id-sandbox-dispatcher-*`.
+- One role assignment: `Container Apps SandboxGroup Data Owner` for the
+  dispatcher identity at the Sandbox Group scope.
+
+Sandbox Group location defaults to `var.location`. Set
+`sandbox_group_location` only when the group must be regionalized separately.
+The dispatcher receives these per-sandbox defaults as outputs for future runtime
+creation calls:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `sandbox_default_cpu` | `"1000m"` | CPU to request per sandbox |
+| `sandbox_default_memory` | `"2048Mi"` | Memory to request per sandbox |
+| `sandbox_default_auto_suspend_seconds` | `300` | Auto-suspend timeout per sandbox |
+
+These defaults are not Sandbox Group properties. They are dispatcher inputs for
+future sandbox create calls.
+
+Persona sandboxes do not receive managed identities or RBAC in this PR. They get
+no Key Vault access, no ACR push, no queue access, and no GitHub write access.
+The legacy shared `squad_agent` identity remains unchanged for the existing ACA
+Job path. Splitting that legacy identity is deferred to a later hardening PR.
+How Sandbox Groups authenticate to ACR is not verified yet, so this PR grants no
+ACR role for sandbox execution.
+
+The persona worker image lives under `agents/sandbox/` and is built separately
+from the legacy `agents/base/` ACA Job image. It uses the same Debian base image
+family and Copilot CLI installation style, but it does not install Azure CLI,
+GitHub CLI, Key Vault helpers, queue helpers, GitHub App authentication, or
+publication tooling. A future dispatcher image will create sandboxes and pass a
+pre-staged repository path, dispatch envelope, output directory, and Copilot
+credential to the persona worker. ACR authentication for Sandbox Groups remains
+unverified and must be resolved before PR 5 can wire live sandbox dispatch.
+
+Build the persona worker from the repository root:
+
+```bash
+docker build -f agents/sandbox/Dockerfile -t squad-persona-sandbox:local .
+```
+
+`agents/sandbox/Dockerfile.dockerignore` is the allowlist for this root build
+context. It includes only `agents/sandbox/**` and the specific ACA sandbox
+contract runtime dependency copied into `/opt/squad/contracts/aca-sandbox/v1/`.
+This avoids sending `.git`, `.squad`, `infra`, secrets, or unrelated source to
+the Docker daemon. The old `docker build agents/sandbox` form is intentionally
+not supported because the runner depends on contract tooling outside that
+directory.
+
+The runner stages artifacts outside `SQUAD_OUTPUT_DIR`, starts Copilot with a
+minimal explicit environment, and withholds runner path variables from the
+persona process. It requires the output directory to be empty before execution
+and checks it again before publish. If any persona process writes directly to
+the output directory, the runner deletes those files and publishes only a
+minimal `output_tampered` failure. True filesystem separation still requires PR 5
+dispatcher hardening: run Copilot under a different UID or attach the output
+mount only after Copilot exits, then collect artifacts with dispatcher-side exec.
 
 ---
 
@@ -237,22 +308,22 @@ Use the e2e test suite's opt-in job execution test. This triggers one execution 
   ```json
   {
     "issue_number": 42,
-    "agent_type": "{agent-name}",
+    "agent_type": "example-legacy-routing-key",
     "repo": "owner/repo",
     "title": "Issue title"
   }
   ```
-  > **Note**: `agent_type` is extracted from the label name (e.g., `squad:{agent-name}` → `{agent-name}`). Agent names come from your team's `.squad/team.md`, created during Squad initialization.
+  > **Compatibility note**: `agent_type` is extracted from the label for the legacy ACA Job path. It remains an opaque routing value. Dynamic Sandbox contracts use logical member ID, resolved persistent name, charter reference, and roster snapshot instead.
 - **TTL**: 24 hours per message
 - **Auth**: Identity-based (UAMI), no shared keys
 
 ### GitHub Actions Workflow (`squad-queue.yml`)
-- **Trigger**: Issue labeled `squad:*` (e.g., `squad:{agent-name}` — agent names come from your team's `.squad/team.md`)
+- **Trigger**: Issue labeled `squad:*`. The current workflow remains the legacy ACA Job path; dynamic Sandbox dispatch uses the roster snapshot contract.
 - **Steps**:
   1. Dedup check (skip if `squad:processing` label already set)
   2. OIDC login to Azure (federated credentials, zero secrets)
   3. Add `squad:processing` label to prevent duplicate processing
-  4. Extract agent type from label name (e.g., `squad:{agent-name}` → `{agent-name}`)
+  4. Extract the legacy routing value from the label name
   5. Enqueue message to Storage Queue with identity-based auth
 - **Permissions**: `id-token: write`, `issues: write`, `contents: read`
 
@@ -294,19 +365,34 @@ GitHub Apps cannot hold Copilot licenses. Squad on ACA uses a dual-token approac
   - `az` CLI + Python (Azure authentication)
   - `jq` (JSON parsing)
   - `openssl` (JWT generation)
-- **Entrypoint**: `entrypoint.sh` orchestrates the entire workflow
+- **Entrypoint**: `entrypoint.sh` sources runtime modules and dispatches to a provider
 
 ### Container Entrypoint (`agents/base/entrypoint.sh`)
-The entrypoint implements the core agent lifecycle:
+The entrypoint remains the container `ENTRYPOINT`, but most behavior lives in
+sourced shell modules:
+
+- `agents/base/lib/`: logging, env validation, Azure auth, queue parsing and
+  acknowledgement, Key Vault reads, GitHub App auth, Copilot token swapping,
+  repo helpers, publication helpers, and the legacy new/revision flows.
+- `agents/base/providers/`: provider dispatch. Missing provider metadata
+  always defaults to `aca-job` for legacy queue compatibility; environment
+  variables do not reroute legacy messages. Unsupported providers, including the
+  current `aca-sandbox` stub, fail before queue acknowledgement so the message is
+  not lost.
+
+The existing `aca-job` provider lifecycle is unchanged:
 1. **MI login**: `az login --identity --client-id`
 2. **Dequeue**: Read one message from Storage Queue
-3. **Dedup checks**: Verify `squad:processing` label, no existing PR/branch, prevent race conditions
-4. **Git identity**: Configure `user.name` = `squad-aca-bot[bot]`
-5. **Clone repo**: `gh repo clone {owner/repo}`
-6. **Create branch**: `squad/{agent_type}/issue-{issue_number}`
-7. **Fetch issue**: Get title, body, labels from GitHub API
-8. **Run Copilot**: `copilot --yolo --agent squad` (reads issue body, makes changes)
-9. **Fallback**: If Copilot fails, create work artifact in `.squad-work/`
-10. **Team state**: Commit any `.squad/` changes (decisions, history)
-11. **Push + PR**: Push branch, create PR with enriched body
-12. **Label swap**: Remove `squad:processing`, add `squad:queued`
+3. **Decode + provider validation**: Decode message and resolve provider; reject unsupported providers before acknowledgement
+4. **Ack**: Delete validated `aca-job` queue message
+5. **GitHub/Copilot auth**: Mint GitHub App token and retrieve Copilot PAT
+6. **Dedup checks**: Verify `squad:processing` label, no existing PR/branch, prevent race conditions
+7. **Git identity**: Configure `user.name` = `squad-aca-bot[bot]`
+8. **Clone repo**: `gh repo clone {owner/repo}`
+9. **Create branch**: `squad/{agent_type}/issue-{issue_number}`
+9. **Fetch issue**: Get title, body, labels from GitHub API
+10. **Run Copilot**: `copilot --yolo --agent squad` (reads issue body, makes changes)
+11. **Fallback**: If Copilot fails, create work artifact in `.squad-work/`
+12. **Team state**: Commit any `.squad/` changes (decisions, history)
+13. **Push + PR**: Push branch, create PR with enriched body
+14. **Label swap**: Remove `squad:processing`, add `squad:queued`

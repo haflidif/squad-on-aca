@@ -83,7 +83,7 @@ The UAMI needs the following role on the storage account (or queue scope):
 
 ### Trigger
 
-The workflow triggers on the `issues: [labeled]` event. It only runs when the added label starts with `squad:` (e.g., `squad:{agent-name}` — where agent names come from your team's `.squad/team.md`).
+The workflow triggers on the `issues: [labeled]` event. It only runs when the added label starts with `squad:`. This workflow emits the legacy ACA Job queue shape; its `agent_type` value is an opaque compatibility routing value, not the dynamic Sandbox member identity.
 
 ### Dedup flow
 
@@ -122,6 +122,15 @@ The message matches the schema expected by `entrypoint.sh`:
   "title": "Add user authentication"
 }
 ```
+
+`agent_type` in this legacy example is an opaque compatibility routing value.
+It is not the dynamic Sandbox member identity. See
+`contracts/aca-sandbox/v1/README.md` for the provider-extended fan-out variant.
+Messages without provider metadata continue to run through the default
+`aca-job` provider in the container entrypoint; environment variables do not
+reroute those legacy messages. Provider-extended messages may name a provider
+object, but unsupported providers, including the current `aca-sandbox` stub,
+fail before queue acknowledgement so the message remains available for retry.
 
 The message is base64-encoded before being placed on the queue (Azure Storage Queue requirement).
 

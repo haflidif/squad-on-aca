@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/coordinator-execution.schema.json",
+  "title": "ACA Sandbox coordinator execution plan and tasks",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "provider", "baseline_sha", "roster", "tasks"],
+  "properties": {
+    "schema_version": {
+      "$ref": "common.schema.json#/$defs/schemaVersion"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "$ref": "common.schema.json#/$defs/provider"
+    },
+    "baseline_sha": {
+      "$ref": "common.schema.json#/$defs/sha"
+    },
+    "roster": {
+      "$ref": "common.schema.json#/$defs/roster"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "owner",
+        "objective",
+        "required_capabilities",
+        "dependencies",
+        "baseline_sha",
+        "provider",
+        "schema_version",
+        "owned_paths"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+        },
+        "owner": {
+          "$ref": "common.schema.json#/$defs/member"
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required_capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/dependency"
+          },
+          "uniqueItems": true
+        },
+        "baseline_sha": {
+          "$ref": "common.schema.json#/$defs/sha"
+        },
+        "provider": {
+          "$ref": "common.schema.json#/$defs/provider"
+        },
+        "schema_version": {
+          "$ref": "common.schema.json#/$defs/schemaVersion"
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/artifactRef"
+          }
+        },
+        "owned_paths": {
+          "$ref": "common.schema.json#/$defs/ownedPaths"
+        }
+      }
+    }
+  }
+}

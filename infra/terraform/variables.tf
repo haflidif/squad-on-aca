@@ -9,6 +9,57 @@ variable "location" {
   default     = "swedencentral"
 }
 
+variable "enable_aca_sandbox" {
+  description = "Feature flag that creates the ACA Sandbox Group and dedicated sandbox dispatcher identity when true."
+  type        = bool
+  default     = false
+}
+
+variable "sandbox_group_location" {
+  description = "Azure region for the ACA Sandbox Group. Null uses the main location."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.sandbox_group_location == null || length(trimspace(var.sandbox_group_location)) > 0
+    error_message = "sandbox_group_location must be null or a non-empty Azure region name."
+  }
+}
+
+variable "sandbox_default_cpu" {
+  description = "Default CPU passed by the dispatcher when creating each ACA sandbox."
+  type        = string
+  default     = "1000m"
+
+  validation {
+    condition     = can(regex("^[0-9]+m$", var.sandbox_default_cpu))
+    error_message = "sandbox_default_cpu must be expressed in millicores, e.g. 1000m."
+  }
+}
+
+variable "sandbox_default_memory" {
+  description = "Default memory passed by the dispatcher when creating each ACA sandbox."
+  type        = string
+  default     = "2048Mi"
+
+  validation {
+    condition     = can(regex("^[0-9]+Mi$", var.sandbox_default_memory))
+    error_message = "sandbox_default_memory must be expressed in Mi, e.g. 2048Mi."
+  }
+}
+
+variable "sandbox_default_auto_suspend_seconds" {
+  description = "Default auto-suspend duration in seconds passed by the dispatcher when creating each ACA sandbox."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.sandbox_default_auto_suspend_seconds > 0
+    error_message = "sandbox_default_auto_suspend_seconds must be greater than 0."
+  }
+}
+
 variable "project_name" {
   description = "Project name used for resource naming"
   type        = string
