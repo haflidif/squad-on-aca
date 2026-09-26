@@ -7,6 +7,46 @@ const {
 } = require('./path-scope');
 
 const SCHEMA_DIR = path.join(__dirname, '..', 'schemas');
+const SAFE_ARTIFACT_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
+const WINDOWS_RESERVED_DEVICE_PATTERN = /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/iu;
+
+function artifactPathCollisionKey(value) {
+  return value.normalize('NFC').toLowerCase();
+}
+
+function validateArtifactPath(value, location) {
+  const errors = [];
+  if (typeof value !== 'string' || value.length === 0) return [`${location} must be a non-empty string`];
+  if (value.includes('\0')) errors.push(`${location} must not contain NUL bytes`);
+  if (/[\x00-\x1F\x7F]/u.test(value)) errors.push(`${location} must not contain control characters`);
+  if (value.includes(':')) errors.push(`${location} must not contain colon characters`);
+  if (value.includes('\\')) errors.push(`${location} must use POSIX separators`);
+  if (value.startsWith('/') || /^[A-Za-z]:/.test(value)) errors.push(`${location} must be a relative POSIX path`);
+  if (!SAFE_ARTIFACT_PATH_PATTERN.test(value)) errors.push(`${location} contains unsupported characters or empty segments`);
+  for (const segment of value.split('/')) {
+    if (segment === '.' || segment === '..') errors.push(`${location} must not contain dot segments`);
+    if (/[. ]$/u.test(segment)) errors.push(`${location} segments must not end in dot or space`);
+    const baseName = segment.normalize('NFC').split('.')[0];
+    if (WINDOWS_RESERVED_DEVICE_PATTERN.test(baseName)) errors.push(`${location} must not contain Windows reserved device names`);
+  }
+  return errors;
+}
+
+function validateArtifactPathCollisions(artifacts) {
+  const errors = [];
+  const seen = new Map();
+  for (const [index, artifact] of (artifacts || []).entries()) {
+    if (typeof artifact.path !== 'string') continue;
+    const key = artifactPathCollisionKey(artifact.path);
+    const existing = seen.get(key);
+    if (existing) {
+      errors.push(`artifacts[${index}].path collides with ${existing.location} after Unicode normalization and case folding`);
+    } else {
+      seen.set(key, { location: `artifacts[${index}].path`, path: artifact.path });
+    }
+  }
+  return errors;
+}
 
 function loadSchemas() {
   const schemas = new Map();
@@ -163,6 +203,12 @@ function semanticErrors(contractName, value, context) {
           }
         }
       }
+    }
+    if (contractName === 'artifact-manifest.schema.json') {
+      for (const [index, artifact] of (value.artifacts || []).entries()) {
+        errors.push(...validateArtifactPath(artifact.path, `artifacts[${index}].path`));
+      }
+      errors.push(...validateArtifactPathCollisions(value.artifacts));
     }
   }
   return errors;

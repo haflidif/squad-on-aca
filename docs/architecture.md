@@ -1,6 +1,6 @@
 # Architecture
 
-> Deep technical architecture of the Squad on ACA platform — how every piece fits together.
+> Deep technical architecture of the Squad on ACA platform - how every piece fits together.
 
 ---
 
@@ -8,8 +8,8 @@
 
 Squad on ACA now includes two deployment paths that produce equivalent Azure resources:
 
-- `infra/terraform/` — the canonical and default Terraform path.
-- `infra/bicep/` — the Azure-native Bicep path used by `azd`.
+- `infra/terraform/` - the canonical and default Terraform path.
+- `infra/bicep/` - the Azure-native Bicep path used by `azd`.
 
 See [Terraform vs Bicep and azd: which should you choose?](adoption-guide.md#terraform-vs-bicep-and-azd-which-should-you-choose) for the tradeoffs.
 
@@ -38,7 +38,7 @@ sequenceDiagram
 
     User->>GH: Label issue #42 with "squad:{agent-name}"
     GH->>WF: issues.labeled webhook fires
-    WF->>WF: Dedup check — squad:processing label?
+    WF->>WF: Dedup check - squad:processing label?
     WF->>AZ: OIDC token exchange (zero secrets)
     AZ-->>WF: Azure access token
     WF->>GH: Add "squad:processing" label
@@ -55,7 +55,7 @@ sequenceDiagram
     Job->>Job: az login --identity (UAMI)
     Job->>Q: Dequeue message (--auth-mode login)
     Job->>Q: Delete message (prevent reprocessing)
-    Job->>GH: Dedup — check labels, PRs, branches
+    Job->>GH: Dedup - check labels, PRs, branches
     Job->>KV: Retrieve GitHub App PEM
     Job->>Job: Generate JWT (RS256, 10min expiry)
     Job->>GH: Exchange JWT → installation token (1hr)
@@ -189,7 +189,7 @@ flowchart TD
     EnvCheck -->|Yes| AzLogin["az login --identity<br/>--client-id AZURE_CLIENT_ID"]
     AzLogin --> Dequeue["az storage message get<br/>(--auth-mode login)"]
     Dequeue --> QueueEmpty{Queue empty<br/>or null?}
-    QueueEmpty -->|Yes| CleanExit([Exit 0 — clean])
+    QueueEmpty -->|Yes| CleanExit([Exit 0 - clean])
     QueueEmpty -->|No| ParseMsg["Parse message ID,<br/>popReceipt, content"]
     ParseMsg --> Decode["Base64 decode<br/>message content"]
     Decode --> ExtractFields["Extract: type, issue_number,<br/>agent_type, repo,<br/>provider, pr_number, branch, head_sha"]
@@ -201,7 +201,7 @@ flowchart TD
     GenJWT --> InstToken["Exchange JWT →<br/>installation access token (1hr)"]
     InstToken --> CopilotPAT["Retrieve Copilot PAT<br/>from Key Vault"]
     CopilotPAT --> GhAuth["gh auth setup-git"]
-    GhAuth --> EnsureLabels["Ensure pipeline labels exist<br/>(auto-creates squad:processing<br/>and squad:queued — NOT agent labels)"]
+    GhAuth --> EnsureLabels["Ensure pipeline labels exist<br/>(auto-creates squad:processing<br/>and squad:queued - NOT agent labels)"]
     EnsureLabels --> MsgTypeCheck{MSG_TYPE?}
 
     MsgTypeCheck -->|"revise"| ReviseFlow
@@ -272,11 +272,11 @@ GitHub Apps cannot hold Copilot licenses. This creates a fundamental authenticat
 # App token generated from GitHub App installation
 APP_TOKEN="${GITHUB_TOKEN}"
 
-# Before Copilot CLI — swap to Copilot PAT
+# Before Copilot CLI - swap to Copilot PAT
 export GITHUB_TOKEN="${COPILOT_TOKEN}"
 echo "${SQUAD_PROMPT}" | copilot --yolo --agent squad
 
-# After Copilot CLI — swap back to App token
+# After Copilot CLI - swap back to App token
 export GITHUB_TOKEN="${APP_TOKEN}"
 git push origin "${BRANCH}"
 gh pr create ...
@@ -284,10 +284,10 @@ gh pr create ...
 
 ### Why two tokens?
 
-1. **GitHub Apps are org-level identities** — they don't have user accounts, so they can't be assigned Copilot licenses.
-2. **Copilot CLI requires `GITHUB_TOKEN`** — it uses this env var to authenticate with GitHub's Copilot API. The token must belong to a user with an active Copilot license.
-3. **Minimal blast radius** — the Copilot PAT only needs `copilot` scope. It's never used for git operations, PR creation, or label management.
-4. **Audit clarity** — all repository mutations (commits, PRs, labels) show as `squad-aca-bot[bot]`, not a personal user.
+1. **GitHub Apps are org-level identities** - they don't have user accounts, so they can't be assigned Copilot licenses.
+2. **Copilot CLI requires `GITHUB_TOKEN`** - it uses this env var to authenticate with GitHub's Copilot API. The token must belong to a user with an active Copilot license.
+3. **Minimal blast radius** - the Copilot PAT only needs `copilot` scope. It's never used for git operations, PR creation, or label management.
+4. **Audit clarity** - all repository mutations (commits, PRs, labels) show as `squad-aca-bot[bot]`, not a personal user.
 
 ---
 
@@ -323,7 +323,7 @@ The Bicep path in `infra/bicep/` uses equivalent Container App Job settings.
 Standard KEDA azure-queue scalers use connection strings. This platform uses **identity-based auth** because:
 
 1. Subscription policy enforces `allowSharedKeyAccess = false` on storage accounts.
-2. Connection strings are secrets — identity-based auth eliminates secret rotation.
+2. Connection strings are secrets - identity-based auth eliminates secret rotation.
 3. The `azapi_resource` is used instead of AVM because the `azurerm` provider doesn't support the `identity` field at the KEDA scale rule level.
 
 ```hcl
@@ -344,9 +344,9 @@ rules = [{
 
 KEDA can auto-dequeue messages, but this platform uses **container-managed dequeue** for several reasons:
 
-1. **Deduplication** — the container checks labels, existing PRs, and branches before doing work.
-2. **Message deletion control** — the message is deleted immediately after parsing, not after processing. This prevents a failed container from reprocessing the same message.
-3. **Graceful empty-queue handling** — KEDA may trigger a container after the queue has already been drained by a parallel container. The entrypoint detects empty queues and exits cleanly (`exit 0`).
+1. **Deduplication** - the container checks labels, existing PRs, and branches before doing work.
+2. **Message deletion control** - the message is deleted immediately after parsing, not after processing. This prevents a failed container from reprocessing the same message.
+3. **Graceful empty-queue handling** - KEDA may trigger a container after the queue has already been drained by a parallel container. The entrypoint detects empty queues and exits cleanly (`exit 0`).
 
 ---
 
@@ -405,8 +405,8 @@ separate from the legacy ACA Job runtime. It includes Git, Node.js, jq, and the
 Copilot CLI, but it intentionally omits Azure CLI login flows, Key Vault access,
 Storage Queue tooling, GitHub CLI publication tooling, and GitHub App JWT
 helpers. The trusted dispatcher is expected to create the sandbox, pre-stage a
-repository working copy at the dispatch `baseline_sha`, inject the Copilot
-credential as an environment variable, and collect output artifacts.
+repository working copy at the dispatch `baseline_sha`, deliver runner
+environment through a stdin bootstrap payload, and collect output artifacts.
 
 The in-sandbox runner clones only the pre-staged repository path supplied by the
 dispatcher and removes the clone remote before running Copilot. It fails closed
@@ -416,6 +416,73 @@ Copilot exits, the runner unsets credential environment variables, writes a
 binary git patch for audit, and rejects any patch that changes paths outside
 `owned_paths` or touches protected control-plane paths. The protected paths are
 `.squad/**` and `.github/workflows/**`.
+
+PR 5 adds the trusted dispatcher under `dispatcher/`. It is dependency-free
+Node.js and uses the same contract validator as PR 1. The CLI defaults to the
+offline fake client:
+
+```text
+node dispatcher/cli.js --plan plan.json --repo <path> --out <dir> --client fake
+```
+
+The live ACA client is opt-in and refuses to run unless
+`SQUAD_ENABLE_ACA_SANDBOX=1` is set. This prevents accidental live sandbox
+creation during local tests or CI dry runs.
+
+For each plan task, the dispatcher builds a schema-valid `persona.dispatch`
+envelope from the plan's roster snapshot, creates one sandbox with labels for
+execution ID, task ID, and logical member ID, and stages source by uploading a
+local git bundle for the baseline commit. The sandbox clones from that bundle
+and detaches to the baseline SHA. No repository remote URL, GitHub App token, or
+write credential enters the persona sandbox.
+
+Task dependencies are enforced before dispatch. Independent tasks run in
+parallel up to a small configurable concurrency limit. If a dependency fails,
+the dependent task is marked `skipped` and no sandbox is created for it. The
+default policy is fail closed: any persona task failure makes the dispatcher
+execution fail.
+
+The dispatcher starts a fixed `exec-with-env.js` bootstrap inside the sandbox
+and writes one JSON object of runner environment variables to stdin. The
+bootstrap validates the keys against an allowlist, sets them, and execs the
+persona runner. This keeps `SQUAD_SOURCE_REPO_PATH`, `SQUAD_OUTPUT_DIR`, and
+`SQUAD_COPILOT_TOKEN` out of local `aca` process environment and out of
+`aca sandbox exec` argv. It rejects classic `ghp_` tokens because the Sandbox
+path requires fine-grained `github_pat_` credentials. The token is not written
+to the dispatch envelope, git bundle, argv, logs, or summary. Runner stdout,
+stderr, and downloaded artifacts are scanned for the exact token and common
+GitHub token prefixes before the task can succeed.
+
+Inside the runner, the Copilot token is handed to `copilot-launch.sh` on file
+descriptor 3. The launcher reads the token, closes the descriptor, exports
+`GITHUB_TOKEN`, and execs Copilot. The minimal environment passed through
+`runuser`, `setpriv`, and `env -i` contains only non-secret values, so the token
+does not appear in parent process argv.
+
+Artifact collection is dispatcher-owned. After the runner exits, the dispatcher
+downloads `persona-result.json`, `artifact-manifest.json`, and every listed
+artifact. It revalidates result and manifest contracts, recomputes every
+artifact sha256, rescans downloaded content for credentials, and rechecks patch
+paths against `owned_paths` plus protected path rules with
+`contracts/aca-sandbox/v1/tools/path-scope.js`. Sandbox delete runs in a
+`finally` block. Delete failures are recorded in `dispatcher-summary.json`
+without hiding the original task error.
+
+The sandbox image now creates a separate `copilot-agent` user. In the container,
+the runner keeps staging and output directories private and drops privileges for
+the Copilot process with `runuser` or `setpriv`. Local tests that cannot switch
+users run in an explicit `same-user` mode and assert the marker in
+`logs/isolation-mode.txt`, so the weaker local path is visible.
+
+The only live ACA assumptions are isolated in
+`dispatcher/clients/aca-cli-client.js` and marked UNVERIFIED: exact `aca`
+create and exec flags, JSON output shape, file transfer support, delete
+behavior, stdin forwarding for bootstrap environment delivery, and ACR
+authentication from Sandbox Groups. If stdin forwarding is not available, the
+planned fallback is an env JSON file uploaded to a runner-only tmpfs path with
+mode `600`, read once by the same bootstrap, and deleted immediately. That
+fallback is also UNVERIFIED and is not the default. PR 6 must verify these
+against a real Sandbox Group before workflow wiring can enable the provider.
 
 Squad built-ins such as Coordinator, Scribe, Ralph, Rai, and optional
 `@copilot` are modeled as `function` or `system` roster membership. They are
@@ -485,7 +552,7 @@ QUEUE_MESSAGE=$(echo "${MSG_BODY_B64}" | base64 -d)
 
 ### TTL (Time to Live)
 
-- **24 hours** (`--time-to-live 86400`) — messages expire if not processed within a day.
+- **24 hours** (`--time-to-live 86400`) - messages expire if not processed within a day.
 - This prevents stale messages from accumulating if the container infrastructure is down.
 - If a message expires, the issue retains its `squad:processing` label, which can be manually removed to retry.
 
@@ -515,7 +582,7 @@ All authentication is identity-based. Here is the complete RBAC map:
 | UAMI (squad-agent) | AcrPush | Container Registry | Import base images from Docker Hub |
 | UAMI (squad-agent) | Key Vault Secrets User | Key Vault | Read PEM + Copilot PAT at runtime |
 | Deployer (current user) | Key Vault Secrets Officer | Key Vault | Upload PEM + PAT via `az keyvault secret set` |
-| GitHub Actions (OIDC) | *(via UAMI federated cred)* | — | Workflow authenticates as UAMI to enqueue messages |
+| GitHub Actions (OIDC) | *(via UAMI federated cred)* | - | Workflow authenticates as UAMI to enqueue messages |
 
 ---
 

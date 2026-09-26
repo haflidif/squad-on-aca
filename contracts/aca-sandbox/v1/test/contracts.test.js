@@ -273,6 +273,98 @@ test('path ownership uses segment-aware prefixes', () => {
   const result = validateContract('coordinator-execution.schema.json', fixture);
   assert.equal(result.valid, true, result.errors.join('\n'));
 });
+
+test('dispatcher summary schema accepts the dispatcher operational receipt', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const result = validateContract('dispatcher-summary.schema.json', {
+    schema_version: 'aca-sandbox/v1',
+    message_type: 'dispatcher.summary',
+    run_id: execution.run_id,
+    status: 'succeeded',
+    started_at: '2026-09-26T00:00:00.000Z',
+    ended_at: '2026-09-26T00:01:00.000Z',
+    tasks: [{
+      task_id: execution.tasks[0].task_id,
+      logical_member_id: execution.tasks[0].owner.logical_member_id,
+      status: 'succeeded',
+      reason: 'Illustrative dispatcher summary',
+      started_at: '2026-09-26T00:00:00.000Z',
+      ended_at: '2026-09-26T00:01:00.000Z',
+      sandbox_id: 'sandbox-example',
+      artifact_paths: ['tasks/task-example-plan/persona-result.json'],
+      deletion_error: ''
+    }]
+  });
+  assert.equal(result.valid, true, result.errors.join('\n'));
+});
+
+test('artifact manifest rejects unsafe relative paths', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const base = {
+    schema_version: 'aca-sandbox/v1',
+    run_id: execution.run_id,
+    task_id: execution.tasks[0].task_id,
+    baseline_sha: execution.baseline_sha,
+    roster: execution.roster,
+    provider: execution.provider,
+    artifacts: [{
+      artifact_id: 'artifact-example',
+      kind: 'log',
+      path: 'logs/example.log',
+      sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    }]
+  };
+  for (const unsafePath of [
+    '../escape.log',
+    '/escape.log',
+    'logs\\escape.log',
+    'logs/../escape.log',
+    'C:/escape.log',
+    'logs//escape.log',
+    '.',
+    'logs/CON.txt',
+    'logs/com1.txt',
+    'logs/LPT³.txt',
+    'logs/name.',
+    'logs/name:stream.txt',
+    'logs/name\u0001.txt'
+  ]) {
+    const manifest = structuredClone(base);
+    manifest.artifacts[0].path = unsafePath;
+    const result = validateContract('artifact-manifest.schema.json', manifest);
+    assert.equal(result.valid, false, `${unsafePath} should be rejected`);
+  }
+});
+
+test('artifact manifest rejects case-insensitive path collisions', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const manifest = {
+    schema_version: 'aca-sandbox/v1',
+    run_id: execution.run_id,
+    task_id: execution.tasks[0].task_id,
+    baseline_sha: execution.baseline_sha,
+    roster: execution.roster,
+    provider: execution.provider,
+    artifacts: [
+      {
+        artifact_id: 'artifact-lower',
+        kind: 'log',
+        path: 'logs/example.log',
+        sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      },
+      {
+        artifact_id: 'artifact-upper',
+        kind: 'log',
+        path: 'LOGS/EXAMPLE.LOG',
+        sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      }
+    ]
+  };
+  const result = validateContract('artifact-manifest.schema.json', manifest);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some(error => error.includes('collides')));
+});
+
 test('schemas do not encode this repository roster names', () => {
   const forbiddenNames = /\b(?:Wedge|Chewie|Lando|Cassian|Bodhi|Rai|Ralph|Scribe)\b/;
   for (const file of fs.readdirSync(schemasDir).filter(file => file.endsWith('.json'))) {

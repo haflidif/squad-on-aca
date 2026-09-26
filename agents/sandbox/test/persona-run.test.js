@@ -43,6 +43,12 @@ function bashPath(windowsPath) {
   return run(bash, ['-lc', script, 'bash', windowsPath]);
 }
 
+function hasProcArgvEvidence() {
+  if (!bash) return false;
+  const result = spawnSync(bash, ['-lc', '[[ -r /proc/self/cmdline && -r /proc/$$/stat ]]'], { encoding: 'utf8' });
+  return result.status === 0;
+}
+
 function resetDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
@@ -195,13 +201,15 @@ function runRunner({ name, baseline, sourceRepo, fakeCopilot, action = 'happy', 
       'FAKE_COPILOT_ENV_FILE',
       'FAKE_SYMLINK_TARGET',
       'FAKE_SYMLINK_TOKEN_TARGET',
-      'FAKE_OUTPUT_TAMPER_PATH'
+      'FAKE_OUTPUT_TAMPER_PATH',
+      'FAKE_ARGV_DUMP_FILE'
     ].join(','),
     FAKE_COPILOT_ACTION: action,
     FAKE_COPILOT_ENV_FILE: bashPath(fakeEnvFile),
     FAKE_SYMLINK_TARGET: bashPath(externalTarget),
     FAKE_SYMLINK_TOKEN_TARGET: bashPath(externalTokenTarget),
-    FAKE_OUTPUT_TAMPER_PATH: bashPath(outputTamperPath)
+    FAKE_OUTPUT_TAMPER_PATH: bashPath(outputTamperPath),
+    FAKE_ARGV_DUMP_FILE: process.env.FAKE_ARGV_DUMP_FILE || ''
   };
   delete env.GITHUB_TOKEN;
   delete env.COPILOT_TOKEN;
@@ -257,6 +265,16 @@ function assertMinimalFailureOutput(outputDir, code) {
   assertOutputDoesNotContain(outputDir, 'test-copilot-token');
 }
 
+function assertIsolationMode(outputDir) {
+  const marker = fs.readFileSync(path.join(outputDir, 'logs', 'isolation-mode.txt'), 'utf8').trim();
+  assert.match(marker, /^copilot_isolation_mode=(same-user|separate-user)$/);
+  if (process.getuid && process.getuid() === 0) {
+    assert.equal(marker, 'copilot_isolation_mode=separate-user');
+  } else {
+    assert.equal(marker, 'copilot_isolation_mode=same-user');
+  }
+}
+
 test('Dockerfile copies sandbox runtime contract dependencies', () => {
   const dockerfile = fs.readFileSync(sandboxDockerfile, 'utf8');
   const runnerSource = fs.readFileSync(runner, 'utf8');
@@ -278,6 +296,28 @@ test('Dockerfile copies sandbox runtime contract dependencies', () => {
       `${contractRef} is referenced at runtime but not covered by Dockerfile COPY`
     );
   }
+
+  const createdUsers = new Set(['root']);
+  const createdGroups = new Set(['root']);
+  const flattenedDockerfile = dockerfile.replace(/\\\r?\n/g, ' ');
+  for (const command of flattenedDockerfile.split(/&&|;/).filter(part => /\buseradd\b/.test(part))) {
+    const parts = command.trim().split(/\s+/);
+    const user = parts[parts.length - 1];
+    if (user && !user.startsWith('-')) {
+      createdUsers.add(user);
+      createdGroups.add(user);
+    }
+  }
+  for (const match of dockerfile.matchAll(/--chown=([^\s]+)/g)) {
+    const [user, group = user] = match[1].split(':');
+    assert(createdUsers.has(user), `COPY --chown references unknown user ${user}`);
+    assert(createdGroups.has(group), `COPY --chown references unknown group ${group}`);
+  }
+  for (const match of dockerfile.matchAll(/^\s*USER\s+([^\s]+)/gm)) {
+    const [user, group = user] = match[1].split(':');
+    assert(createdUsers.has(user), `USER references unknown user ${user}`);
+    assert(createdGroups.has(group), `USER references unknown group ${group}`);
+  }
 });
 
 test('happy path produces valid result, manifest, and patch', { skip: !bash && 'Git Bash is not available' }, () => {
@@ -288,6 +328,7 @@ test('happy path produces valid result, manifest, and patch', { skip: !bash && '
   validateOutput(outputDir);
   const personaResult = readResult(outputDir);
   assert.equal(personaResult.status, 'succeeded');
+  assertIsolationMode(outputDir);
   assert.match(fs.readFileSync(path.join(outputDir, 'patches', 'task-test-sandbox.patch'), 'utf8'), /allowed\/result\.txt/);
 });
 
@@ -346,8 +387,66 @@ test('credential environment is cleared after Copilot exits', { skip: !bash && '
   assert.doesNotMatch(fs.readFileSync(fakeEnvFile, 'utf8'), /^STAGING_DIR=/m);
   assert.doesNotMatch(fs.readFileSync(fakeEnvFile, 'utf8'), /^SQUAD_SOURCE_REPO_PATH=/m);
   assert.match(fs.readFileSync(fakeEnvFile, 'utf8'), /^HOME=.+\.persona-home\./m);
+  assertIsolationMode(outputDir);
   assert.equal(fs.readFileSync(path.join(outputDir, 'logs', 'credential-env-cleared.txt'), 'utf8').trim(), 'credential_env_cleared=true');
   assertOutputDoesNotContain(outputDir, 'test-copilot-token');
+});
+
+test('Copilot token is delivered through fd and absent from process argv', { skip: !bash && 'Git Bash is not available' }, (t) => {
+  if (!hasProcArgvEvidence()) {
+    const reason = '/proc cmdline evidence is unavailable for argv inspection';
+    if (process.env.SQUAD_REQUIRE_PROC_ARGV_TEST === '1') assert.fail(reason);
+    t.skip(reason);
+    return;
+  }
+  const { repo, baseline } = createRepo('fd-token');
+  const fake = path.join(workRoot, 'fd-token', 'fake-copilot-argv.sh');
+  fs.writeFileSync(fake, `#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+: "\${GITHUB_TOKEN:?GITHUB_TOKEN must be present for Copilot}"
+mkdir -p allowed
+printf 'changed by fake copilot\\n' > allowed/result.txt
+{
+  printf 'self:'
+  if [[ -r /proc/self/cmdline ]]; then tr '\\0' ' ' < /proc/self/cmdline; else echo "/proc/self/cmdline unavailable" >&2; exit 86; fi
+  printf '\\n'
+  pid=$$
+  depth=0
+  while [[ -r "/proc/$pid/stat" && "$depth" -lt 8 ]]; do
+    ppid=$(awk '{print $4}' "/proc/$pid/stat")
+    [[ "$ppid" == "0" || "$ppid" == "$pid" ]] && break
+    if [[ -r "/proc/$ppid/cmdline" ]]; then
+      printf 'parent-%s:' "$depth"
+      tr '\\0' ' ' < "/proc/$ppid/cmdline"
+      printf '\\n'
+    fi
+    pid="$ppid"
+    depth=$((depth + 1))
+  done
+} > "\${FAKE_ARGV_DUMP_FILE}"
+`, 'utf8');
+  fs.chmodSync(fake, 0o755);
+  const argvDump = path.join(workRoot, 'fd-token', 'argv-dump.txt');
+  const oldAllowlist = process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST;
+  const oldDump = process.env.FAKE_ARGV_DUMP_FILE;
+  process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST = 'FAKE_ARGV_DUMP_FILE';
+  process.env.FAKE_ARGV_DUMP_FILE = bashPath(argvDump);
+  try {
+    const { result, outputDir } = runRunner({ name: 'fd-token', baseline, sourceRepo: repo, fakeCopilot: fake, action: 'happy' });
+    assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    validateOutput(outputDir);
+    const argvEvidence = fs.readFileSync(argvDump, 'utf8');
+    assert.match(argvEvidence, /^self:/m);
+    assert.match(argvEvidence, /^parent-0:/m);
+    assert.equal(argvEvidence.includes('test-copilot-token'), false);
+    assertOutputDoesNotContain(outputDir, 'test-copilot-token');
+  } finally {
+    if (oldAllowlist === undefined) delete process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST;
+    else process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST = oldAllowlist;
+    if (oldDump === undefined) delete process.env.FAKE_ARGV_DUMP_FILE;
+    else process.env.FAKE_ARGV_DUMP_FILE = oldDump;
+  }
 });
 
 test('non-empty output directory fails closed before persona execution', { skip: !bash && 'Git Bash is not available' }, () => {

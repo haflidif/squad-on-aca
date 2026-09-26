@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/dispatcher-summary.schema.json",
+  "title": "ACA Sandbox dispatcher execution summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_type", "run_id", "status", "started_at", "ended_at", "tasks"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "message_type": { "type": "string", "const": "dispatcher.summary" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["succeeded", "failed"] },
+    "started_at": { "type": "string", "minLength": 1 },
+    "ended_at": { "type": "string", "minLength": 1 },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "logical_member_id", "status", "reason", "started_at", "ended_at", "sandbox_id", "artifact_paths", "deletion_error"],
+        "properties": {
+          "task_id": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$" },
+          "logical_member_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed", "skipped"] },
+          "reason": { "type": "string" },
+          "started_at": { "type": "string" },
+          "ended_at": { "type": "string" },
+          "sandbox_id": { "type": "string" },
+          "artifact_paths": { "type": "array", "items": { "type": "string" } },
+          "deletion_error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

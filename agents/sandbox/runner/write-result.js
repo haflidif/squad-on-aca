@@ -37,6 +37,7 @@ if (!minimalResult) {
   artifactFiles = [
     path.join(outputDir, 'patches', `${dispatch.task_id}.patch`),
     path.join(outputDir, 'logs', 'copilot-output.log'),
+    path.join(outputDir, 'logs', 'isolation-mode.txt'),
     path.join(outputDir, 'logs', 'credential-env-cleared.txt'),
     path.join(outputDir, 'logs', 'ignored-untracked.txt')
   ].filter(file => fs.existsSync(file));

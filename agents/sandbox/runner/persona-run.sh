@@ -36,6 +36,7 @@ fi
 RUNNER_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 RUNTIME_DIR="$(cd "${RUNNER_DIR}/.." && pwd)"
 PATH_SCOPE_TOOL="${PATH_SCOPE_TOOL:-/opt/squad/contracts/aca-sandbox/v1/tools/path-scope.js}"
+COPILOT_LAUNCHER="${COPILOT_LAUNCHER:-${RUNNER_DIR}/copilot-launch.sh}"
 
 # shellcheck source=/dev/null
 source "${RUNTIME_DIR}/lib/logging.sh"
@@ -71,6 +72,7 @@ fi
 
 mkdir -p "${STAGING_DIR}/patches" "${STAGING_DIR}/logs"
 COPILOT_LOG="${STAGING_DIR}/logs/copilot-output.log"
+ISOLATION_LOG="${STAGING_DIR}/logs/isolation-mode.txt"
 : > "${COPILOT_LOG}"
 
 TOKEN_PATTERN='(github_pat_[A-Za-z0-9_]+|gh[ops]_[A-Za-z0-9_]+)'
@@ -210,6 +212,43 @@ write_credential_env_status() {
   fi
 }
 
+prepare_copilot_isolation() {
+  COPILOT_ISOLATION_MODE="same-user"
+  COPILOT_USER=""
+  if [[ "$(id -u)" == "0" ]] && id copilot-agent >/dev/null 2>&1; then
+    COPILOT_USER="copilot-agent"
+    COPILOT_ISOLATION_MODE="separate-user"
+    chown -R "${COPILOT_USER}:${COPILOT_USER}" "${WORK_DIR}" "${PERSONA_HOME}"
+    chmod 700 "${STAGING_DIR}" "${OUTPUT_DIR}" "${PERSONA_HOME}" 2>/dev/null || true
+  fi
+  printf 'copilot_isolation_mode=%s\n' "${COPILOT_ISOLATION_MODE}" > "${ISOLATION_LOG}"
+}
+
+run_copilot_command() {
+  local status
+  exec 3< <(printf '%s\n' "${COPILOT_CREDENTIAL}")
+  if [[ "${COPILOT_ISOLATION_MODE}" == "separate-user" ]]; then
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u "${COPILOT_USER}" -- env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+      status=$?
+    elif command -v setpriv >/dev/null 2>&1; then
+      local copilot_uid copilot_gid
+      copilot_uid="$(id -u "${COPILOT_USER}")"
+      copilot_gid="$(id -g "${COPILOT_USER}")"
+      setpriv --reuid="${copilot_uid}" --regid="${copilot_gid}" --init-groups env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+      status=$?
+    else
+      echo "No supported privilege-drop command found for separate-user Copilot isolation." >&2
+      status=126
+    fi
+  else
+    env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+    status=$?
+  fi
+  exec 3<&-
+  return "${status}"
+}
+
 fail_for_credential_leak() {
   CREDENTIAL_LEAK_DETECTED=true
   cd "${STAGING_PARENT}"
@@ -283,6 +322,7 @@ git clone --no-hardlinks "${SOURCE_REPO_PATH}" "${WORK_DIR}" >/dev/null 2>&1 \
 cd "${WORK_DIR}"
 git remote remove origin >/dev/null 2>&1 || true
 validate_symlink_scan
+prepare_copilot_isolation
 
 CURRENT_HEAD="$(git rev-parse HEAD)"
 if [[ "${CURRENT_HEAD}" != "${BASELINE_SHA}" ]]; then
@@ -321,7 +361,6 @@ if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
     "HOME=${PERSONA_HOME}"
     "LANG=${LANG:-C.UTF-8}"
     "TERM=${TERM:-dumb}"
-    "GITHUB_TOKEN=${COPILOT_CREDENTIAL}"
   )
   if [[ -n "${SQUAD_FAKE_COPILOT_ENV_ALLOWLIST:-}" ]]; then
     IFS=',' read -r -a FAKE_ENV_NAMES <<<"${SQUAD_FAKE_COPILOT_ENV_ALLOWLIST}"
@@ -331,7 +370,7 @@ if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
       fi
     done
   fi
-  COPILOT_OUTPUT="$(printf '%s\n' "${PROMPT}" | env "${COPILOT_ENV[@]}" "${COPILOT_BIN}" --yolo --agent squad 2>&1)"
+  COPILOT_OUTPUT="$(printf '%s\n' "${PROMPT}" | run_copilot_command 2>&1)"
   COPILOT_EXIT=$?
 fi
 set -e

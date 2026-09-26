@@ -38,19 +38,21 @@ COPY --from=build /usr/lib/node_modules/@github/copilot /usr/lib/node_modules/@g
 RUN ln -sf /usr/lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && chmod +x /usr/local/bin/copilot
 
-RUN useradd --create-home --shell /usr/sbin/nologin --uid 10001 squad \
+RUN useradd --create-home --shell /usr/sbin/nologin --uid 10000 squad-runner \
+    && useradd --create-home --shell /bin/bash --uid 10001 copilot-agent \
     && mkdir -p /workspace /opt/squad-sandbox \
-    && chown -R squad:squad /workspace /opt/squad-sandbox
+    && chown -R squad-runner:squad-runner /workspace /opt/squad-sandbox
 
 WORKDIR /workspace
 
-COPY --chown=squad:squad agents/sandbox/lib /opt/squad-sandbox/lib
-COPY --chown=squad:squad agents/sandbox/runner /opt/squad-sandbox/runner
-COPY --chown=squad:squad contracts/aca-sandbox/v1/tools/path-scope.js /opt/squad/contracts/aca-sandbox/v1/tools/path-scope.js
+COPY --chown=squad-runner:squad-runner agents/sandbox/lib /opt/squad-sandbox/lib
+COPY --chown=squad-runner:squad-runner agents/sandbox/runner /opt/squad-sandbox/runner
+COPY --chown=squad-runner:squad-runner contracts/aca-sandbox/v1/tools/path-scope.js /opt/squad/contracts/aca-sandbox/v1/tools/path-scope.js
 RUN chmod -R a+rX /opt/squad-sandbox \
     && chmod -R a+rX /opt/squad/contracts \
     && chmod +x /opt/squad-sandbox/runner/persona-run.sh \
+    && chmod +x /opt/squad-sandbox/runner/copilot-launch.sh \
+    && chmod +x /opt/squad-sandbox/runner/exec-with-env.js \
     && ln -sf /opt/squad-sandbox/runner/persona-run.sh /persona-run.sh
 
-USER squad
 ENTRYPOINT ["/persona-run.sh"]

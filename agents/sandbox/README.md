@@ -13,11 +13,11 @@ The trusted dispatcher supplies:
   must already equal the envelope `baseline_sha`.
 - `SQUAD_OUTPUT_DIR`: output directory for `persona-result.json`,
   `artifact-manifest.json`, logs, and the audit patch.
-- `SQUAD_COPILOT_TOKEN` or `COPILOT_TOKEN`: the Copilot credential injected by
-  the dispatcher. The runner reads it into a non-exported shell variable at
-  startup, immediately unsets the exported credential variables, maps it to
-  `GITHUB_TOKEN` only for the Copilot process, and clears the shell variable
-  before writing final result artifacts.
+- `SQUAD_COPILOT_TOKEN` or `COPILOT_TOKEN`: the Copilot credential delivered by
+  the dispatcher through the exec bootstrap stdin payload. The runner reads it
+  into a non-exported shell variable at startup, immediately unsets the exported
+  credential variables, and never places it in `runuser`, `setpriv`, `env`, or
+  Copilot argv.
 - `SQUAD_COPILOT_BIN`: optional test override for the Copilot CLI binary.
 
 ## Repository acquisition
@@ -78,13 +78,26 @@ minimal failed result and manifest with `credential_leak`; no patch, logs, or
 persona-derived paths are emitted. Logs are still redacted for normal display,
 but this final fail-closed gate wins.
 
-Residual risk remains: Copilot's own tool subprocesses can see the scoped
-`GITHUB_TOKEN` while Copilot is running, and same-UID filesystem isolation is not
-a hard boundary if a process guesses or discovers a path. Stronger separation
-requires running Copilot as a different UID or attaching the output mount only
-after Copilot exits. PR 5 should move artifact collection into the dispatcher by
-executing after the runner finishes, so the persona process never has the output
-mount.
+The Copilot process receives its token through file descriptor 3. The runner
+opens the descriptor from an anonymous pipe, starts a small
+`copilot-launch.sh` wrapper with the minimal non-secret environment, and the
+wrapper reads fd 3, closes it, exports `GITHUB_TOKEN`, and execs Copilot. This
+keeps the token out of process argv while still giving Copilot the environment
+variable it requires.
+
+PR 5 closes the same-UID follow-up for the container image. The image creates a
+separate `copilot-agent` user and the runner, when started as root, keeps the
+staging and output directories owned by the runner side with mode `700` while
+running Copilot with `runuser` or `setpriv`. The worktree and persona home are
+owned by `copilot-agent`, so Copilot can edit source but cannot read or write
+the runner artifact directories. The runner records the mode in
+`logs/isolation-mode.txt`.
+
+Local tests that do not run as root or do not have the `copilot-agent` user use
+an explicit `same-user` mode and assert that marker. That path is for offline
+developer validation only. The container path is the intended artifact boundary.
+The dispatcher, not the persona process, downloads and verifies final artifacts
+after the runner exits.
 
 ## Build context
 

@@ -6,8 +6,8 @@ SQUAD_RUNTIME_PROVIDERS_ACA_SANDBOX_SH=1
 
 run_aca_sandbox_provider() {
   # PR 4 adds the isolated persona worker image under agents/sandbox/.
-  # The legacy ACA Job entrypoint remains a loud stub until a trusted
-  # dispatcher can create ACA Sandboxes, pre-stage a baseline repository,
-  # inject dispatch envelopes, and collect persona artifacts.
+  # PR 5 adds the trusted dispatcher under dispatcher/, but this legacy ACA
+  # Job entrypoint intentionally remains a loud stub until workflow wiring
+  # explicitly routes fan-out plans to that dispatcher.
   die "aca-sandbox provider is not implemented in this runtime. This entrypoint only supports the aca-job provider."
 }
