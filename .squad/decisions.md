@@ -103,3 +103,50 @@
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+### 2026-09-26T14-20-25: PR 7 trusted publisher boundary and v1 policies
+**By:** Lando
+**What:** Publication runs only on the trusted host after dispatch and integration succeed. It creates a deterministic branch from `baseline_sha`, uses hardened git plumbing, pushes a non-forced ref, opens one draft PR, updates lifecycle labels, and posts one issue comment. It refuses `--update`; existing open PRs are reused without a push, label update, or comment. The App key is supplied by PEM file path and the installation token is scoped to one repo and only the push child through git config environment variables.
+**References:** PR 7, `dispatcher/publish.js`, publish-result schema
+**Why:** Keep write credentials out of persona sandboxes and make publication deterministic and idempotent. V1 does not rebase when the base branch advances; Key Vault PEM retrieval was deferred to PR 8.
+
+### 2026-09-26T15-10-39: Publisher remote operations use validated repository URLs
+**By:** Wedge
+**What:** Validate `owner/repo`, construct remote URLs from that value and an allowed host, and ignore checkout remotes. Open PR reuse requires matching verified content; closed/merged PRs and drift fail closed.
+**References:** PR 7, trusted publisher
+**Why:** Prevent checkout-controlled remotes/configuration from redirecting operations or exposing credentials.
+
+### 2026-09-26T15-37-24: Publisher idempotency verifies content and isolates hooks
+**By:** Chewie
+**What:** Rebuild expected content before reuse, verify remote branch/head/tree/parent, and run publication with a fresh private HOME, git config, and empty hooks directory.
+**References:** PR 7, trusted publisher
+**Why:** Reuse is safe only when the remote commit still represents the verified integration output and no repository hook can alter trusted operations.
+
+### 2026-09-26T16-58-05: PR 7 reviewer lockout lifted
+**By:** Coordinator, authorized by Haflidi
+**What:** Haflidi lifted Wedge's lockout to address the remaining PR 7 findings after all eligible implementers had been rejected.
+**References:** PR 7, decision 0943c928
+**Why:** Resolve the revision deadlock while Cassian remained reviewer.
+
+### 2026-09-26T17-17-39: Trusted publisher fail-closed hardening
+**By:** Wedge
+**What:** Verify created PR head SHA, propagate label deletion failures except 404, and require exact publisher-generated commit metadata on reuse. Existing open PR reuse repairs labels and adds a single hidden-marker comment when missing. The residual branch mutation race is detected, not prevented.
+**References:** PR 7, trusted publisher
+**Why:** Publication success and reuse must be backed by verified remote state.
+
+### 2026-09-26T20-33-10: Keep ACA sandbox execution manually gated until live client verification
+**By:** Cassian
+**What:** PR 8 is manual-only, defaults to offline fake mode, and has separate explicit gates/environments for live ACA dispatch and GitHub publication. Do not route ACA Sandbox via labels or substitute the legacy ACA Job workflow. Keep dispatcher and publisher identities separate; only stage the App PEM on the trusted publishing host.
+**References:** `.github/workflows/squad-sandbox-manual.yml`, `dispatcher/workflow-preflight.js`
+**Why:** Live use is not ready until ACA create/exec, output, stdin or file transfer, cleanup/timeouts, and ACR authentication are verified.
+
+### 2026-09-26: Bind live execution to the selected issue
+**By:** Lando
+**What:** Live workflow preflight, direct ACA dispatch, and trusted publication require plan issue repository/number to match the selected target. Publication also checks run ID and baseline before requesting an installation token. Offline fake plans may omit issue metadata. CI checks committed PR merge-base and push before-to-after ranges.
+**References:** PR 8, workflow preflight, dispatcher, publisher, Squad CI
+**Why:** Prevent a plan from publishing or labeling another issue and make CI inspect committed changes.
+
+### 2026-09-26: Final PR 7 publication reuse behavior
+**By:** Squad (Coordinator)
+**What:** Supersedes the reuse behavior in the 2026-09-26T14-20-25 PR 7 entry. An existing open PR is reused only after its head, remote branch, tree and parent match the verified integrated patch; reuse repairs lifecycle labels and posts the execution marker comment only when missing. A closed or merged PR fails closed. The publisher returns only the safe result and output path, never the credential-bearing client.
+**Why:** PR 7's final reviewed implementation includes reconciliation and token-safe return values; the earlier entry describes an intermediate design.

@@ -45,3 +45,12 @@ Final validation passed 18 sandbox tests and 14 contract tests. Docker build was
 Reviewed PR 6 integration sandbox through four rounds. R1 rejected three High and two Medium findings: checks ran before patch generation, rename sources escaped through `git --numstat`, git output had a 64 KiB truncation path, timeout cleanup killed only the direct child, and cleanup traps globbed sibling directories. R2 rejected one High and three Medium findings: the fingerprint missed ignored content and `.git` metadata, dispatcher verification was not filter/LFS-safe and lacked an independent delta policy, plumbing capture was unbounded, and Windows tree-kill coverage was missing. R3 rejected three Medium findings: baseline symlinks escaped the check copy, hardening tests were vacuous, and failed materialization leaked temp files. R4 approved Wedge's final revision.
 
 Final validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.
+
+
+## 2026-09-26 — PR 7 trusted publisher final review
+
+Re-reviewed Lando's final narrow fixes after Haflidi lifted the reviewer lockout: `runPublish` no longer returns the credential-bearing client/token, and marker-comment lookup uses bounded pagination with fail-closed malformed-response and limit handling. Approved the final revision. Validation: dispatcher 53, sandbox 47, contracts 20 tests, all with zero skipped; `git diff --check` and LF shell checks passed. No commit was created. Learning: review serialized public return values for secret-bearing object exposure and test pagination success, absence, malformed responses, and caps.
+
+## 2026-09-26 — PR 8 workflow and CI final review
+
+Reviewed the final PR 8 workflow, live issue binding, and CI range fixes. Approved after Wedge closed the first-push empty-before-SHA case using an empty-tree comparison and corrected manifest-to-plan checks. Offline validation finished with 142 passing tests and one Windows symlink-creation skip due to EPERM. YAML parsing, shell LF checks, and Terraform fmt/validate passed. Docker build was unavailable because no daemon was running. Live ACA CLI, stdin/file transfer, ACR auth, and Azure/GitHub behavior remain unverified. Learning: CI for a newly created branch must compare its committed changes against the empty tree when no valid before SHA exists.

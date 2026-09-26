@@ -46,3 +46,16 @@ Final PR 4 outcome: Cassian approved round 4 after Wedge's final revision. Valid
 Implemented the PR 6 round-2 integration revision after Wedge's first revision: isolated check copies without `.git`, full source fingerprinting, a hardened bare-repo verifier with temp indexes, raw blob byte equality checks, mirrored runner/dispatcher delta policy, a 256 MiB plumbing ceiling, and Windows `taskkill /T /F` process-tree cleanup gated by `SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST`. Cassian rejected R2 with one High and three Medium findings, and Lando was locked out from further revisions on this artifact.
 
 Final PR 6 outcome: Haflidi later lifted Wedge's lockout, Wedge completed the final hardening revision, and Cassian approved round 4. Validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.
+
+
+## 2026-09-26 — PR 7 trusted publisher final revision
+
+Implemented Haflidi-authorized final narrow fixes after Cassian's R4 findings: `runPublish` now returns only the safe result and result path, never its client/token; marker-comment lookup paginates with a 100-page maximum and fails closed on malformed responses or the limit. Added tests for token absence in serialized returns, marker on page 2, absent marker, malformed response, and pagination limit. Cassian approved the final revision. Validation passed: dispatcher 53, sandbox 47, contracts 20 tests, zero skipped; `git diff --check` and LF shell checks passed. No commit created. Learning: keep credentials-bearing clients out of returned operational results, and make API pagination bounded and fail closed.
+
+## 2026-09-26 — PR 8 revision: issue binding and committed CI diff
+
+Bound live plans to the selected repository and issue at workflow preflight, direct ACA dispatch, and publisher preflight before credentials or network calls. Preserved unbound offline plans for fake mode only. CI now checks committed PR merge-base and push before-to-after ranges with full checkout history. The combined offline runner reproduced a dispatcher happy-path failure at roughly 40 seconds under parallel load with the test's original 20-second sandbox timeout; scoped the happy-path test to 120 seconds without retries, leaving timeout failure tests unchanged. Final combined run: 140 tests, 139 passed, one Windows symlink privilege skip, zero failures.
+
+## 2026-09-26 — PR 8 live issue binding and committed CI ranges
+
+Implemented PR 8 fixes binding live plans to the selected repository and issue across schema, dispatcher, workflow preflight, and publisher; fake offline plans remain compatible. Updated CI to inspect committed PR merge-base and push before-to-after ranges. Wedge's final review found and fixed manifest-to-plan consistency and the created-push zero-SHA range; Cassian approved. Final offline validation: 142 passed, one Windows symlink EPERM skip. YAML parsing, shell LF, Terraform fmt/validate passed. Docker build and live ACA/Azure/GitHub behavior remain unverified. Learning: enforce issue identity before credentials or network calls and make CI inspect committed ranges, including first pushes.
