@@ -38,3 +38,10 @@ Final validation passed 18 sandbox tests and 14 contract tests. Docker build was
 
 
 📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher review completed — Cassian rejected R1 with four High findings, rejected R2 with one High and three Medium findings, then approved R3 after Chewie stripped credential env from every dispatcher child process, deleted the token from startup env, added Windows-safe path validation and collision detection, rejected duplicate JSON keys, and gated `/proc` argv tests. Final observed tests: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration review outcome
+
+Reviewed PR 6 integration sandbox through four rounds. R1 rejected three High and two Medium findings: checks ran before patch generation, rename sources escaped through `git --numstat`, git output had a 64 KiB truncation path, timeout cleanup killed only the direct child, and cleanup traps globbed sibling directories. R2 rejected one High and three Medium findings: the fingerprint missed ignored content and `.git` metadata, dispatcher verification was not filter/LFS-safe and lacked an independent delta policy, plumbing capture was unbounded, and Windows tree-kill coverage was missing. R3 rejected three Medium findings: baseline symlinks escaped the check copy, hardening tests were vacuous, and failed materialization leaked temp files. R4 approved Wedge's final revision.
+
+Final validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.

@@ -60,3 +60,10 @@ Final PR 4 outcome: Haflidi lifted Wedge's lockout to resolve the deadlock, Wedg
 
 
 📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher final outcome — Chewie's R2 revision stripped credential env from every dispatcher child process, deleted the Copilot token from `process.env` at startup, added Windows device-name-aware artifact path validation and collision detection, rejected duplicate JSON keys with a strict flat parser, and gated `/proc` argv assertions behind `SQUAD_REQUIRE_PROC_ARGV_TEST`. Cassian approved R3. Final tests passed: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration initial implementation
+
+Implemented the initial PR 6 integration sandbox step: `integrate-run.sh`, `integrate-runner.js`, `dispatcher/integrate.js`, an additive `integration-dispatch.schema.json`, integration dispatch validation, and tests. Cassian rejected R1 with three High and two Medium findings: checks ran before patch generation, rename sources escaped through `git --numstat`, git output had a 64 KiB truncation path, timeout cleanup killed only the direct child, and cleanup traps globbed sibling directories. Chewie was locked out from further PR 6 integration revisions.
+
+Final PR 6 outcome: Haflidi later lifted Wedge's lockout, Wedge completed the final hardening revision, and Cassian approved round 4. Validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; `git --numstat` hides rename sources; never glob in cleanup traps; security tests need a negative control proving the risk is real.

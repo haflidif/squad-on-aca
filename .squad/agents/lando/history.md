@@ -39,3 +39,10 @@ Final PR 4 outcome: Cassian approved round 4 after Wedge's final revision. Valid
 
 
 📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher final outcome — Lando's initial dispatcher implementation introduced dependency-aware fan-out, baseline git bundle staging, fake/ACA clients, dispatcher summary schema, artifact re-verification, and the separate `copilot-agent` UID, but Cassian rejected R1 with four High findings and Lando was locked out. Chewie's later revision was approved in Cassian R3. Tests passing at final approval: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration round-2 revision
+
+Implemented the PR 6 round-2 integration revision after Wedge's first revision: isolated check copies without `.git`, full source fingerprinting, a hardened bare-repo verifier with temp indexes, raw blob byte equality checks, mirrored runner/dispatcher delta policy, a 256 MiB plumbing ceiling, and Windows `taskkill /T /F` process-tree cleanup gated by `SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST`. Cassian rejected R2 with one High and three Medium findings, and Lando was locked out from further revisions on this artifact.
+
+Final PR 6 outcome: Haflidi later lifted Wedge's lockout, Wedge completed the final hardening revision, and Cassian approved round 4. Validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.

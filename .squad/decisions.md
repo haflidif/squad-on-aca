@@ -80,6 +80,24 @@
 **References:** PR 5, dispatcher/**, agents/sandbox/runner/exec-with-env.js, agents/sandbox/test/persona-run.test.js, dispatcher/README.md
 **Why:** Cassian's first two review rounds showed that protecting only the target sandbox process was insufficient: local adapters and helper processes could inherit credentials, Windows host paths had extra reserved-name escape risks, and `JSON.parse` silently hides duplicate keys. Cassian approved round 3 after dispatcher, sandbox, and contract tests passed. Live ACA CLI flags, stdin forwarding, file transfer, and ACR authentication remain unverified and are tracked in `dispatcher/README.md`.
 
+### 2026-09-26T10-39-28: PR 6 integration uses an additive integration.dispatch schema with 3-way patch application off by default
+**By:** Chewie
+**What:** PR 6 integration uses an additive `integration.dispatch` schema with 3-way patch application off by default.
+**References:** contracts/aca-sandbox/v1/schemas/integration-dispatch.schema.json, agents/sandbox/runner/integrate-run.sh, agents/sandbox/runner/integrate-runner.js, dispatcher/integrate.js
+**Why:** PR 6 adds an additive `integration-dispatch.schema.json` contract for the separate integration sandbox. The envelope carries verified persona patch refs with sha256 values, task ownership and dependencies, optional argv-only check commands, and an `allow_3way` flag. The dispatcher sets `allow_3way` to `false` unless a plan explicitly opts in. This keeps the default integration path deterministic because persona owned paths are expected to be disjoint, so an apply conflict indicates a contract or ownership failure. The integration runner applies patches in dependency then task ID order, rechecks path ownership and protected paths independently, rejects overlapping changed paths, and emits `integration.result` plus an artifact manifest through the staged-then-scan gate.
+
+### 2026-09-26T11-21-27: Integration rejects executable modes and symlinks by default
+**By:** Wedge
+**What:** Integration rejects executable modes and symlinks by default
+**References:** PR 6 integration revision, agents/sandbox/runner/integrate-runner.js, contracts/aca-sandbox/v1/schemas/integration-dispatch.schema.json
+**Why:** Integration patch validation now treats file mode changes as part of the security boundary. The integration runner rejects symlink mode 120000, gitlink mode 160000, `.git/**` paths, and executable-bit additions by default. A task must explicitly opt in with `allow_executable_bits: true` before an executable-bit addition can pass. This keeps persona patches data-only unless the coordinator deliberately authorizes an executable surface change, and it prevents symlink or submodule entries from bypassing owned-path and artifact boundaries.
+
+### 2026-09-26T12-43-59: PR 6 reviewer lockout lifted by Haflidi so Wedge can fix the round-3 integration findings
+**By:** Squad (Coordinator)
+**What:** PR 6 reviewer lockout lifted by Haflidi so Wedge can fix the round-3 integration findings
+**References:** decision dd632375-e523-4d96-a1c6-8d5b02b479c6, PR 6 integration sandbox step, Cassian R3 findings
+**Why:** On 2026-09-26, Haflidi lifted the reviewer lockout on the PR 6 integration step because Chewie, Wedge, and Lando had each been rejected on it. Wedge owned the fixes for Cassian's round-3 Medium findings: baseline symlinks escaping check-copy isolation, hardening tests passing without exercising protections, and failed materializeTreeCopy setup leaking temp files. Cassian stayed the reviewer and approved round 4 after Wedge's revision.
+
 ## Governance
 
 - All meaningful changes require team consensus

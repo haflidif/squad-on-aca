@@ -92,3 +92,10 @@ Final validation passed 18 sandbox tests and 14 contract tests. Docker build was
 
 
 📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher final outcome — Wedge's R1 revision added path containment, schema/validator tightening, fd 3 token handoff through `copilot-launch.sh`, a static identity test for the Dockerfile `chown` fix, and stdin JSON environment bootstrap through `exec-with-env.js`. Cassian rejected R2, locking Wedge out; Chewie completed the approved R3 revision. Final tests passed: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration hardening and deadlock resolution
+
+Owned PR 6 integration revisions after Chewie's R1 rejection, then completed the final revision after Haflidi lifted Wedge's reviewer lockout in decision `dd632375-e523-4d96-a1c6-8d5b02b479c6`. The first revision hashed outputs before checks with tree verification, used write-tree deltas, rejected symlink/gitlink/`.git/**`/executable-bit changes by default with `allow_executable_bits` opt-in, bounded plumbing capture, added process-group kill, and used exact `mktemp` cleanup. After Lando's R2 revision and Cassian's R3 rejection, the final revision failed closed on symlinks in the check tree, added negative-control hardening tests, centralized a hardened git wrapper with a subcommand allowlist and spawn-interception test, and cleaned up materialization temp paths on failure.
+
+Cassian approved round 4. Final validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.
