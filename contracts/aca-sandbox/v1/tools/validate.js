@@ -132,6 +132,10 @@ function validateAgainstSchema(value, schema, rootSchema, schemas, location = '$
 function semanticErrors(contractName, value, context) {
   const errors = [];
   if (contractName === 'coordinator-execution.schema.json') {
+    if (value.issue && (
+      (typeof value.issue.repo === 'string' && (value.issue.repo.includes('..') || value.issue.repo.endsWith('.git'))) ||
+      !Number.isSafeInteger(value.issue.issue_number)
+    )) errors.push('plan issue binding has an invalid repository or issue number');
     const ids = new Set(value.tasks.map(task => task.task_id));
     if (ids.size !== value.tasks.length) errors.push('task IDs must be unique');
     const rosterMembers = value.roster?.members || [];

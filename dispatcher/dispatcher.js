@@ -330,6 +330,15 @@ async function runDispatcher(options) {
   const plan = readJson(planPath);
   const validation = validateContract('coordinator-execution.schema.json', plan);
   if (!validation.valid) throw new Error(`Execution plan is invalid: ${validation.errors.join('; ')}`);
+  const clientKind = options.clientKind || options.client || 'fake';
+  if (clientKind === 'aca') {
+    const { assertIssueBinding, issueNumber } = require('./lib/issue-binding');
+    if (!options.repoFullName) throw new Error('Live dispatch requires --repo-full-name.');
+    if (process.env.GITHUB_REPOSITORY && options.repoFullName !== process.env.GITHUB_REPOSITORY) {
+      throw new Error('Live dispatch repository does not match the workflow repository.');
+    }
+    assertIssueBinding(plan, options.repoFullName, issueNumber(options.issueNumber), true);
+  }
 
   const token = options.copilotToken ?? process.env.SQUAD_COPILOT_TOKEN ?? '';
   delete process.env.SQUAD_COPILOT_TOKEN;
@@ -338,7 +347,7 @@ async function runDispatcher(options) {
 
   const config = { ...DEFAULTS, ...(options.config || {}) };
   config.concurrency = Number(options.concurrency || config.concurrency || DEFAULTS.concurrency);
-  config.clientKind = options.clientKind || options.client || 'fake';
+  config.clientKind = clientKind;
   fs.mkdirSync(outDir, { recursive: true });
   const logPath = path.join(outDir, 'dispatcher.log');
   const log = (line) => fs.appendFileSync(logPath, `${redact(line, token)}\n`);

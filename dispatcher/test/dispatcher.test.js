@@ -166,8 +166,8 @@ test('happy path with two independent tasks produces valid summary and verified 
   const { summary, outDir, client } = await dispatchCase('happy', [
     { task_id: 'task-alpha', owner: ownerA, owned_paths: ['alpha'] },
     { task_id: 'task-beta', owner: ownerB, owned_paths: ['beta'] }
-  ]);
-  assert.equal(summary.status, 'succeeded');
+  ], { timeoutMs: 120000 });
+  assert.equal(summary.status, 'succeeded', JSON.stringify(summary, null, 2));
   assert.equal(summary.tasks.length, 2);
   assert(summary.tasks.every(task => task.status === 'succeeded'));
   assert.equal(summary.integration.status, 'succeeded');
@@ -492,6 +492,30 @@ test('aca client refuses without the enable flag', () => {
   });
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /SQUAD_ENABLE_ACA_SANDBOX=1/);
+});
+
+test('direct ACA dispatch rejects missing or mismatched plan issue bindings before client calls', async () => {
+  const caseDir = path.join(workRoot, 'aca-binding');
+  resetDir(caseDir);
+  const { repo, baseline } = createRepo('aca-binding');
+  const plan = planFor(baseline, [{ task_id: 'task-alpha', owner: member('test-alpha'), owned_paths: ['alpha'] }]);
+  const planPath = writePlan(caseDir, plan);
+  let clientCalls = 0;
+  const options = {
+    planPath, repoPath: repo, outDir: path.join(caseDir, 'out'), clientKind: 'aca',
+    repoFullName: 'example/repo', issueNumber: '42', copilotToken: 'github_pat_testdispatcher',
+    clientInstance: { createSandbox() { clientCalls += 1; throw new Error('client was reached'); } }
+  };
+  await assert.rejects(runDispatcher(options), /requires a plan issue binding/);
+  for (const [binding, override] of [
+    [{ repo: 'other/repo', issue_number: 42 }, {}],
+    [{ repo: 'example/repo', issue_number: 43 }, {}],
+    [{ repo: 'example/repo', issue_number: 42 }, { issueNumber: '4e1' }]
+  ]) {
+    fs.writeFileSync(planPath, JSON.stringify({ ...plan, issue: binding }));
+    await assert.rejects(runDispatcher({ ...options, ...override }), /does not match|decimal integer/);
+  }
+  assert.equal(clientCalls, 0);
 });
 
 test('concurrency limit is honored', async () => {

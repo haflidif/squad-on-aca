@@ -2,6 +2,13 @@
 
 This GitHub Actions workflow replaces the Azure Function App as the issue-to-queue bridge. It fires when a `squad:*` label is added to an issue, authenticates to Azure via OIDC (zero secrets), and enqueues the issue to Azure Storage Queue for processing by the Container App Job.
 
+This is the legacy ACA Job template. It intentionally keeps provider-less queue
+messages on `aca-job` and must not be changed to select `aca-sandbox`. The
+`aca-sandbox` entrypoint remains a loud pre-acknowledgement rejection until
+live ACA create, exec, stdin or file transfer, and ACR authentication have
+passed verification. Sandbox trials use the manual workflow described in
+`dispatcher/README.md`; they do not run from issue labels.
+
 ## Architecture
 
 ```

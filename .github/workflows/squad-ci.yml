@@ -1,28 +1,84 @@
 name: Squad CI
-# Project type was not detected — configure build/test commands below
 
 on:
   pull_request:
-    branches: [dev, preview, main, insider]
-    types: [opened, synchronize, reopened]
+    branches: [main]
   push:
-    branches: [dev, insider]
+    branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  group: squad-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
-      - name: Build and test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+
+      - name: Run contracts, dispatcher, and sandbox tests
+        env:
+          SQUAD_REQUIRE_PROC_ARGV_TEST: '1'
+          SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST: '1'
+        run: >-
+          node --test
+          contracts/aca-sandbox/v1/test/*.test.js
+          dispatcher/test/*.test.js
+          agents/sandbox/test/*.test.js
+
+      - name: Check shell syntax
+        shell: bash
         run: |
-          # TODO: Project type was not detected — add your build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-ci.yml"
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find . -type f -name '*.sh' -not -path './.git/*' -not -path '*/node_modules/*' -print0)
+
+      - name: Check shell LF line endings
+        run: node dispatcher/check-lf.js
+
+      - name: Check patch whitespace
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          SQUAD_CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SQUAD_CI_PUSH_BEFORE: ${{ github.event.before }}
+          SQUAD_CI_PUSH_CREATED: ${{ github.event.created }}
+        run: node dispatcher/check-committed-whitespace.js
+
+      - name: Parse workflow YAML
+        run: ruby -e 'require "yaml"; ARGV.each { |file| YAML.parse_file(file) }; puts "Parsed workflow YAML files." ' .github/workflows/*.yml agents/workflows/*.yml
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Check Terraform formatting
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Initialize Terraform without a backend
+        working-directory: infra/terraform
+        run: terraform init -backend=false -input=false -no-color
+
+      - name: Validate Terraform
+        working-directory: infra/terraform
+        run: terraform validate -no-color
+
+      - name: Build sandbox image without publishing
+        run: >-
+          docker build --pull
+          --build-arg BUILD_BASE_IMAGE=docker.io/library/golang:1.23.4-bookworm
+          --build-arg RUNTIME_BASE_IMAGE=docker.io/library/debian:bookworm-20240701-slim
+          --file agents/sandbox/Dockerfile
+          --tag squad-persona-sandbox:ci .

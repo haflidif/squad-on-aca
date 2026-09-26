@@ -300,6 +300,7 @@ OBJECTIVE="$(json_get '.objective')"
 LOGICAL_MEMBER_ID="$(json_get '.owner.logical_member_id')"
 PERSISTENT_NAME="$(json_get '.owner.resolved_persistent_name')"
 CHARTER_REF="$(json_get '.owner.charter_ref')"
+OWNED_PATHS_JSON="$(jq -c '.owned_paths' "${DISPATCH_PATH}")"
 
 [[ "${SCHEMA_VERSION}" == "aca-sandbox/v1" ]] || die "Unsupported schema_version: ${SCHEMA_VERSION}"
 [[ "${MESSAGE_TYPE}" == "persona.dispatch" ]] || die "Unsupported message_type: ${MESSAGE_TYPE}"
@@ -338,6 +339,7 @@ Charter reference: ${CHARTER_REF}
 Run ID: ${RUN_ID}
 Task ID: ${TASK_ID}
 Baseline SHA: ${BASELINE_SHA}
+Owned paths JSON: ${OWNED_PATHS_JSON}
 
 Task objective:
 ${OBJECTIVE}

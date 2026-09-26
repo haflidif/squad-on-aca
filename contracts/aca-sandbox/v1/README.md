@@ -25,6 +25,10 @@ publish to GitHub.
    `integration.dispatch` envelope. The integration sandbox applies patches in
    dependency and task ID order, then returns an `integration.result` plus an
    artifact manifest for the integrated patch.
+6. A trusted-host publisher consumes a succeeded `dispatcher.summary`,
+   revalidates the integrated patch, creates one deterministic branch and
+   commit from the baseline, opens one draft pull request, updates lifecycle
+   labels, comments on the issue, and writes a `publish.result` receipt.
 
 ## Compatibility guarantee
 
@@ -162,3 +166,38 @@ plumbing command set needed for index-only verification. It compares mode, blob
 ID, and raw blob bytes for every persona-owned path and repeats the delta policy
 for symlinks, gitlinks, `.git/**`, protected paths, ownership union, and
 executable-bit additions.
+
+## Publish result
+
+`publish-result.schema.json` is additive in v1. It is a publisher receipt, not a
+replacement for `dispatcher-summary.schema.json`. The dispatcher summary remains
+the operational fan-out and integration receipt. The publish receipt records the
+single branch, commit SHA, draft pull request number and URL, whether the
+execution created or reused an existing pull request, and the lifecycle label
+changes. Keeping publication output separate avoids implying that every
+dispatcher run has been published.
+
+Publisher idempotency is keyed by the deterministic publish branch. An open pull
+request for that branch is returned as `idempotency: "existing"` after the
+publisher rechecks the head SHA, tree, and parent, then repairs lifecycle labels
+and the single marker comment if needed. A closed or merged pull request for
+that branch fails closed before any push or new pull request. If the branch
+exists with the matching tree and parent but no pull request, the publisher
+creates the pull request without re-pushing only when the existing commit message
+and author and committer name and email exactly match the publisher-generated
+commit. Author and committer timestamps may differ. If the branch exists with a
+different commit, publication fails closed and no successful `publish.result` is
+written. Because GitHub creates pull requests by branch name, the publisher
+checks the returned PR `head.sha` after creation and records a failed receipt if
+the branch moved between the push and PR creation.
+# Coordinator issue binding
+
+`coordinator-execution.issue` binds a plan to `{ "repo": "owner/repository",
+"issue_number": 42 }`. The repository is a strict owner/repository name and the
+issue number is a positive integer. Existing v1 plans and the checked-in offline
+example may omit `issue` only in fake or offline execution for backward
+compatibility. A live dispatch or live publish requires the binding and rejects
+any difference from its selected repository and issue. The trusted publisher
+checks the binding independently, along with the plan run ID and baseline SHA,
+before requesting an installation token or starting git network operations.
+An offline fixture without `issue` can never be published live.

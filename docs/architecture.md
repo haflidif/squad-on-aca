@@ -532,6 +532,71 @@ persona failure skips integration and keeps the execution failed. Any
 integration failure also fails the dispatcher summary. Publication and PR
 creation remain out of scope for PR 6.
 
+PR 7 adds the trusted publisher after a succeeded dispatcher and integration
+summary. The publisher runs only on the trusted host. Persona and integration
+sandboxes never receive GitHub write credentials, GitHub App private keys,
+installation tokens, `gh`, or publication tooling. The publisher revalidates
+the dispatcher summary, the integration manifest, and the integrated patch
+sha256 before any GitHub client call. It also re-applies the patch at
+`baseline_sha` with a hardened, index-only git path and repeats the delta
+policy for protected paths, owned-path union, symlinks, gitlinks, `.git/**`,
+and executable-bit additions.
+
+The publisher creates a deterministic branch from the baseline, creates the
+commit with plumbing (`read-tree`, `apply --cached`, `write-tree`, and
+`commit-tree`), pushes one create-only ref, and opens one draft pull request.
+It does not checkout, rebase, merge, or overwrite an existing branch. If the
+base branch has advanced but still contains the baseline, the publisher does
+not rebase in v1. The draft PR shows the branch as behind. If the target branch
+no longer contains the baseline, publication fails closed. If a deterministic
+publish branch or open PR already exists, the publisher verifies it by content:
+the pull request head SHA must match a freshly fetched remote branch SHA, the
+branch commit tree must equal the tree rebuilt from the verified integrated
+patch, and the commit must have exactly one parent equal to `baseline_sha`.
+For a branch that exists without a PR, the publisher also requires the existing
+commit message and author and committer name and email to exactly match the
+publisher-generated commit. Only author and committer timestamps may differ.
+
+The GitHub App installation token is the only write credential in the publish
+path. The real client uses `node:https` and is gated by `--live` plus
+`SQUAD_ENABLE_PUBLISH=1`. It requests only `contents: write`,
+`pull_requests: write`, and `issues: write` for the single target repository.
+HTTPS responses are size capped, timed, parsed defensively, and reported with
+bounded redacted errors. The private key source is a PEM path in v1. The
+publisher rejects symlink, non-regular, oversized, or unparsable private key
+files. PR 8 is responsible for fetching that PEM from Key Vault or staging it
+for the trusted host. The token is kept in memory, removed from process
+environment after startup, stripped from every child environment, and passed to
+remote git commands only through a URL-scoped `http.extraHeader` environment
+configuration so it never appears in argv.
+
+Push and fetch do not read the checkout's `origin` or any other configured
+remote. The publisher validates `owner/repo`, builds an explicit URL from that
+name and an allowed host, and scopes the extra header to
+`http.https://github.com/<owner>/<repo>.git.extraheader`. Remote git children
+also disable redirects, credential helpers, system config, global config,
+terminal prompts, filters, and hooks. Each publish run creates a fresh private
+git directory with a fresh empty HOME, global config file, and real empty hooks
+directory, then removes it in a `finally` block. Stale `.publish-work` hook
+directories and symlinked hook paths are never reused. The target-branch
+ancestor check uses a fresh fetch from the same explicit URL.
+
+Publisher idempotency uses the execution ID through the deterministic branch
+name. It searches pull requests for that head branch with `state=all`. If an
+open pull request already exists for that branch, v1 returns the existing PR in
+`publish.result` only after the branch SHA, tree, and parent checks pass, and
+repairs the lifecycle labels and marker comment if needed. If a closed or
+merged pull request exists for that branch, publication fails closed with no
+push and no new PR. If the branch exists with no PR, publication creates the PR
+without re-pushing only after the same tree, parent, message, and identity
+checks pass. GitHub creates pull requests by branch name, not by a supplied
+commit SHA, so the publisher compares the returned PR `head.sha` with the
+published commit before writing a successful receipt. This detects, but does
+not prevent, a branch mutation between the create-only push and PR creation.
+Any missing remote branch, stale PR head, tree mismatch, parent mismatch,
+message mismatch, identity mismatch, or created-PR head mismatch fails closed.
+`--update` is intentionally refused until a later revision policy exists.
+
 The dispatcher verification wrapper permits only the git commands needed for
 index-only verification: `init`, `fetch`, `rev-parse`, `read-tree`,
 `apply --cached`, `ls-files`, `cat-file`, `write-tree`, `diff`, and
@@ -547,16 +612,46 @@ The only live ACA assumptions are isolated in
 `dispatcher/clients/aca-cli-client.js` and marked UNVERIFIED: exact `aca`
 create and exec flags, JSON output shape, file transfer support, delete
 behavior, stdin forwarding for bootstrap environment delivery, and ACR
-authentication from Sandbox Groups. If stdin forwarding is not available, the
-planned fallback is an env JSON file uploaded to a runner-only tmpfs path with
-mode `600`, read once by the same bootstrap, and deleted immediately. That
-fallback is also UNVERIFIED and is not the default. PR 6 must verify these
-against a real Sandbox Group before workflow wiring can enable the provider.
+authentication from Sandbox Groups. A protected manual workflow gates a
+controlled live probe behind an explicit opt-in and a pre-installed ACA CLI.
+It does not add label triggers or change the legacy queue provider. If stdin
+forwarding is not available, the planned fallback is an env JSON file uploaded
+to a runner-only tmpfs path with mode `600`, read once by the same bootstrap,
+and deleted immediately. That fallback is also UNVERIFIED and is not enabled.
+Until live create, exec, stdin or file transfer, cleanup, and ACR authentication
+are proven, this workflow is not production-ready.
 
 Squad built-ins such as Coordinator, Scribe, Ralph, Rai, and optional
 `@copilot` are modeled as `function` or `system` roster membership. They are
 not project persona assumptions. Project personas are resolved dynamically from
 the initialized roster.
+
+### Manual execution and publication gates
+
+The manual workflow validates the plan path inside the checked-out repository,
+rejects symlink traversal, verifies the plan contract, and checks its baseline
+against the exact checked-out commit before authentication. Since a committed
+plan cannot contain the SHA of its own commit, `$CHECKED_OUT_SHA` is the sole
+supported baseline sentinel. Preflight substitutes the checkout's full SHA
+into a private temporary plan copy before dispatch. Any literal SHA must match
+the checkout exactly.
+An `issue` binding in a live plan must match the selected owner/repository
+and issue number exactly. Legacy plans without this binding are fake-mode
+only. Direct ACA dispatch and the trusted publisher both repeat the binding
+check; the publisher also matches the plan run ID and baseline to dispatcher
+output before requesting an installation token.
+
+Fake mode is the default and uses the fake sandbox client plus a no-op Copilot
+stub. It exercises dispatch and integration without Azure credentials or
+publication. Live Sandbox dispatch requires a separately enabled input, a
+protected environment, the SandboxGroup Data Owner dispatcher UAMI, a
+pre-installed ACA CLI on a dedicated runner, and a fine-grained Copilot token.
+Live publication is a separate protected environment job and runs only after a
+successful dispatcher summary with successful integration. It receives the
+GitHub App private key only on the trusted publisher host. Automated Key Vault
+PEM retrieval is not implemented, so the key must be manually staged in the
+protected environment secret. No persona or integration sandbox receives the
+App key or GitHub write token.
 
 The legacy queue payload remains valid:
 

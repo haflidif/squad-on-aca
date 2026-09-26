@@ -2,7 +2,10 @@
 # Stage 1: Build - install Copilot CLI in a full image
 # =============================================================================
 ARG BASE_ACR_HOST=crsquadacaa6b49feb.azurecr.io/
-FROM ${BASE_ACR_HOST}base/golang:1.23.4-bookworm AS build
+ARG BUILD_BASE_IMAGE=${BASE_ACR_HOST}base/golang:1.23.4-bookworm
+ARG RUNTIME_BASE_IMAGE=${BASE_ACR_HOST}base/debian:bookworm-20240701-slim
+
+FROM ${BUILD_BASE_IMAGE} AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -19,7 +22,7 @@ RUN npm install -g @github/copilot
 # =============================================================================
 # Stage 2: Runtime - persona sandbox worker only
 # =============================================================================
-FROM ${BASE_ACR_HOST}base/debian:bookworm-20240701-slim AS runtime
+FROM ${RUNTIME_BASE_IMAGE} AS runtime
 
 LABEL maintainer="Haflidi Fridthjofsson"
 LABEL org.opencontainers.image.description="Squad persona worker for Azure Container Apps Sandboxes"

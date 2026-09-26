@@ -17,6 +17,18 @@
       "type": "string",
       "minLength": 1
     },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "issue_number"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$"
+        },
+        "issue_number": { "type": "integer", "minimum": 1 }
+      }
+    },
     "provider": {
       "$ref": "common.schema.json#/$defs/provider"
     },

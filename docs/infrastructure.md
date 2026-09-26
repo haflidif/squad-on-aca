@@ -77,7 +77,7 @@ creation calls:
 These defaults are not Sandbox Group properties. They are dispatcher inputs for
 future sandbox create calls.
 
-Persona sandboxes do not receive managed identities or RBAC in this PR. They get
+Persona sandboxes do not receive managed identities or RBAC. They get
 no Key Vault access, no ACR push, no queue access, and no GitHub write access.
 The legacy shared `squad_agent` identity remains unchanged for the existing ACA
 Job path. Splitting that legacy identity is deferred to a later hardening PR.
@@ -88,10 +88,10 @@ The persona worker image lives under `agents/sandbox/` and is built separately
 from the legacy `agents/base/` ACA Job image. It uses the same Debian base image
 family and Copilot CLI installation style, but it does not install Azure CLI,
 GitHub CLI, Key Vault helpers, queue helpers, GitHub App authentication, or
-publication tooling. A future dispatcher image will create sandboxes and pass a
-pre-staged repository path, dispatch envelope, output directory, and Copilot
+publication tooling. The trusted host dispatcher creates sandboxes and passes
+a pre-staged repository path, dispatch envelope, output directory, and Copilot
 credential to the persona worker. ACR authentication for Sandbox Groups remains
-unverified and must be resolved before PR 5 can wire live sandbox dispatch.
+unverified.
 
 Build the persona worker from the repository root:
 
@@ -107,6 +107,11 @@ the Docker daemon. The old `docker build agents/sandbox` form is intentionally
 not supported because the runner depends on contract tooling outside that
 directory.
 
+CI uses the same root context and the corresponding pinned public Debian and
+Golang base image tags instead of the private ACR mirror. It does not log in to
+Azure, push an image, or use deployment credentials. Normal image builds still
+default to the configured ACR mirror.
+
 The runner stages artifacts outside `SQUAD_OUTPUT_DIR`, starts Copilot with a
 minimal explicit environment, and withholds runner path variables from the
 persona process. It requires the output directory to be empty before execution
@@ -115,6 +120,51 @@ the output directory, the runner deletes those files and publishes only a
 minimal `output_tampered` failure. True filesystem separation still requires PR 5
 dispatcher hardening: run Copilot under a different UID or attach the output
 mount only after Copilot exits, then collect artifacts with dispatcher-side exec.
+
+## Manual Sandbox rollout
+
+The existing `agents/workflows/squad-queue.yml` is the legacy ACA Job template.
+It continues to emit provider-less messages, which always resolve to `aca-job`.
+The `aca-sandbox` entrypoint remains a loud rejection before queue acknowledgement.
+Do not add an issue-label trigger or route legacy messages to the Sandbox
+provider.
+
+Use `.github/workflows/squad-sandbox-manual.yml` only for deliberate manual
+testing. Its default is fake mode, which exercises dispatcher fan-out and
+integration with a deterministic smoke Copilot stub and no Azure or GitHub
+write credentials.
+The input plan path must be relative to the checked-out repository, contain no
+symlink component, pass the v1 schema, and bind to the current commit. Use
+`$CHECKED_OUT_SHA` in a committed plan for top-level and task baseline fields;
+preflight substitutes the exact checkout SHA into the validated temporary copy.
+A mismatched literal SHA fails before authentication.
+
+Live sandbox testing requires the separate live input, a protected
+`squad-sandbox-dispatch` environment, Azure OIDC variables for the dedicated
+dispatcher UAMI, a fine-grained Copilot token, and a dedicated Linux runner
+labeled `squad-aca-cli` with a trusted pre-installed `aca` executable. The UAMI
+needs only `Container Apps SandboxGroup Data Owner` at the Sandbox Group scope.
+The runner requires outbound access for GitHub Actions Azure OIDC and the
+configured ACA endpoint. The workflow adds no network route. Missing group,
+identity, CLI, token, or unverified-client acknowledgement fails before Azure
+login.
+
+Publication requires a second opt-in and a protected `squad-publish`
+environment with required reviewers. The GitHub App installation is scoped to
+the target repository and needs `contents: write`, `pull_requests: write`, and
+`issues: write`. Key Vault PEM retrieval is not implemented in this workflow.
+Until then, an administrator must manually stage the PEM as
+`SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` in the protected environment. It is validated
+and written to a mode-600 temporary file only in the publisher job, after the
+dispatcher and integration summary passes, then deleted on exit. No App key or
+GitHub write token enters persona or integration execution.
+
+This path remains non-production-ready until a real Sandbox Group verifies ACA
+CLI create/exec flags and output, stdin forwarding or supported file transfer,
+sandbox deletion and timeout behavior, and ACR authentication. The explicit
+`SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1` setting permits only a manually approved
+probe. It does not mark those contracts verified and does not enable automatic
+label dispatch.
 
 ---
 

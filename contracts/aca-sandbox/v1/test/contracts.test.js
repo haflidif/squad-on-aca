@@ -74,6 +74,23 @@ test('dynamic multi-agent execution fixture is valid', () => {
   assert.equal(result.valid, true, result.errors.join('\n'));
 });
 
+test('coordinator issue binding is optional for offline plans and strict when present', () => {
+  const plan = readFixture('dynamic-multi-agent-execution.example.json');
+  assert.equal(validateContract('coordinator-execution.schema.json', plan).valid, true);
+  plan.issue = { repo: 'example/repository', issue_number: 42 };
+  assert.equal(validateContract('coordinator-execution.schema.json', plan).valid, true);
+  for (const issue of [
+    { repo: 'example/../repository', issue_number: 42 },
+    { repo: 'example/repository.git', issue_number: 42 },
+    { repo: 'example/repository', issue_number: 0 },
+    { repo: 'example/repository', issue_number: '42' },
+    { repo: 'example/repository', issue_number: 42, unexpected: true }
+  ]) {
+    plan.issue = issue;
+    assert.equal(validateContract('coordinator-execution.schema.json', plan).valid, false, JSON.stringify(issue));
+  }
+});
+
 test('all v1 contract schemas accept representative valid values', () => {
   const execution = readFixture('dynamic-multi-agent-execution.example.json');
   const owner = execution.tasks[0].owner;
@@ -414,6 +431,24 @@ test('integration dispatch rejects shell string check commands', () => {
   }, execution);
   assert.equal(result.valid, false);
   assert.ok(result.errors.some(error => error.includes('argv')));
+});
+
+
+test('publish result schema accepts publisher receipt', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const result = validateContract('publish-result.schema.json', {
+    schema_version: 'aca-sandbox/v1',
+    message_type: 'publish.result',
+    run_id: execution.run_id,
+    status: 'succeeded',
+    branch: 'squad/aca-sandbox/issue-42-run-example-title',
+    commit_sha: '0123456789abcdef0123456789abcdef01234567',
+    pr_number: 42,
+    pr_url: 'https://github.example/pull/42',
+    idempotency: 'created',
+    labels: { added: ['squad:queued'], removed: ['squad:processing'] }
+  });
+  assert.equal(result.valid, true, result.errors.join('\n'));
 });
 
 test('schemas do not encode this repository roster names', () => {
