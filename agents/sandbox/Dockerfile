@@ -46,13 +46,15 @@ RUN useradd --create-home --shell /usr/sbin/nologin --uid 10000 squad-runner \
 WORKDIR /workspace
 
 COPY --chown=squad-runner:squad-runner agents/sandbox/lib /opt/squad-sandbox/lib
-COPY --chown=squad-runner:squad-runner agents/sandbox/runner /opt/squad-sandbox/runner
-COPY --chown=squad-runner:squad-runner contracts/aca-sandbox/v1/tools/path-scope.js /opt/squad/contracts/aca-sandbox/v1/tools/path-scope.js
+COPY agents/sandbox/runner /opt/squad-sandbox/runner
+COPY contracts/aca-sandbox/v1/tools /opt/squad/contracts/aca-sandbox/v1/tools
+COPY contracts/aca-sandbox/v1/schemas /opt/squad/contracts/aca-sandbox/v1/schemas
 RUN chmod -R a+rX /opt/squad-sandbox \
     && chmod -R a+rX /opt/squad/contracts \
     && chmod +x /opt/squad-sandbox/runner/persona-run.sh \
     && chmod +x /opt/squad-sandbox/runner/copilot-launch.sh \
     && chmod +x /opt/squad-sandbox/runner/exec-with-env.js \
+    && chmod +x /opt/squad-sandbox/runner/integrate-run.sh \
     && ln -sf /opt/squad-sandbox/runner/persona-run.sh /persona-run.sh
 
 ENTRYPOINT ["/persona-run.sh"]

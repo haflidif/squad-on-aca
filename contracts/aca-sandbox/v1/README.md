@@ -20,8 +20,11 @@ publish to GitHub.
    file paths or segment-aware directory prefixes for fail-closed patch
    enforcement. A dispatch path must be equal to or narrower than the matching
    task ownership path in the coordinator execution plan.
-4. A persona returns a `persona.result` and artifact references. A future
-   integrator combines those results into an `integration.result`.
+4. A persona returns a `persona.result` and artifact references.
+5. The dispatcher sends verified persona patch artifacts to a separate
+   `integration.dispatch` envelope. The integration sandbox applies patches in
+   dependency and task ID order, then returns an `integration.result` plus an
+   artifact manifest for the integrated patch.
 
 ## Compatibility guarantee
 
@@ -105,3 +108,57 @@ node --test contracts/aca-sandbox/v1/test/*.test.js
 
 The fixture names and values are illustrative and are not normative roster
 entries.
+
+
+## Integration dispatch
+
+`integration-dispatch.schema.json` is additive in v1. It carries the run
+context, ordered task patch references, task ownership, dependencies, an
+`allow_3way` flag encoded as `"true"` or `"false"`, and optional check commands.
+Check commands are argv arrays only. Shell strings are rejected so the runner can
+execute them without a shell and with an explicit minimal environment. The
+default integration policy keeps 3-way patch application off because persona
+owned paths are expected to be disjoint.
+
+The integration runner validates the actual index delta for each patch by
+comparing `git write-tree` snapshots before and after `git apply --index`.
+Validation uses `--no-renames`, so both sides of a rename are checked against
+the task's `owned_paths`. Integration rejects symlink mode `120000`, gitlink
+mode `160000`, `.git/**` paths, and executable-bit additions by default. A task
+can opt in to executable-bit additions with `allow_executable_bits: "true"`.
+
+Checks run only after the integrated patch has been written and hashed. The
+runner snapshots the source index tree, fingerprints every source worktree file
+including ignored and untracked files, and fingerprints `.git/config`,
+`.git/hooks/**`, and `.git/info/**`. Each check runs in a fresh materialized
+copy of the integrated tree with no `.git` directory. Edits inside that copy do
+not affect the emitted patch. Any write back to the source worktree, source
+index, or source git metadata fails with `checks_mutated_tree`.
+
+Integration check commands require an integrated tree with no symlink or gitlink
+entries. Before materializing a check copy, the runner lists the full tree with
+`git ls-tree -r -z --full-tree` and rejects mode `120000` or `160000` with
+`check_tree_contains_symlink`. It also lstat-walks the materialized copy as a
+defense-in-depth check. This restriction applies only when checks are
+configured. Without check commands, the runner does not materialize a check tree
+and unchanged baseline symlinks do not block integration.
+
+Git plumbing output uses a bounded large-output policy and fails with
+`output_limit_exceeded` if exceeded. `SQUAD_INTEGRATION_MAX_PLUMBING_BYTES` can
+lower the bound for tests, but it must be a positive integer and cannot exceed
+268435456 bytes. Check output is log data and may be truncated with
+`truncated: true`. Check timeout handling must terminate the full process tree;
+Linux sandbox CI should set `SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST=1` to make the
+process-tree kill evidence mandatory.
+
+Dispatcher verification is independent from runner verification. It builds a
+bare verification repository from the baseline bundle, disables system and
+global git config, points hooks at an empty directory, disables LFS and filters,
+overrides attributes with `* -text -filter -diff -merge`, and applies the
+integrated and persona patches with `git apply --cached` against temporary
+index files. The verifier never performs checkout, add, hash-object, or
+worktree update operations. Its hardened git wrapper only allows the small
+plumbing command set needed for index-only verification. It compares mode, blob
+ID, and raw blob bytes for every persona-owned path and repeats the delta policy
+for symlinks, gitlinks, `.git/**`, protected paths, ownership union, and
+executable-bit additions.

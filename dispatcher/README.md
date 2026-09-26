@@ -1,6 +1,6 @@
 # ACA Sandbox dispatcher
 
-The dispatcher is the trusted PR 5 fan-out boundary. It reads a `coordinator-execution` plan, validates it with the v1 contract validator, creates one sandbox per task, stages the repository from a local git bundle at the plan baseline, runs the persona worker, downloads artifacts, and writes `dispatcher-summary.json`.
+The dispatcher is the trusted PR 5 fan-out boundary. It reads a `coordinator-execution` plan, validates it with the v1 contract validator, creates one sandbox per task, stages the repository from a local git bundle at the plan baseline, runs the persona worker, downloads artifacts, runs the integration sandbox after all required persona tasks succeed, and writes `dispatcher-summary.json`.
 
 ```powershell
 node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client fake --concurrency 3
@@ -26,7 +26,12 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
 7. Start a fixed runner bootstrap and send a single JSON environment object on stdin. The bootstrap validates an allowlist, sets runner-only variables, and execs the persona runner. Classic `ghp_` tokens are rejected because ACA Sandbox Copilot credentials require fine-grained `github_pat_` tokens.
 8. Download `persona-result.json`, `artifact-manifest.json`, and artifacts listed in the manifest.
 9. Revalidate result contracts, recompute artifact sha256 values, scan downloaded files for credential material, and re-check patch paths against owned and protected paths.
-10. Delete the sandbox in a `finally` block. Delete failures are recorded in the task summary.
+10. Delete the persona sandbox in a `finally` block. Delete failures are recorded in the task summary.
+11. If every required persona task succeeded, create a fresh integration sandbox labeled with `phase=integration`. Upload the same baseline bundle plus verified persona patches. No Copilot token or credential variable is sent.
+12. Run the integration runner through the same stdin bootstrap. The runner applies patches deterministically by dependency order and task ID, validates ownership again, optionally runs argv-only check commands, and emits an integrated patch.
+13. Download integration artifacts, validate schemas and sha256 values, rescan for credential patterns, and verify the integrated patch path set equals the union of persona patch path sets.
+14. Verify the integrated patch without checkout. The dispatcher builds a bare verification repository from the bundle, disables system and global git config, disables hooks, disables LFS and filters, writes a blanket attributes override, and applies patches to temporary index files only. For every changed path, the integrated patch must produce the same index mode, blob ID, and raw blob bytes as the single persona patch that owns that path.
+15. Delete the integration sandbox in a `finally` block.
 
 ## Credential and artifact boundary
 
@@ -56,3 +61,60 @@ These items are isolated in `dispatcher/clients/aca-cli-client.js` and remain UN
 - Whether native file transfer exists. The adapter currently uses base64 over exec stdin/stdout.
 - Sandbox delete behavior and timeout behavior.
 - ACR authentication from a Sandbox Group.
+
+
+## Integration phase
+
+Integration is automatic unless the caller passes `--no-integrate`. The phase is
+fail closed. If any required persona task failed or was skipped, integration is
+marked `skipped` and the overall dispatcher summary remains failed. If
+integration runs and fails, the overall summary is failed even when all persona
+tasks succeeded.
+
+The integration envelope is `integration.dispatch`. It contains patch artifact
+paths and sha256 values, task dependencies, `owned_paths`, optional check
+commands, and `allow_3way`. The dispatcher sets `allow_3way` to `"false"` unless
+the plan explicitly opts in. This preserves the disjoint-owned-path assumption.
+
+The integration runner emits `integration-result.json`,
+`artifact-manifest.json`, and on success `patches/integrated.patch`. The
+dispatcher independently revalidates the result, compares the runner-reported
+patch sha256 with the manifest sha256, and verifies the integrated patch against
+the baseline bundle without creating a worktree checkout. Verification uses a
+hardened git environment with system and global config disabled, hooks pointed
+at an empty directory, LFS smudge disabled, and `.gitattributes` filters
+neutralized. Patches are applied with `git apply --cached` against temporary
+index files read from the baseline tree, so clean and smudge filters cannot
+normalize content during verification. The verifier never checks out a worktree
+and its git wrapper allows only `init`, `fetch`, `rev-parse`, `read-tree`,
+`apply --cached`, `ls-files`, `cat-file`, `write-tree`, `diff`, and
+`diff-tree`. This keeps checkout hooks, worktree update hooks, and filter
+commands out of the verification path. The dispatcher then performs the
+content-level equality check against persona-owned patch output.
+
+The dispatcher repeats the integration delta policy against the verified
+integrated index. It rejects symlink mode `120000`, gitlink mode `160000`,
+`.git/**` paths, protected paths, paths outside the union of persona-owned
+patch paths, and executable-bit additions unless the owning task has
+`allow_executable_bits: "true"`.
+
+Checks run after the runner has already written and hashed the integrated patch.
+The runner records the source index tree, a full source worktree fingerprint,
+and selected source git metadata before checks. Each check runs in a throwaway
+copy with no `.git` directory, and the source fingerprints must still match
+afterward. A check that reaches back into the source tree or source git metadata
+fails with `checks_mutated_tree`; edits inside the throwaway copy are ignored.
+
+Integration check commands are not supported for repositories whose integrated
+tree contains any symlink or gitlink, including unchanged baseline entries. The
+runner fails closed with `check_tree_contains_symlink` before materializing the
+check copy. Repositories with symlinks can still integrate patches when no
+check commands are configured.
+
+The integration runner rejects symlinks, gitlinks, `.git/**` paths, and
+executable-bit additions unless a task explicitly opts in with
+`allow_executable_bits: "true"`. Git plumbing output uses a large bounded
+capture policy and fails with `output_limit_exceeded` if exceeded. The optional
+`SQUAD_INTEGRATION_MAX_PLUMBING_BYTES` override must be a positive integer no
+larger than 268435456 bytes. Check output is only log data, so it may be
+truncated and marked with `truncated: true`.

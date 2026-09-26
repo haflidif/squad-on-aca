@@ -75,6 +75,27 @@
         "$ref": "common.schema.json#/$defs/artifactRef"
       }
     },
+    "failed_task_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+    },
+    "check_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "exit_code", "stdout", "stderr"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["succeeded", "failed", "skipped"] },
+          "exit_code": { "type": "integer", "minimum": 0 },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "timed_out": { "type": "string", "enum": ["true", "false"] },
+          "truncated": { "type": "boolean" }
+        }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,

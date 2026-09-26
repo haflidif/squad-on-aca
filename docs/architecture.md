@@ -474,6 +474,75 @@ the Copilot process with `runuser` or `setpriv`. Local tests that cannot switch
 users run in an explicit `same-user` mode and assert the marker in
 `logs/isolation-mode.txt`, so the weaker local path is visible.
 
+PR 6 adds the integration phase after persona fan-out. When every required
+persona task succeeds, the dispatcher creates a separate sandbox labeled
+`phase=integration`, uploads the same baseline bundle and the verified persona
+patches, and runs `integrate-run.sh`. No Copilot token, GitHub token, Azure
+secret, or credential-like environment variable is sent to this sandbox.
+
+The integration runner consumes an `integration.dispatch` envelope. It sorts
+patches by dependency topology and task ID, verifies the baseline checkout is
+clean, applies each patch with `git apply --check` and `git apply --index`, and
+keeps 3-way application off unless the plan explicitly opts in. After each
+patch it compares `git write-tree` snapshots with `--no-renames`, then checks
+every path in the actual index delta against task ownership and protected path
+rules. This covers rename sources, rename destinations, deletions, additions,
+and mode-only changes. Integration rejects symlink mode `120000`, gitlink mode
+`160000`, `.git/**` paths, and executable-bit additions unless the task
+explicitly opts in with `allow_executable_bits: "true"`. It also rejects any
+path touched by more than one patch.
+
+Optional plan checks are argv arrays only and run with a minimal environment and
+timeout. The runner writes and hashes the integrated patch before checks, then
+records the source index tree, fingerprints every source worktree file, and
+fingerprints `.git/config`, `.git/hooks/**`, and `.git/info/**`. Each check runs
+in a fresh copy of the integrated tree with no `.git` directory. Edits inside
+that copy do not affect the emitted patch. Any write back to the source tree,
+source index, or source git metadata fails with `checks_mutated_tree`. Check
+output is bounded log data and may be truncated with `truncated: true`; git
+plumbing output has a separate large cap and fails closed with
+`output_limit_exceeded` if exceeded. The optional
+`SQUAD_INTEGRATION_MAX_PLUMBING_BYTES` value must be a positive integer no
+larger than 268435456 bytes. Sandbox CI must set
+`SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST=1` so process-tree timeout coverage cannot
+be skipped silently.
+
+Integration check commands require an integrated tree with no symlink or gitlink
+entries. Before any check copy is materialized, the runner lists the complete
+tree and rejects mode `120000` or `160000` with
+`check_tree_contains_symlink`. It also lstat-walks the materialized copy as a
+defense-in-depth guard. Repositories with symlinks can still integrate patches
+when no check commands are configured, because no check tree is materialized.
+
+The integration sandbox emits an `integration.result`, an artifact manifest, and
+on success one binary integrated patch. The dispatcher validates both schemas,
+recomputes sha256 values, scans artifacts for GitHub token patterns, verifies
+the integrated patch paths equal the union of persona patch paths, and compares
+the runner-reported patch sha256 to the manifest sha256. Dispatcher verification
+does not checkout a worktree. It builds a bare verification repository from the
+bundle, disables system and global git config, points hooks at an empty
+directory, disables LFS and filters, writes `* -text -filter -diff -merge` to
+the verification attributes file, and applies patches with `git apply --cached`
+against temporary index files. It then re-applies each single owning persona
+patch at the same baseline and requires every changed path to have the same
+index mode, blob ID, and raw blob bytes as the integrated patch. The dispatcher
+also repeats the delta policy for symlinks, gitlinks, `.git/**`, protected
+paths, paths outside the union of owned paths, and executable-bit additions. Any
+persona failure skips integration and keeps the execution failed. Any
+integration failure also fails the dispatcher summary. Publication and PR
+creation remain out of scope for PR 6.
+
+The dispatcher verification wrapper permits only the git commands needed for
+index-only verification: `init`, `fetch`, `rev-parse`, `read-tree`,
+`apply --cached`, `ls-files`, `cat-file`, `write-tree`, `diff`, and
+`diff-tree`. It rejects checkout, add, hash-object, checkout-index, and
+worktree-updating read-tree forms. Hook execution is reachable through raw
+fetch and reference updates when a hostile global `core.hooksPath` is honored,
+so verification overrides global config and points hooks at an empty directory.
+Clean and smudge filters are reachable through filter-running commands such as
+add or hash-object with path filtering, so verification avoids those commands
+and applies patches only to temporary index files.
+
 The only live ACA assumptions are isolated in
 `dispatcher/clients/aca-cli-client.js` and marked UNVERIFIED: exact `aca`
 create and exec flags, JSON output shape, file transfer support, delete

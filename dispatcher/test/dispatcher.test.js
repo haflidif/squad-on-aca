@@ -27,6 +27,23 @@ function git(args, cwd) {
   return run('git', args, { cwd });
 }
 
+function gitResult(args, options = {}) {
+  return spawnSync('git', args, { cwd: options.cwd || repoRoot, encoding: options.encoding || 'utf8', env: options.env || process.env, shell: false, input: options.input });
+}
+
+function assertGitOk(args, options = {}) {
+  const result = gitResult(args, options);
+  assert.equal(result.status, 0, `git ${args.join(' ')}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return String(result.stdout || '').trim();
+}
+
+function createBaselineBundle(name) {
+  const { repo, baseline } = createRepo(name);
+  const bundle = path.join(workRoot, name, 'baseline.bundle');
+  git(['bundle', 'create', bundle, 'HEAD'], repo);
+  return { repo, baseline, bundle };
+}
+
 function createRepo(name) {
   const repo = path.join(workRoot, name, 'repo');
   fs.mkdirSync(repo, { recursive: true });
@@ -111,9 +128,13 @@ esac
 async function dispatchCase(name, tasks, options = {}) {
   const caseDir = path.join(workRoot, name);
   resetDir(caseDir);
-  const { repo, baseline } = createRepo(name);
+  const repoInfo = createRepo(name);
+  const repo = repoInfo.repo;
+  let baseline = repoInfo.baseline;
+  if (options.repoPatch) baseline = options.repoPatch(repo, baseline) || git(['rev-parse', 'HEAD'], repo);
   const fakeCopilot = createFakeCopilot(caseDir);
   const plan = planFor(baseline, tasks);
+  if (options.planPatch) options.planPatch(plan);
   const planPath = writePlan(caseDir, plan);
   const outDir = path.join(caseDir, 'out');
   const oldBin = process.env.SQUAD_COPILOT_BIN;
@@ -127,7 +148,7 @@ async function dispatchCase(name, tasks, options = {}) {
       clientKind: 'fake',
       clientInstance: client,
       concurrency: options.concurrency || 3,
-      config: { timeoutMs: options.timeoutMs || 20000 },
+      config: { timeoutMs: options.timeoutMs || 20000, ...(options.config || {}) },
       ...(options.useEnvToken ? {} : { copilotToken: options.token || 'github_pat_testdispatcher' })
     });
     return { ...result, outDir, plan, client };
@@ -149,8 +170,10 @@ test('happy path with two independent tasks produces valid summary and verified 
   assert.equal(summary.status, 'succeeded');
   assert.equal(summary.tasks.length, 2);
   assert(summary.tasks.every(task => task.status === 'succeeded'));
+  assert.equal(summary.integration.status, 'succeeded');
+  assert.equal(fs.existsSync(path.join(outDir, ...summary.integration.integrated_patch_path.split('/'))), true);
   assert.equal(validateContract('dispatcher-summary.schema.json', summary).valid, true);
-  assert.equal(client.deleted.length, 2);
+  assert.equal(client.deleted.length, 3);
   for (const task of summary.tasks) {
     for (const rel of task.artifact_paths) assert.equal(fs.existsSync(path.join(outDir, ...rel.split('/'))), true);
   }
@@ -165,6 +188,7 @@ test('dependency on a failed task is skipped', async () => {
   assert.equal(summary.status, 'failed');
   assert.equal(summary.tasks.find(task => task.task_id === 'task-fail').status, 'failed');
   assert.equal(summary.tasks.find(task => task.task_id === 'task-dependent').status, 'skipped');
+  assert.equal(summary.integration.status, 'skipped');
   assert.equal(client.deleted.length, 1);
 });
 
@@ -175,6 +199,7 @@ test('one persona failure fails the execution and deletes the sandbox', async ()
   ]);
   assert.equal(summary.status, 'failed');
   assert.equal(summary.tasks[0].status, 'failed');
+  assert.equal(summary.integration.status, 'skipped');
   assert.equal(client.deleted.length, 1);
 });
 
@@ -259,6 +284,11 @@ test('runner environment is delivered through bootstrap stdin, not local spawn e
     assert.match(fakeEnv, /^GITHUB_TOKEN=github_pat_stdinOnlySecret$/m);
     assert.doesNotMatch(fakeEnv, /^SQUAD_SOURCE_REPO_PATH=/m);
     assert.doesNotMatch(fakeEnv, /^SQUAD_OUTPUT_DIR=/m);
+    const integrationExec = client.execCalls.find(call => call.argv.some(arg => String(arg).includes('integrate-run.sh')));
+    assert(integrationExec, 'integration exec should use the env bootstrap');
+    assert.deepEqual(integrationExec.env, {});
+    assert.equal(integrationExec.stdin.includes('SQUAD_COPILOT_TOKEN'), false);
+    assert.equal(integrationExec.stdin.includes(token), false);
   } finally {
     if (oldAllowlist === undefined) delete process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST;
     else process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST = oldAllowlist;
@@ -475,4 +505,277 @@ test('concurrency limit is honored', async () => {
   ], { client, concurrency: 2 });
   assert.equal(summary.status, 'succeeded');
   assert(client.maxActiveExecs <= 2, `max active execs ${client.maxActiveExecs} exceeded concurrency 2`);
+});
+
+
+test('integration failing check fails execution, captures output, and deletes sandbox', async () => {
+  const owner = member('test-alpha');
+  const client = new FakeSandboxClient({ root: path.join(workRoot, 'integration-check-fail', 'sandboxes') });
+  const { summary } = await dispatchCase('integration-check-fail', [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], {
+    client,
+    planPatch(plan) {
+      plan.integration = {
+        check_commands: [{ name: 'failing-check', argv: [process.execPath, '-e', 'console.log("integration stdout"); console.error("integration stderr"); process.exit(9)'] }]
+      };
+    }
+  });
+  assert.equal(summary.status, 'failed');
+  assert.equal(summary.integration.status, 'failed');
+  assert.match(summary.integration.reason, /failing-check|exit code 9/);
+  assert.equal(client.deleted.length, 2);
+});
+
+test('integration sandbox is deleted on timeout', async () => {
+  const owner = member('test-alpha');
+  const client = new FakeSandboxClient({ root: path.join(workRoot, 'integration-timeout', 'sandboxes') });
+  const originalExec = client.exec.bind(client);
+  client.exec = async (handle, argv, options) => {
+    if (argv.some(arg => String(arg).includes('integrate-run.sh'))) {
+      client.execCalls.push({ argv, env: { ...(options?.env || {}) }, stdin: options?.stdin || '' });
+      return { exitCode: 124, stdout: '', stderr: 'timed out', timedOut: true };
+    }
+    return originalExec(handle, argv, options);
+  };
+  const { summary } = await dispatchCase('integration-timeout', [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], { client });
+  assert.equal(summary.status, 'failed');
+  assert.match(summary.integration.reason, /timed out/);
+  assert.equal(client.deleted.length, 2);
+});
+
+test('integration output tamper fails dispatcher verification and deletes sandbox', async () => {
+  let tampered = false;
+  const hook = async (handle, remotePath, client) => {
+    if (tampered || !remotePath.endsWith('patches/integrated.patch')) return;
+    tampered = true;
+    fs.appendFileSync(client.remoteToHost(handle, remotePath), '\ntampered\n');
+  };
+  const owner = member('test-alpha');
+  const client = new FakeSandboxClient({ root: path.join(workRoot, 'integration-tamper', 'sandboxes'), onBeforeReadFile: hook });
+  const { summary } = await dispatchCase('integration-tamper', [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], { client });
+  assert.equal(summary.status, 'failed');
+  assert.match(summary.integration.reason, /sha256 mismatch/);
+  assert.equal(client.deleted.length, 2);
+});
+
+test('dispatcher rejects integrated patch content drift with the same path set', async () => {
+  let tampered = false;
+  const hook = async (handle, remotePath, client) => {
+    if (tampered || !remotePath.endsWith('integration-result.json')) return;
+    const patchPath = client.remoteToHost(handle, '/workspace/output/patches/integrated.patch');
+    if (!fs.existsSync(patchPath)) return;
+    tampered = true;
+    const patch = fs.readFileSync(patchPath, 'utf8').replace('alpha changed', 'alpha tampered');
+    fs.writeFileSync(patchPath, patch);
+    const patchBytes = Buffer.from(patch);
+    const patchSha = sha256Bytes(patchBytes);
+    const manifestPath = client.remoteToHost(handle, '/workspace/output/artifact-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const manifestPatch = manifest.artifacts.find(artifact => artifact.kind === 'patch');
+    manifestPatch.sha256 = patchSha;
+    manifestPatch.size_bytes = patchBytes.length;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const resultPath = client.remoteToHost(handle, '/workspace/output/integration-result.json');
+    const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const resultPatch = result.artifacts.find(artifact => artifact.kind === 'patch');
+    resultPatch.sha256 = patchSha;
+    fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+  };
+  const owner = member('test-alpha');
+  const client = new FakeSandboxClient({ root: path.join(workRoot, 'integration-content-drift', 'sandboxes'), onBeforeReadFile: hook });
+  const { summary } = await dispatchCase('integration-content-drift', [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], { client });
+  assert.equal(summary.status, 'failed');
+  assert.match(summary.integration.reason, /content .* differs/i);
+  assert.equal(client.deleted.length, 2);
+});
+
+test('dispatcher rejects integrated patch delta policy violations', async () => {
+  const cases = [
+    ['integrated-symlink', 'diff --git a/alpha/result.txt b/alpha/result.txt\nnew file mode 120000\nindex 0000000..e69de29\n--- /dev/null\n+++ b/alpha/result.txt\n@@ -0,0 +1 @@\n+base.txt\n'],
+    ['integrated-gitlink', 'diff --git a/alpha/result.txt b/alpha/result.txt\nnew file mode 160000\nindex 0000000..0123456\n--- /dev/null\n+++ b/alpha/result.txt\n@@ -0,0 +1 @@\n+Subproject commit 0123456789012345678901234567890123456789\n'],
+    ['integrated-executable', 'diff --git a/alpha/result.txt b/alpha/result.txt\nnew file mode 100755\nindex 0000000..bf0d87a\n--- /dev/null\n+++ b/alpha/result.txt\n@@ -0,0 +1 @@\n+alpha changed\n'],
+    ['integrated-gitdir', 'diff --git a/.git/config b/.git/config\nnew file mode 100644\nindex 0000000..257cc56\n--- /dev/null\n+++ b/.git/config\n@@ -0,0 +1 @@\n+unsafe\n'],
+    ['integrated-protected', 'diff --git a/.squad/state.txt b/.squad/state.txt\nnew file mode 100644\nindex 0000000..257cc56\n--- /dev/null\n+++ b/.squad/state.txt\n@@ -0,0 +1 @@\n+unsafe\n'],
+    ['integrated-outside-union', 'diff --git a/beta/evil.txt b/beta/evil.txt\nnew file mode 100644\nindex 0000000..257cc56\n--- /dev/null\n+++ b/beta/evil.txt\n@@ -0,0 +1 @@\n+unsafe\n']
+  ];
+  for (const [name, patchText] of cases) {
+    let tampered = false;
+    const hook = async (handle, remotePath, client) => {
+      if (tampered || !remotePath.endsWith('integration-result.json')) return;
+      const patchPath = client.remoteToHost(handle, '/workspace/output/patches/integrated.patch');
+      if (!fs.existsSync(patchPath)) return;
+      tampered = true;
+      const patch = patchText.endsWith('\n') ? patchText : `${patchText}\n`;
+      fs.writeFileSync(patchPath, patch);
+      const patchBytes = Buffer.from(patch);
+      const patchSha = sha256Bytes(patchBytes);
+      const manifestPath = client.remoteToHost(handle, '/workspace/output/artifact-manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const manifestPatch = manifest.artifacts.find(artifact => artifact.kind === 'patch');
+      manifestPatch.sha256 = patchSha;
+      manifestPatch.size_bytes = patchBytes.length;
+      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      const resultPath = client.remoteToHost(handle, '/workspace/output/integration-result.json');
+      const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+      const resultPatch = result.artifacts.find(artifact => artifact.kind === 'patch');
+      resultPatch.sha256 = patchSha;
+      fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+    };
+    const owner = member('test-alpha');
+    const client = new FakeSandboxClient({ root: path.join(workRoot, name, 'sandboxes'), onBeforeReadFile: hook });
+    const { summary } = await dispatchCase(name, [
+      { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+    ], { client });
+    assert.equal(summary.status, 'failed', name);
+    assert.match(summary.integration.reason, /policy|path set|paths .* do not match|violates|outside/i, name);
+  }
+});
+
+test('dispatcher verification does not run filter-capable git commands', async () => {
+  const caseDir = path.join(workRoot, 'filter-hardening');
+  const globalConfig = path.join(caseDir, 'global.gitconfig');
+  const marker = path.join(caseDir, 'filter-ran.marker');
+  const filterScript = path.join(caseDir, 'filter.js');
+  fs.mkdirSync(caseDir, { recursive: true });
+  fs.writeFileSync(filterScript, `const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(marker)}, 'filter ran');
+process.stdin.pipe(process.stdout);
+`, 'utf8');
+  const filterCommand = `"${process.execPath.replace(/\\/g, '/')}" "${filterScript.replace(/\\/g, '/')}"`;
+  git(['config', '--file', globalConfig, 'filter.fake.clean', filterCommand], repoRoot);
+  git(['config', '--file', globalConfig, 'filter.fake.smudge', filterCommand], repoRoot);
+  git(['config', '--file', globalConfig, 'filter.fake.required', 'true'], repoRoot);
+
+  const rawRepo = path.join(caseDir, 'raw');
+  fs.mkdirSync(path.join(rawRepo, 'alpha'), { recursive: true });
+  git(['init'], rawRepo);
+  fs.writeFileSync(path.join(rawRepo, '.gitattributes'), 'alpha/*.txt filter=fake\n');
+  const rawEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig };
+  const raw = gitResult(['hash-object', '--path=alpha/result.txt', '--stdin'], { cwd: rawRepo, env: rawEnv, encoding: 'utf8', input: 'alpha changed\n' });
+  if (raw.status !== 0 && !fs.existsSync(marker)) {
+    assert.fail(`negative control did not execute the configured clean filter\nstdout:\n${raw.stdout}\nstderr:\n${raw.stderr}`);
+  }
+  assert.equal(fs.existsSync(marker), true, 'negative control must prove a clean filter can run when a filter-running command is used');
+  fs.rmSync(marker, { force: true });
+
+  const invocations = [];
+  let tampered = false;
+  const hook = async (handle, remotePath, client) => {
+    if (tampered || !remotePath.endsWith('integration-result.json')) return;
+    const patchPath = client.remoteToHost(handle, '/workspace/output/patches/integrated.patch');
+    if (!fs.existsSync(patchPath)) return;
+    tampered = true;
+    const patch = fs.readFileSync(patchPath, 'utf8').replace('alpha changed', 'alpha drifted');
+    fs.writeFileSync(patchPath, patch);
+    const patchBytes = Buffer.from(patch);
+    const patchSha = sha256Bytes(patchBytes);
+    const manifestPath = client.remoteToHost(handle, '/workspace/output/artifact-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const manifestPatch = manifest.artifacts.find(artifact => artifact.kind === 'patch');
+    manifestPatch.sha256 = patchSha;
+    manifestPatch.size_bytes = patchBytes.length;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const resultPath = client.remoteToHost(handle, '/workspace/output/integration-result.json');
+    const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const resultPatch = result.artifacts.find(artifact => artifact.kind === 'patch');
+    resultPatch.sha256 = patchSha;
+    fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  };
+  const oldGlobal = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    const owner = member('test-alpha');
+    const client = new FakeSandboxClient({ root: path.join(workRoot, 'filter-hardening-sandboxes'), onBeforeReadFile: hook });
+    const { summary } = await dispatchCase('filter-hardening', [
+      { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+    ], {
+      client,
+      config: {
+        onVerificationGitSpawn(invocation) {
+          invocations.push(invocation);
+        }
+      },
+      repoPatch(repo) {
+        fs.writeFileSync(path.join(repo, '.gitattributes'), 'alpha/*.txt filter=fake\n');
+        git(['add', '.gitattributes'], repo);
+        git(['commit', '-m', 'add attributes'], repo);
+      }
+    });
+    assert.equal(fs.existsSync(marker), false, 'verification must not execute configured filters');
+    assert.equal(summary.status, 'failed');
+    assert.match(summary.integration.reason, /content .* differs/i);
+    const spawned = invocations.map(item => item.args.join(' ')).join('\n');
+    assert.doesNotMatch(spawned, /\b(?:add|hash-object|checkout|checkout-index)\b/, 'verification git command set must not include commands that run clean or smudge filters');
+  } finally {
+    if (oldGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = oldGlobal;
+  }
+});
+
+test('dispatcher verification disables global reference hooks during fetch', async () => {
+  const caseDir = path.join(workRoot, 'hook-hardening');
+  const globalConfig = path.join(caseDir, 'global.gitconfig');
+  const hooksDir = path.join(caseDir, 'global-hooks');
+  const marker = path.join(caseDir, 'hook-ran.marker');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const hookPath = path.join(hooksDir, 'reference-transaction');
+  fs.writeFileSync(hookPath, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'hook ran');
+`, 'utf8');
+  fs.chmodSync(hookPath, 0o755);
+  git(['config', '--file', globalConfig, 'core.hooksPath', hooksDir], repoRoot);
+
+  const { baseline, bundle } = createBaselineBundle('hook-hardening-negative');
+  const rawRepo = path.join(caseDir, 'raw.git');
+  const rawEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig };
+  assertGitOk(['init', '--bare', rawRepo], { cwd: caseDir, env: rawEnv });
+  assertGitOk([`--git-dir=${rawRepo}`, 'fetch', bundle, `${baseline}:refs/heads/baseline`], { cwd: caseDir, env: rawEnv });
+  assert.equal(fs.existsSync(marker), true, 'negative control must prove the global reference hook can run during fetch');
+  fs.rmSync(marker, { force: true });
+
+  const invocations = [];
+  let globalSet = false;
+  const oldGlobal = process.env.GIT_CONFIG_GLOBAL;
+  const hook = async (handle, remotePath) => {
+    if (globalSet || !remotePath.endsWith('integration-result.json')) return;
+    globalSet = true;
+    fs.rmSync(marker, { force: true });
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  };
+  try {
+    const owner = member('test-alpha');
+    const client = new FakeSandboxClient({ root: path.join(workRoot, 'hook-hardening-sandboxes'), onBeforeReadFile: hook });
+    const { summary } = await dispatchCase('hook-hardening', [
+      { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+    ], {
+      client,
+      config: {
+        onVerificationGitSpawn(invocation) {
+          invocations.push(invocation);
+        }
+      }
+    });
+    assert.equal(summary.status, 'succeeded');
+    assert.equal(fs.existsSync(marker), false, 'verification must not execute global hooks');
+    assert(invocations.length > 0, 'verification git invocations should be intercepted');
+    for (const invocation of invocations) {
+      const args = invocation.args;
+      assert(args.includes('-c') && args.includes('core.hooksPath=' + path.join(path.dirname(invocation.env.GIT_CONFIG_GLOBAL), 'hooks')), `missing hardened hooksPath in ${args.join(' ')}`);
+      assert(args.includes('-c') && args.includes('filter.lfs.clean='), `missing hardened filter flags in ${args.join(' ')}`);
+      assert.equal(invocation.env.GIT_CONFIG_NOSYSTEM, '1');
+      assert.notEqual(invocation.env.GIT_CONFIG_GLOBAL, globalConfig);
+      assert.equal(invocation.env.GIT_CONFIG_COUNT, '0');
+      assert.equal(invocation.env.GIT_CONFIG_PARAMETERS, '');
+    }
+  } finally {
+    if (oldGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = oldGlobal;
+  }
 });

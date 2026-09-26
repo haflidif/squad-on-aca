@@ -113,3 +113,59 @@ and the required ACA sandbox contract tool copied into
 `/opt/squad/contracts/aca-sandbox/v1/`. Do not use the legacy
 `docker build agents/sandbox` form, because runtime contract dependencies live
 outside that directory.
+
+
+## Integration runner
+
+The same image also contains `runner/integrate-run.sh` for PR 6 integration. It
+does not run Copilot and must not receive credentials. The dispatcher supplies
+an `integration.dispatch` envelope, the baseline git bundle, and verified persona
+patch files.
+
+The runner installs its cleanup trap before creating work directories, verifies
+the cloned bundle `HEAD` equals `baseline_sha`, requires a clean tree, applies
+each patch with `git apply --check` followed by `git apply --index`, and keeps
+3-way application off unless the envelope explicitly sets `allow_3way` to
+`"true"`. It rechecks changed paths against each task's `owned_paths`, rejects
+protected paths, and rejects any path touched by more than one patch.
+
+Path validation is based on the index delta between `git write-tree` snapshots
+taken immediately before and after each persona patch is applied. The runner
+uses `--no-renames` for that delta, so rename sources, rename destinations,
+deletions, additions, and mode-only changes are all checked against ownership.
+Integration rejects symlink mode `120000`, gitlink mode `160000`, any `.git/**`
+path, and executable-bit additions by default. A task must explicitly set
+`allow_executable_bits: "true"` in the integration dispatch before an executable
+mode addition is accepted.
+
+Optional checks are argv arrays, never shell strings. They run with a minimal
+allowlisted environment, a timeout, and captured output. Before checks run, the
+runner writes `patches/integrated.patch`, records its sha256, snapshots the
+source index tree, fingerprints every source worktree file, and fingerprints
+`.git/config`, `.git/hooks/**`, and `.git/info/**`. Each check then runs in a
+fresh materialized copy of that tree with no `.git` directory. Edits in the
+copy are allowed and cannot change the emitted patch. If a check somehow writes
+back to the source tree or source git metadata, the post-check verification
+fails with `checks_mutated_tree`.
+Check stdout and stderr may be truncated in result logs and then set
+`truncated: true`.
+
+Repositories with symlinks or gitlinks anywhere in the integrated tree cannot
+use integration check commands in v1. The runner lists the complete tree before
+materializing any check copy and fails with `check_tree_contains_symlink` if it
+finds mode `120000` or `160000`. A second lstat walk after materialization is a
+defense-in-depth guard against unexpected symlinks in the throwaway copy. If no
+check commands are configured, no check tree is materialized and an unchanged
+baseline symlink does not block integration.
+
+Git plumbing output uses a separate large capture limit. The integrated patch is
+streamed to disk and hashing is done from the file. If patch output, path lists,
+or other plumbing output exceed `SQUAD_INTEGRATION_MAX_PLUMBING_BYTES`, the
+runner fails closed with `output_limit_exceeded` instead of silently truncating.
+The limit must be a positive integer and is capped at 268435456 bytes.
+The shell wrapper creates exact temporary directories with `mktemp -d` and its
+trap removes only those recorded paths, never a glob of sibling directories.
+
+Check timeouts terminate the whole process tree. Linux CI for the sandbox image
+must set `SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST=1` so a missing process-tree
+kill mechanism fails validation instead of being reported as a local skip.

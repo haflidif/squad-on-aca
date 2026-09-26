@@ -9,4 +9,6 @@
 !contracts/aca-sandbox/
 !contracts/aca-sandbox/v1/
 !contracts/aca-sandbox/v1/tools/
-!contracts/aca-sandbox/v1/tools/path-scope.js
+!contracts/aca-sandbox/v1/tools/**
+!contracts/aca-sandbox/v1/schemas/
+!contracts/aca-sandbox/v1/schemas/**

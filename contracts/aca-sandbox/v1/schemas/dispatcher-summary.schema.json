@@ -12,6 +12,21 @@
     "status": { "type": "string", "enum": ["succeeded", "failed"] },
     "started_at": { "type": "string", "minLength": 1 },
     "ended_at": { "type": "string", "minLength": 1 },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "sandbox_id", "integrated_patch_path", "sha256", "failed_task_id", "check_results", "deletion_error"],
+      "properties": {
+        "status": { "type": "string", "enum": ["not_run", "running", "succeeded", "failed", "skipped"] },
+        "reason": { "type": "string" },
+        "sandbox_id": { "type": "string" },
+        "integrated_patch_path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "failed_task_id": { "type": "string" },
+        "check_results": { "type": "array", "items": { "type": "object" } },
+        "deletion_error": { "type": "string" }
+      }
+    },
     "tasks": {
       "type": "array",
       "minItems": 1,

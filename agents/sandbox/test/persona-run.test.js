@@ -277,11 +277,16 @@ function assertIsolationMode(outputDir) {
 
 test('Dockerfile copies sandbox runtime contract dependencies', () => {
   const dockerfile = fs.readFileSync(sandboxDockerfile, 'utf8');
-  const runnerSource = fs.readFileSync(runner, 'utf8');
+  const runnerSource = fs.readdirSync(path.join(repoRoot, 'agents', 'sandbox', 'runner'))
+    .filter(file => file.endsWith('.js') || file.endsWith('.sh'))
+    .map(file => fs.readFileSync(path.join(repoRoot, 'agents', 'sandbox', 'runner', file), 'utf8'))
+    .join('\n');
   const writeResultSource = fs.readFileSync(path.join(repoRoot, 'agents', 'sandbox', 'runner', 'write-result.js'), 'utf8');
   const copiedSources = [...dockerfile.matchAll(/^\s*COPY(?:\s+--[^\s]+)*\s+([^\s]+)\s+/gm)].map(match => match[1]);
   assert(copiedSources.includes('agents/sandbox/lib'), 'Dockerfile must copy sandbox lib from repo-root context');
   assert(copiedSources.includes('agents/sandbox/runner'), 'Dockerfile must copy sandbox runner from repo-root context');
+  assert.match(dockerfile, /^COPY agents\/sandbox\/runner /m, 'runner files should be copied root-owned');
+  assert.match(dockerfile, /chmod \+x \/opt\/squad-sandbox\/runner\/integrate-run\.sh/, 'integration runner must be executable in the image');
 
   const contractRefs = new Set();
   for (const source of [runnerSource, writeResultSource]) {
@@ -290,6 +295,8 @@ test('Dockerfile copies sandbox runtime contract dependencies', () => {
     }
   }
   assert(contractRefs.has('contracts/aca-sandbox/v1/tools/path-scope.js'));
+  assert(contractRefs.has('contracts/aca-sandbox/v1/tools/validate.js'));
+  assert(copiedSources.includes('contracts/aca-sandbox/v1/schemas'), 'Dockerfile must copy schemas for integration validation');
   for (const contractRef of contractRefs) {
     assert(
       copiedSources.some(source => contractRef === source || contractRef.startsWith(`${source.replace(/\/$/, '')}/`)),

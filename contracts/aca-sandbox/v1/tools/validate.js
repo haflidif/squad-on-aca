@@ -173,7 +173,7 @@ function semanticErrors(contractName, value, context) {
     }
     for (const task of value.tasks) visit(task.task_id);
   }
-  if (['persona-dispatch.schema.json', 'persona-result.schema.json', 'artifact-manifest.schema.json', 'integration-result.schema.json'].includes(contractName)) {
+  if (['persona-dispatch.schema.json', 'persona-result.schema.json', 'artifact-manifest.schema.json', 'integration-result.schema.json', 'integration-dispatch.schema.json'].includes(contractName)) {
     if (context) {
       if (value.baseline_sha !== context.baseline_sha) errors.push('baseline SHA does not match execution plan');
       if (JSON.stringify(value.roster) !== JSON.stringify(context.roster)) errors.push('roster snapshot does not match execution plan');
@@ -203,6 +203,36 @@ function semanticErrors(contractName, value, context) {
           }
         }
       }
+    }
+    if (contractName === 'integration-dispatch.schema.json') {
+      const ids = new Set((value.tasks || []).map(task => task.task_id));
+      if (ids.size !== (value.tasks || []).length) errors.push('integration task IDs must be unique');
+      for (const task of value.tasks || []) {
+        const rosterMember = value.roster?.members?.find(member => member.logical_member_id === task.owner.logical_member_id);
+        if (!rosterMember) errors.push(`integration task ${task.task_id} owner is not present in roster snapshot`);
+        else if (JSON.stringify(rosterMember) !== JSON.stringify(task.owner)) errors.push(`integration task ${task.task_id} owner identity does not match roster snapshot`);
+        errors.push(...validateOwnedPathList(task.owned_paths || [], `integration task ${task.task_id} owned_paths`));
+        for (const dependency of task.dependencies || []) {
+          if (dependency.task_id === task.task_id) errors.push(`integration task ${task.task_id} cannot depend on itself`);
+          if (!ids.has(dependency.task_id)) errors.push(`integration task ${task.task_id} depends on unknown task ${dependency.task_id}`);
+        }
+      }
+      const visiting = new Set();
+      const visited = new Set();
+      const tasksById = new Map((value.tasks || []).map(task => [task.task_id, task]));
+      function visitIntegration(taskId) {
+        if (!tasksById.has(taskId)) return;
+        if (visiting.has(taskId)) {
+          errors.push(`integration dependency cycle includes ${taskId}`);
+          return;
+        }
+        if (visited.has(taskId)) return;
+        visiting.add(taskId);
+        for (const dependency of tasksById.get(taskId).dependencies || []) visitIntegration(dependency.task_id);
+        visiting.delete(taskId);
+        visited.add(taskId);
+      }
+      for (const task of value.tasks || []) visitIntegration(task.task_id);
     }
     if (contractName === 'artifact-manifest.schema.json') {
       for (const [index, artifact] of (value.artifacts || []).entries()) {

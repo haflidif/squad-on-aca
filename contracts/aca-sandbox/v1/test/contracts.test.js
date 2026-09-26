@@ -365,6 +365,57 @@ test('artifact manifest rejects case-insensitive path collisions', () => {
   assert.ok(result.errors.some(error => error.includes('collides')));
 });
 
+
+
+test('integration dispatch schema accepts patch refs and argv check commands', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const tasks = execution.tasks.map(task => ({
+    task_id: task.task_id,
+    owner: task.owner,
+    dependencies: task.dependencies,
+    owned_paths: task.owned_paths,
+    patch_ref: {
+      path: `patches/${task.task_id}.patch`,
+      sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    }
+  }));
+  const result = validateContract('integration-dispatch.schema.json', {
+    schema_version: 'aca-sandbox/v1',
+    message_type: 'integration.dispatch',
+    run_id: execution.run_id,
+    provider: execution.provider,
+    baseline_sha: execution.baseline_sha,
+    roster: execution.roster,
+    allow_3way: 'false',
+    check_commands: [{ name: 'unit', argv: ['node', '--test'], timeout_ms: 1000 }],
+    tasks
+  }, execution);
+  assert.equal(result.valid, true, result.errors.join('\n'));
+});
+
+test('integration dispatch rejects shell string check commands', () => {
+  const execution = readFixture('dynamic-multi-agent-execution.example.json');
+  const task = execution.tasks[0];
+  const result = validateContract('integration-dispatch.schema.json', {
+    schema_version: 'aca-sandbox/v1',
+    message_type: 'integration.dispatch',
+    run_id: execution.run_id,
+    provider: execution.provider,
+    baseline_sha: execution.baseline_sha,
+    roster: execution.roster,
+    check_commands: [{ name: 'bad', argv: 'node --test' }],
+    tasks: [{
+      task_id: task.task_id,
+      owner: task.owner,
+      dependencies: [],
+      owned_paths: task.owned_paths,
+      patch_ref: { path: 'patches/task.patch', sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' }
+    }]
+  }, execution);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some(error => error.includes('argv')));
+});
+
 test('schemas do not encode this repository roster names', () => {
   const forbiddenNames = /\b(?:Wedge|Chewie|Lando|Cassian|Bodhi|Rai|Ralph|Scribe)\b/;
   for (const file of fs.readdirSync(schemasDir).filter(file => file.endsWith('.json'))) {

@@ -15,6 +15,7 @@ const {
 } = require('./lib/util');
 const { FakeSandboxClient } = require('./clients/fake-sandbox-client');
 const { AcaCliSandboxClient } = require('./clients/aca-cli-client');
+const { runIntegrationPhase, integrationSummaryBase } = require('./integrate');
 
 const DEFAULTS = { cpu: '1000m', memory: '2048Mi', autoSuspendSeconds: 300, concurrency: 3, timeoutMs: 300000, cloneTimeoutMs: 120000 };
 const STATUS = { PENDING: 'pending', RUNNING: 'running', SUCCEEDED: 'succeeded', FAILED: 'failed', SKIPPED: 'skipped' };
@@ -398,7 +399,11 @@ async function runDispatcher(options) {
   }
 
   const taskSummaries = plan.tasks.map(task => summaries.get(task.task_id));
-  const executionStatus = taskSummaries.every(task => task.status === STATUS.SUCCEEDED) ? STATUS.SUCCEEDED : STATUS.FAILED;
+  let integration = integrationSummaryBase();
+  if (options.integrate !== false) {
+    integration = await runIntegrationPhase({ plan, taskSummaries, outDir, client, bundlePath, config, token, log, projectRoot: PROJECT_ROOT });
+  }
+  const executionStatus = taskSummaries.every(task => task.status === STATUS.SUCCEEDED) && (options.integrate === false || integration.status === STATUS.SUCCEEDED) ? STATUS.SUCCEEDED : STATUS.FAILED;
   const summary = {
     schema_version: 'aca-sandbox/v1',
     message_type: 'dispatcher.summary',
@@ -406,6 +411,7 @@ async function runDispatcher(options) {
     status: executionStatus,
     started_at: startedAt,
     ended_at: new Date().toISOString(),
+    integration,
     tasks: taskSummaries
   };
   const summaryValidation = validateContract('dispatcher-summary.schema.json', summary);

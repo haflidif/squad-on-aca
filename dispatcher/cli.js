@@ -12,6 +12,7 @@ function parseArgs(argv) {
     else if (arg === '--client') args.client = argv[++index];
     else if (arg === '--concurrency') args.concurrency = Number(argv[++index]);
     else if (arg === '--timeout-ms') args.config = { ...(args.config || {}), timeoutMs: Number(argv[++index]) };
+    else if (arg === '--no-integrate') args.integrate = false;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -19,7 +20,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Usage: node dispatcher/cli.js --plan plan.json --repo <path> --out <dir> [--client fake|aca] [--concurrency N]\n\nDefault client is fake. The aca client also requires SQUAD_ENABLE_ACA_SANDBOX=1.`;
+  return `Usage: node dispatcher/cli.js --plan plan.json --repo <path> --out <dir> [--client fake|aca] [--concurrency N] [--no-integrate]\n\nDefault client is fake. The aca client also requires SQUAD_ENABLE_ACA_SANDBOX=1.`;
 }
 
 (async () => {
