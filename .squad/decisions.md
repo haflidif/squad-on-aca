@@ -44,6 +44,42 @@
 **References:** decision feb6a61a-b876-47d8-a137-340964306d0b, PR 4 agents/sandbox/**, Cassian R3 findings
 **Why:** Lando, Wedge, and Chewie were each rejected on the PR 4 persona sandbox runner path, leaving no eligible fixer and causing a deadlock. Haflidi explicitly lifted Wedge's lockout. Wedge then fixed Cassian's third-round findings by isolating Copilot with an environment allowlist, preventing persona access to output paths, adding output tamper detection, ensuring `path-scope.js` is packaged into the image, and installing cleanup traps early. Cassian stayed reviewer and approved round 4.
 
+### 2026-09-25T22-28-54: PR 5 dispatcher stages repositories by baseline git bundle
+**By:** Lando
+**What:** The trusted ACA Sandbox dispatcher creates a local git bundle for the coordinator plan baseline commit, uploads that bundle into each persona sandbox, clones from the bundle inside the sandbox, and detaches to the baseline SHA before running the persona worker.
+**References:** dispatcher/dispatcher.js, dispatcher/README.md, docs/architecture.md
+**Why:** This keeps repository remotes and GitHub credentials out of persona sandboxes while preserving a verifiable source baseline for every task. The live ACA file-transfer mechanism remains isolated behind the SandboxClient adapter until PR 6 verifies the real CLI/API behavior.
+
+### 2026-09-25T22-28-59: PR 5 closes persona artifact boundary with separate Copilot UID and dispatcher verification
+**By:** Lando
+**What:** The sandbox image creates a separate `copilot-agent` user. When the runner starts as root in the image, it keeps staging and output directories private to the runner side and executes Copilot through `runuser` or `setpriv` as `copilot-agent`. The dispatcher collects artifacts after runner exit, revalidates result contracts, recomputes sha256 values, scans for credentials, and rechecks patch paths against owned and protected paths.
+**References:** agents/sandbox/Dockerfile, agents/sandbox/runner/persona-run.sh, dispatcher/dispatcher.js
+**Why:** PR 4's same-UID runner boundary was defense in depth, not a hard filesystem boundary. Separating the Copilot UID in the image and moving final artifact trust to the dispatcher prevents persona code from being the authority for its own output.
+
+### 2026-09-25T22-29-03: PR 5 adds a dedicated dispatcher summary schema
+**By:** Lando
+**What:** PR 5 adds `dispatcher-summary.schema.json` instead of reusing `integration-result.schema.json`. The dispatcher summary records sandbox lifecycle details, per-task skip and failure reasons, host artifact paths, and sandbox deletion errors.
+**References:** contracts/aca-sandbox/v1/schemas/dispatcher-summary.schema.json, dispatcher/dispatcher.js
+**Why:** Integration results describe later patch application outcomes. Dispatcher execution needs a narrower operational receipt for fan-out, artifact collection, verification, and cleanup without implying that patches were integrated or published.
+
+### 2026-09-25T22-50-13: Use stdin bootstrap for ACA Sandbox runner environment
+**By:** Wedge
+**What:** The trusted dispatcher delivers runner environment variables to ACA Sandbox personas by starting a fixed `exec-with-env.js` bootstrap and writing a single JSON object to stdin. The bootstrap validates an allowlist, sets only approved runner variables, and execs the persona runner.
+**References:** PR 5, dispatcher/dispatcher.js, dispatcher/clients/aca-cli-client.js, agents/sandbox/runner/exec-with-env.js
+**Why:** Passing `SQUAD_SOURCE_REPO_PATH`, `SQUAD_OUTPUT_DIR`, or `SQUAD_COPILOT_TOKEN` through `aca sandbox exec` argv or the local aca process environment can expose credentials or make local tests bypass the live delivery path. Stdin keeps the token out of argv and out of the local spawn environment while still letting the runner receive the values it needs. This depends on `aca sandbox exec` forwarding stdin to the sandbox process and remains unverified until live ACA validation; if stdin is unsupported, the only planned fallback is an also-unverified mode-600 env JSON file on runner-only tmpfs, read once by the same bootstrap and deleted immediately.
+
+### 2026-09-25T22-50-17: Use fd handoff for Copilot token inside persona runner
+**By:** Wedge
+**What:** The persona runner must not pass the Copilot token through `runuser`, `setpriv`, env, or Copilot argv. It opens file descriptor 3 from an anonymous pipe containing the token and launches `copilot-launch.sh` with a minimal non-secret `env -i` allowlist. The launcher reads fd 3, closes it, exports `GITHUB_TOKEN`, and execs Copilot.
+**References:** PR 5, agents/sandbox/runner/persona-run.sh, agents/sandbox/runner/copilot-launch.sh, agents/sandbox/test/persona-run.test.js
+**Why:** Copilot CLI requires `GITHUB_TOKEN` in its own environment, but putting `GITHUB_TOKEN=<token>` in argv makes it visible through process command lines. The fd handoff keeps the token out of parent argv while still limiting token lifetime to the Copilot process environment. The same mechanism is used for same-user local fallback and separate-user container execution.
+
+### 2026-09-26T03:05:00+02:00: PR 5 dispatcher spawn hygiene and parser hardening
+**By:** Chewie
+**What:** The final PR 5 dispatcher revision strips credential environment variables from every dispatcher child process, deletes the Copilot token from `process.env` at startup, applies Windows device-name-aware artifact path validation with collision detection, rejects duplicate JSON keys through a strict flat parser, and gates `/proc` argv assertions behind `SQUAD_REQUIRE_PROC_ARGV_TEST` so unsupported hosts do not produce vacuous coverage.
+**References:** PR 5, dispatcher/**, agents/sandbox/runner/exec-with-env.js, agents/sandbox/test/persona-run.test.js, dispatcher/README.md
+**Why:** Cassian's first two review rounds showed that protecting only the target sandbox process was insufficient: local adapters and helper processes could inherit credentials, Windows host paths had extra reserved-name escape risks, and `JSON.parse` silently hides duplicate keys. Cassian approved round 3 after dispatcher, sandbox, and contract tests passed. Live ACA CLI flags, stdin forwarding, file transfer, and ACR authentication remain unverified and are tracked in `dispatcher/README.md`.
+
 ## Governance
 
 - All meaningful changes require team consensus
