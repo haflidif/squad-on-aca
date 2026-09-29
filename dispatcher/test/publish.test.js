@@ -9,6 +9,8 @@ const { EventEmitter } = require('node:events');
 const { runPublish, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, readPemFromEnv } = require('../publish');
 
 const workRoot = path.join(__dirname, '.publish-work');
+// Actions sets GITHUB_REPOSITORY; tests that need the workflow-repository check set it explicitly.
+delete process.env.GITHUB_REPOSITORY;
 function resetDir(dir) { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); }
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', shell: false, ...options });
@@ -669,7 +671,7 @@ test('stale publish work hooks and symlinked hook directories are not reused', a
 });
 
 test('live client refuses without live gate and token request is minimal repository scoped', async () => {
-  const cli = spawnSync(process.execPath, ['dispatcher\\cli.js', 'publish', '--summary', 'missing.json', '--repo', '.', '--plan', 'missing-plan.json', '--repo-full-name', 'example/repo', '--issue-number', '42', '--live'], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8', env: { ...process.env, SQUAD_ENABLE_PUBLISH: '' } });
+  const cli = spawnSync(process.execPath, ['dispatcher/cli.js', 'publish', '--summary', 'missing.json', '--repo', '.', '--plan', 'missing-plan.json', '--repo-full-name', 'example/repo', '--issue-number', '42', '--live'], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8', env: { ...process.env, SQUAD_ENABLE_PUBLISH: '' } });
   assert.notEqual(cli.status, 0);
   assert.match(`${cli.stdout}\n${cli.stderr}`, /SQUAD_ENABLE_PUBLISH=1/);
   const client = new FakeGitHubClient();

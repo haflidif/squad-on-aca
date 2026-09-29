@@ -12,6 +12,8 @@ const { sha256Bytes } = require('../lib/util');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const workRoot = path.join(__dirname, '.work');
+// Actions sets GITHUB_REPOSITORY; tests that need the workflow-repository check set it explicitly.
+delete process.env.GITHUB_REPOSITORY;
 
 function resetDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -512,7 +514,7 @@ test('sandbox delete is called on timeout', async () => {
 });
 
 test('aca client refuses without the enable flag', () => {
-  const result = spawnSync('node', ['dispatcher\\cli.js', '--plan', 'missing.json', '--repo', '.', '--out', 'out', '--client', 'aca'], {
+  const result = spawnSync('node', ['dispatcher/cli.js', '--plan', 'missing.json', '--repo', '.', '--out', 'out', '--client', 'aca'], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: { ...process.env, SQUAD_ENABLE_ACA_SANDBOX: '' }
