@@ -3,6 +3,8 @@
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+!infra/terraform/sandbox-lab-state/.terraform.lock.hcl
+!infra/terraform/sandbox-lab/.terraform.lock.hcl
 *.tfvars
 !*.tfvars.example
 tfplan

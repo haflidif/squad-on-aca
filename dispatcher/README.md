@@ -11,7 +11,8 @@ The default client is `fake`. It creates local sandbox directories under the out
 ```powershell
 $env:SQUAD_ENABLE_ACA_SANDBOX = '1'
 $env:SQUAD_SANDBOX_GROUP_NAME = '<sandbox-group-name>'
-$env:SQUAD_ACA_BIN = 'aca'
+$env:SQUAD_ACA_BIN = '<absolute-pinned-aca-path>'
+$env:SQUAD_SANDBOX_IMAGE_REF = 'crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:<64-hex-digest>'
 node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client aca --repo-full-name owner/repository --issue-number 42
 ```
 
@@ -43,6 +44,15 @@ The dispatcher redacts the injected Copilot token and common GitHub token prefix
 
 `SQUAD_ACA_BIN` can point the live client at a specific ACA CLI executable. This is mainly for pinned installations and tests that place a stub executable ahead of the real CLI.
 
+`SQUAD_SANDBOX_IMAGE_REF` must be an immutable `sha256` digest under
+`crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/`. Both persona and
+integration create specs carry the same image. Fake mode needs no image.
+The live adapter currently fails with `unverified_image_contract` before
+spawning a create command, even when the controlled-probe opt-in is set.
+Inspect the pinned CLI help and verify image selection and ACR pull behavior
+before implementing its actual create flags. Do not assume an image is selected
+implicitly or treat the override as authorization for production dispatch.
+
 Artifact paths are validated before download and again while writing. Paths must be relative POSIX paths, must not use Windows reserved device names, must not end a segment with a dot or space, must not contain colons or control characters, and must not collide after Unicode NFC normalization and case folding within one manifest.
 
 The live client depends on `aca sandbox exec` forwarding stdin to the sandbox process. That behavior is UNVERIFIED until live ACA validation. If stdin is not supported, the only planned fallback is an also UNVERIFIED mode-600 env JSON file on a runner-only tmpfs path, read once by the same bootstrap and deleted immediately after read.
@@ -61,6 +71,7 @@ These items are isolated in `dispatcher/clients/aca-cli-client.js` and remain UN
 - Whether native file transfer exists. The adapter currently uses base64 over exec stdin/stdout.
 - Sandbox delete behavior and timeout behavior.
 - ACR authentication from a Sandbox Group.
+- Exact immutable image selection flag and pull identity.
 
 ## Manual workflow and rollout gates
 
@@ -117,6 +128,7 @@ executable path. Configure these environment variables:
 | `SQUAD_SANDBOX_AZURE_TENANT_ID` | Azure tenant |
 | `SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID` | Azure subscription |
 | `SQUAD_ACA_BIN` | Absolute path to the pre-installed ACA CLI |
+| `SQUAD_SANDBOX_IMAGE_REF` | Immutable digest of the approved lab image in the existing ACR |
 | `SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT` | Must equal `1` for an explicitly acknowledged manual probe |
 
 Store `SQUAD_COPILOT_TOKEN` as a protected environment secret. It must be a

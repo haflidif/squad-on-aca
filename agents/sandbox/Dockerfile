@@ -17,7 +17,16 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @github/copilot
+# Non-secret registry override for managed build hosts. Docker does not inherit
+# host npm config, so pass an approved mirror explicitly when needed.
+# The validator rejects non-https, userinfo, query, fragment and malformed
+# values without printing them. See agents/sandbox/build/validate-npm-registry.js.
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+COPY agents/sandbox/build/validate-npm-registry.js /tmp/squad-build/validate-npm-registry.js
+RUN set -eu; \
+    NPM_REGISTRY="$NPM_REGISTRY" node /tmp/squad-build/validate-npm-registry.js; \
+    npm install -g @github/copilot --registry="$NPM_REGISTRY"; \
+    rm -rf /tmp/squad-build
 
 # =============================================================================
 # Stage 2: Runtime - persona sandbox worker only

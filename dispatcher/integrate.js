@@ -342,6 +342,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
 
     handle = await client.create({
       name: safeName(`${plan.run_id}-integration`),
+      image: config.image,
       labels: { execution_id: plan.run_id, phase: 'integration' },
       cpu: config.cpu,
       memory: config.memory,

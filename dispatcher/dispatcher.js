@@ -15,6 +15,7 @@ const {
 } = require('./lib/util');
 const { FakeSandboxClient } = require('./clients/fake-sandbox-client');
 const { AcaCliSandboxClient } = require('./clients/aca-cli-client');
+const { validateSandboxImageRef } = require('./lib/sandbox-image');
 const { runIntegrationPhase, integrationSummaryBase } = require('./integrate');
 
 const DEFAULTS = { cpu: '1000m', memory: '2048Mi', autoSuspendSeconds: 300, concurrency: 3, timeoutMs: 300000, cloneTimeoutMs: 120000 };
@@ -250,6 +251,7 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
 
     handle = await client.create({
       name: safeName(`${plan.run_id}-${task.task_id}`),
+      image: config.image,
       labels: {
         execution_id: plan.run_id,
         task_id: task.task_id,
@@ -338,6 +340,11 @@ async function runDispatcher(options) {
       throw new Error('Live dispatch repository does not match the workflow repository.');
     }
     assertIssueBinding(plan, options.repoFullName, issueNumber(options.issueNumber), true);
+    if (options.repoFullName === 'AzureViking/squad-on-aca-sandbox-lab') {
+      if (process.env.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID !== 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e') {
+        throw new Error('Lab dispatch requires the approved subscription.');
+      }
+    }
   }
 
   const token = options.copilotToken ?? process.env.SQUAD_COPILOT_TOKEN ?? '';
@@ -348,13 +355,14 @@ async function runDispatcher(options) {
   const config = { ...DEFAULTS, ...(options.config || {}) };
   config.concurrency = Number(options.concurrency || config.concurrency || DEFAULTS.concurrency);
   config.clientKind = clientKind;
+  if (clientKind === 'aca') config.image = validateSandboxImageRef(options.image || config.image || process.env.SQUAD_SANDBOX_IMAGE_REF);
   fs.mkdirSync(outDir, { recursive: true });
   const logPath = path.join(outDir, 'dispatcher.log');
   const log = (line) => fs.appendFileSync(logPath, `${redact(line, token)}\n`);
 
   let client = options.clientInstance;
   if (!client) {
-    if (config.clientKind === 'aca') client = new AcaCliSandboxClient({ ...(options.aca || {}), secretEnvKeys: config.secretEnvKeys || [] });
+    if (config.clientKind === 'aca') client = new AcaCliSandboxClient({ ...(options.aca || {}), image: config.image, secretEnvKeys: config.secretEnvKeys || [] });
     else client = new FakeSandboxClient({ root: path.join(outDir, '.fake-sandboxes'), secretEnvKeys: config.secretEnvKeys || [] });
   }
 

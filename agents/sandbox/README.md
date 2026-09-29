@@ -114,6 +114,33 @@ and the required ACA sandbox contract tool copied into
 `docker build agents/sandbox` form, because runtime contract dependencies live
 outside that directory.
 
+### npm registry on managed build hosts
+
+The build stage installs `@github/copilot` from the `NPM_REGISTRY` build arg,
+which defaults to the public `https://registry.npmjs.org/`. CI uses that default.
+
+Docker builds do not inherit the host npm configuration (`.npmrc`, global or
+user config, or environment). On a managed machine where the public npm registry
+is blocked, pass your organization's approved internal mirror explicitly:
+
+```bash
+docker build -f agents/sandbox/Dockerfile \
+  --build-arg NPM_REGISTRY=https://<approved-internal-npm-mirror>/ \
+  -t squad-persona-sandbox:local .
+```
+
+Use the full registry URL including any path segment, exactly as reported by
+`npm config get registry` on the host. A bare host name can return 404.
+
+Only use this for a mirror that serves public packages without authentication.
+Do not put auth tokens, passwords, or credentials in the URL, and do not pass
+npm auth through build args or build secrets for this image. Build arg values
+are recorded in build metadata. Before `npm install` runs, the build stage
+executes `agents/sandbox/build/validate-npm-registry.js`, which rejects
+non-`https://` values, `@` userinfo, query strings (for example `?token=`),
+fragments and malformed URLs without printing the value. TLS verification stays
+enabled; do not disable `strict-ssl` to work around mirror certificate issues.
+
 
 ## Integration runner
 

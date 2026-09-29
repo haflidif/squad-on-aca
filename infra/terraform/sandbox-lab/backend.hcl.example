@@ -1,0 +1,6 @@
+resource_group_name  = "rg-squad-aca-sandbox-lab"
+storage_account_name = "REPLACE_WITH_BOOTSTRAP_OUTPUT"
+container_name       = "sandbox-lab-state"
+key                  = "sandbox-lab.tfstate"
+use_azuread_auth     = true
+subscription_id      = "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"

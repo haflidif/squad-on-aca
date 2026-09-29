@@ -75,6 +75,24 @@ jobs:
         working-directory: infra/terraform
         run: terraform validate -no-color
 
+      - name: Validate isolated lab roots without remote state
+        shell: bash
+        run: |
+          set -euo pipefail
+          for root in infra/terraform/sandbox-lab-state infra/terraform/sandbox-lab; do
+            terraform -chdir="$root" fmt -check
+            terraform -chdir="$root" init -backend=false -input=false -no-color
+            terraform -chdir="$root" validate -no-color
+          done
+
+      - name: Parse lab PowerShell helper
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/infra/hooks/sandbox-lab-bootstrap.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { throw ($errors | Out-String) }
+
       - name: Build sandbox image without publishing
         run: >-
           docker build --pull

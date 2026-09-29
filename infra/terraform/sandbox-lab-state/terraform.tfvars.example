@@ -1,0 +1,4 @@
+subscription_id       = "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"
+operator_ipv4_cidrs    = ["203.0.113.10/32"] # Replace with approved public egress IP before any plan.
+# storage_account_name = "stsquadlabexample123"
+# state_operator_principal_id = "00000000-0000-0000-0000-000000000000"

@@ -3,6 +3,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { validateContract } = require('../contracts/aca-sandbox/v1/tools/validate');
 const { assertIssueBinding, issueNumber: parseIssueNumber } = require('./lib/issue-binding');
+const { validateSandboxImageRef } = require('./lib/sandbox-image');
 
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
@@ -89,10 +90,12 @@ function validateLiveSandboxConfig(env) {
     'SQUAD_SANDBOX_AZURE_TENANT_ID',
     'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID',
     'SQUAD_ACA_BIN',
+    'SQUAD_SANDBOX_IMAGE_REF',
     'SQUAD_COPILOT_TOKEN'
   ];
   const missing = required.filter(name => typeof env[name] !== 'string' || env[name].trim() === '');
   if (missing.length) throw new Error(`Live sandbox configuration is incomplete: ${missing.join(', ')}.`);
+  validateSandboxImageRef(env.SQUAD_SANDBOX_IMAGE_REF);
   if (!env.SQUAD_COPILOT_TOKEN.startsWith('github_pat_')) {
     throw new Error('SQUAD_COPILOT_TOKEN must be a fine-grained github_pat_ token.');
   }
@@ -124,6 +127,9 @@ function validateInputs(env, options = {}) {
   if (repository !== requiredString(env.GITHUB_REPOSITORY, 'GITHUB_REPOSITORY')) {
     throw new Error('SQUAD_REPOSITORY must exactly match the checked-out GitHub repository.');
   }
+  if (repository === 'AzureViking/squad-on-aca-sandbox-lab' && env.GITHUB_REF !== 'refs/heads/main') {
+    throw new Error('The lab workflow must run from its reviewed main branch.');
+  }
 
   const issueNumber = parseIssueNumber(requiredString(env.SQUAD_ISSUE_NUMBER, 'SQUAD_ISSUE_NUMBER'));
   const mode = requiredString(env.SQUAD_EXECUTION_MODE, 'SQUAD_EXECUTION_MODE');
@@ -134,8 +140,15 @@ function validateInputs(env, options = {}) {
     throw new Error('Fake mode cannot enable live sandbox execution or publication.');
   }
   if (mode === 'live' && !liveSandbox) throw new Error('Live mode requires the separate sandbox live opt-in.');
+  if (mode === 'live' && repository === 'AzureViking/squad-on-aca-sandbox-lab' &&
+    env.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID !== 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e') {
+    throw new Error('Lab live mode requires the approved Azure subscription.');
+  }
   if (livePublish && (mode !== 'live' || !liveSandbox)) {
     throw new Error('Live publication requires live sandbox dispatch and the separate publish opt-in.');
+  }
+  if (repository === 'AzureViking/squad-on-aca-sandbox-lab' && livePublish) {
+    throw new Error('Lab publication is disabled pending separate approval.');
   }
 
   const { plan, planPath } = readExecutionPlan(repoRoot, env.SQUAD_PLAN_PATH, actualHead);

@@ -38,13 +38,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: squad-sandbox-${{ github.repository }}-${{ inputs.execution_mode }}
+  cancel-in-progress: false
+
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
@@ -52,6 +58,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
           SQUAD_PLAN_PATH: ${{ inputs.plan_path }}
           SQUAD_REPOSITORY: ${{ inputs.repository }}
           SQUAD_ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -65,10 +72,12 @@ jobs:
     needs: preflight
     if: ${{ inputs.execution_mode == 'fake' && !inputs.enable_sandbox_live && !inputs.enable_publish_live }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
@@ -76,6 +85,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
           SQUAD_PLAN_PATH: ${{ inputs.plan_path }}
           SQUAD_REPOSITORY: ${{ inputs.repository }}
           SQUAD_ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -132,6 +142,7 @@ jobs:
     needs: preflight
     if: ${{ inputs.execution_mode == 'live' && inputs.enable_sandbox_live }}
     runs-on: [self-hosted, linux, squad-aca-cli]
+    timeout-minutes: 30
     environment: squad-sandbox-dispatch
     permissions:
       contents: read
@@ -140,6 +151,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
@@ -147,6 +159,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
           SQUAD_PLAN_PATH: ${{ inputs.plan_path }}
           SQUAD_REPOSITORY: ${{ inputs.repository }}
           SQUAD_ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -158,6 +171,7 @@ jobs:
           SQUAD_SANDBOX_AZURE_TENANT_ID: ${{ vars.SQUAD_SANDBOX_AZURE_TENANT_ID }}
           SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
           SQUAD_ACA_BIN: ${{ vars.SQUAD_ACA_BIN }}
+          SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT: ${{ vars.SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT }}
           SQUAD_COPILOT_TOKEN: ${{ secrets.SQUAD_COPILOT_TOKEN }}
           SQUAD_PREFLIGHT_REQUIRE_LIVE_CONFIG: '1'
@@ -176,6 +190,7 @@ jobs:
           SQUAD_COPILOT_TOKEN: ${{ secrets.SQUAD_COPILOT_TOKEN }}
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
           SQUAD_ACA_BIN: ${{ vars.SQUAD_ACA_BIN }}
+          SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
           node dispatcher/cli.js
@@ -219,8 +234,9 @@ jobs:
 
   publish-live:
     needs: [preflight, dispatch-live]
-    if: ${{ inputs.execution_mode == 'live' && inputs.enable_sandbox_live && inputs.enable_publish_live && needs.dispatch-live.result == 'success' }}
+    if: ${{ inputs.execution_mode == 'live' && inputs.enable_sandbox_live && inputs.enable_publish_live && needs.dispatch-live.result == 'success' && github.repository != 'AzureViking/squad-on-aca-sandbox-lab' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: squad-publish
     permissions:
       contents: read
@@ -228,6 +244,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0

@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { runDispatcher } = require('../dispatcher');
 const { AcaCliSandboxClient } = require('../clients/aca-cli-client');
+const { validateSandboxImageRef } = require('../lib/sandbox-image');
 const { FakeSandboxClient } = require('../clients/fake-sandbox-client');
 const { validateContract } = require('../../contracts/aca-sandbox/v1/tools/validate');
 const { sha256Bytes } = require('../lib/util');
@@ -345,8 +346,8 @@ if (process.argv.includes('create')) process.stdout.write('{"ok":true}\\n');
     process.env.TEST_PASSWORD = 'secret-password';
     process.env.AZURE_CLIENT_SECRET = 'azure-secret';
     process.env.AZURE_CLIENT_ID = 'azure-client-id';
-    const client = new AcaCliSandboxClient({ acaBin: process.execPath, acaBinArgs: [stub] });
-    await client.create({ name: 'stub-sandbox', cpu: '1000m', memory: '2048Mi', autoSuspendSeconds: 300 });
+    const client = new AcaCliSandboxClient({ acaBin: process.execPath, acaBinArgs: [stub], image: `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}` });
+    await client.exec({ name: 'stub-sandbox' }, ['true']);
     const env = JSON.parse(fs.readFileSync(dumpFile, 'utf8'));
     for (const key of ['SQUAD_COPILOT_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN', 'GITHUB_PAT', 'TEST_PASSWORD', 'AZURE_CLIENT_SECRET']) {
       assert.equal(Object.hasOwn(env, key), false, `${key} leaked to aca process`);
@@ -369,6 +370,32 @@ if (process.argv.includes('create')) process.stdout.write('{"ok":true}\\n');
     restore('TEST_PASSWORD', oldPassword);
     restore('AZURE_CLIENT_SECRET', oldAzureSecret);
     restore('AZURE_CLIENT_ID', oldAzureClient);
+  }
+});
+
+test('live client requires immutable lab image and refuses unverified create without spawning aca', async () => {
+  const digest = `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`;
+  for (const ref of ['', 'crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona:latest',
+    `other.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`,
+    `crsquadacaa6b49feb.azurecr.io/legacy/persona@sha256:${'a'.repeat(64)}`,
+    `${digest}extra`]) {
+    assert.throws(() => validateSandboxImageRef(ref), /immutable sha256 digest/);
+  }
+  assert.equal(validateSandboxImageRef(digest), digest);
+  const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
+  const oldGroup = process.env.SQUAD_SANDBOX_GROUP_NAME;
+  try {
+    process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
+    process.env.SQUAD_SANDBOX_GROUP_NAME = 'test-group';
+    const client = new AcaCliSandboxClient({ image: digest, acaBin: 'nonexistent-aca-binary' });
+    await assert.rejects(client.create({ name: 'persona', image: digest }), /unverified_image_contract/);
+    await assert.rejects(client.create({ name: 'integration', image: digest }), /unverified_image_contract/);
+    await assert.rejects(client.create({ name: 'persona', image: `${digest.slice(0, -1)}b` }), /does not match/);
+  } finally {
+    if (oldEnable === undefined) delete process.env.SQUAD_ENABLE_ACA_SANDBOX;
+    else process.env.SQUAD_ENABLE_ACA_SANDBOX = oldEnable;
+    if (oldGroup === undefined) delete process.env.SQUAD_SANDBOX_GROUP_NAME;
+    else process.env.SQUAD_SANDBOX_GROUP_NAME = oldGroup;
   }
 });
 

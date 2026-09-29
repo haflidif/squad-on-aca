@@ -1,0 +1,2 @@
+subscription_id = "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"
+# image_pull_principal_id = "00000000-0000-0000-0000-000000000000" # Only after pull contract and ACR-wide scope are approved.

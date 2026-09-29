@@ -354,9 +354,11 @@ test('live preflight rejects missing credentials and unverified ACA configuratio
     SQUAD_SANDBOX_AZURE_TENANT_ID: 'tenant-id',
     SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: 'subscription-id',
     SQUAD_ACA_BIN: process.execPath,
+    SQUAD_SANDBOX_IMAGE_REF: `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`,
     SQUAD_COPILOT_TOKEN: 'github_pat_test'
   };
   assert.throws(() => validateLiveSandboxConfig(config), /SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1/);
+  assert.throws(() => validateLiveSandboxConfig({ ...config, SQUAD_SANDBOX_IMAGE_REF: 'repo:latest' }), /immutable sha256 digest/);
   assert.throws(() => validateLiveSandboxConfig({
     ...config,
     SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT: '1',

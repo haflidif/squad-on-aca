@@ -1,11 +1,12 @@
 const { spawn } = require('node:child_process');
 const { buildSafeChildEnv } = require('../lib/util');
+const { validateSandboxImageRef } = require('../lib/sandbox-image');
 
 /*
  * UNVERIFIED ACA CLI CONTRACT
- * The following argv mapping is intentionally isolated in this file until PR 6
- * verifies it against a live ACA Sandbox Group:
- * - create: aca sandbox create --group <group> --name <name> --cpu <cpu> --memory <memory> --auto-suspend <seconds> --label k=v --env k=v --output json
+ * The following argv mapping is isolated here pending a controlled probe:
+ * - create flags and image selection are unverified. Do not issue create until
+ *   the exact immutable image argument is determined in a controlled probe.
  * - exec:   aca sandbox exec --group <group> --name <name> -- <argv...>
  * - exec stdin forwarding to the sandbox process is UNVERIFIED. The dispatcher
  *   depends on stdin for runner environment delivery so credentials do not
@@ -60,19 +61,17 @@ class AcaCliSandboxClient {
     }
     this.group = options.group || process.env.SQUAD_SANDBOX_GROUP_NAME;
     if (!this.group) throw new Error('SQUAD_SANDBOX_GROUP_NAME is required for the ACA Sandbox client.');
+    this.image = validateSandboxImageRef(options.image || process.env.SQUAD_SANDBOX_IMAGE_REF);
     this.acaBin = options.acaBin || process.env.SQUAD_ACA_BIN || process.env.ACA_BIN || 'aca';
     this.acaBinArgs = options.acaBinArgs || [];
     this.secretEnvKeys = options.secretEnvKeys || [];
   }
 
   async create(spec) {
-    const name = spec.name;
-    const args = [...this.acaBinArgs, 'sandbox', 'create', '--group', this.group, '--name', name, '--cpu', spec.cpu, '--memory', spec.memory, '--auto-suspend', String(spec.autoSuspendSeconds), '--output', 'json'];
-    for (const [key, value] of Object.entries(spec.labels || {})) args.push('--label', `${key}=${value}`);
-    for (const [key, value] of Object.entries(spec.env || {})) args.push('--env', `${key}=${value}`);
-    const result = await runProcess(this.acaBin, args, { timeoutMs: spec.timeoutMs || 120000, secretEnvKeys: this.secretEnvKeys });
-    if (result.exitCode !== 0) throw new Error(`aca sandbox create failed: ${result.stderr || result.stdout}`);
-    return { id: name, name, raw: result.stdout };
+    if (validateSandboxImageRef(spec.image) !== this.image) {
+      throw new Error('Sandbox create image does not match the configured immutable digest.');
+    }
+    throw new Error('unverified_image_contract: ACA Sandbox create image flag and ACR pull behavior are unverified; inspect the installed aca sandbox create help and update the adapter after an approved controlled probe.');
   }
 
   async exec(handle, argv, options = {}) {
