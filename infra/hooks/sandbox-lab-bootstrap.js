@@ -33,11 +33,14 @@ function readVariables(outputPath) {
   if (required('resource_group_name') !== 'rg-squad-aca-sandbox-lab') throw new Error('Terraform outputs do not match approved lab resource group.');
   if (required('sandbox_group_name') !== 'sbg-squad-aca-sandbox-lab') throw new Error('Terraform outputs do not match approved Sandbox Group.');
   if (!/^[-0-9a-f]{36}$/i.test(required('dispatcher_client_id')) ||
-      !/^[-0-9a-f]{36}$/i.test(required('dispatcher_tenant_id'))) {
-    throw new Error('Terraform outputs must include valid dispatcher client and tenant IDs.');
+      !/^[-0-9a-f]{36}$/i.test(required('dispatcher_tenant_id')) ||
+      !/^[-0-9a-f]{36}$/i.test(required('image_pull_client_id'))) {
+    throw new Error('Terraform outputs must include valid dispatcher client, tenant, and image-pull client IDs.');
   }
   return {
     SQUAD_SANDBOX_GROUP_NAME: required('sandbox_group_name'),
+    SQUAD_SANDBOX_RESOURCE_GROUP_NAME: required('resource_group_name'),
+    SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: required('image_pull_client_id'),
     SQUAD_SANDBOX_AZURE_CLIENT_ID: required('dispatcher_client_id'),
     SQUAD_SANDBOX_AZURE_TENANT_ID: required('dispatcher_tenant_id'),
     SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: SUBSCRIPTION

@@ -4,7 +4,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { runDispatcher } = require('../dispatcher');
-const { AcaCliSandboxClient } = require('../clients/aca-cli-client');
+const { AcaCliSandboxClient, getAzureAccessToken } = require('../clients/aca-cli-client');
+const { createDiskImage, TOKEN_AUDIENCE } = require('../lib/aca-disk-image');
 const { validateSandboxImageRef } = require('../lib/sandbox-image');
 const { FakeSandboxClient } = require('../clients/fake-sandbox-client');
 const { validateContract } = require('../../contracts/aca-sandbox/v1/tools/validate');
@@ -348,7 +349,15 @@ if (process.argv.includes('create')) process.stdout.write('{"ok":true}\\n');
     process.env.TEST_PASSWORD = 'secret-password';
     process.env.AZURE_CLIENT_SECRET = 'azure-secret';
     process.env.AZURE_CLIENT_ID = 'azure-client-id';
-    const client = new AcaCliSandboxClient({ acaBin: process.execPath, acaBinArgs: [stub], image: `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}` });
+    const client = new AcaCliSandboxClient({
+      acaBin: process.execPath,
+      acaBinArgs: [stub],
+      image: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+      group: 'test-group',
+      resourceGroup: 'test-rg',
+      subscriptionId: '00000000-0000-4000-8000-000000000001',
+      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6'
+    });
     await client.exec({ name: 'stub-sandbox' }, ['true']);
     const env = JSON.parse(fs.readFileSync(dumpFile, 'utf8'));
     for (const key of ['SQUAD_COPILOT_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN', 'GITHUB_PAT', 'TEST_PASSWORD', 'AZURE_CLIENT_SECRET']) {
@@ -375,30 +384,270 @@ if (process.argv.includes('create')) process.stdout.write('{"ok":true}\\n');
   }
 });
 
-test('live client requires immutable lab image and refuses unverified create without spawning aca', async () => {
-  const digest = `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`;
-  for (const ref of ['', 'crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona:latest',
-    `other.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`,
-    `crsquadacaa6b49feb.azurecr.io/legacy/persona@sha256:${'a'.repeat(64)}`,
-    `${digest}extra`]) {
-    assert.throws(() => validateSandboxImageRef(ref), /immutable sha256 digest/);
-  }
+test('live disk-image contract submits registry source, polls operation, and validates the returned id', async () => {
+  const requests = [];
+  const calls = [
+    { status: 202, headers: { get: name => name === 'operation-location' ? '/subscriptions/00000000-0000-4000-8000-000000000001/resourceGroups/sandbox-rg/sandboxGroups/sandbox-group/diskimages/operations/op-123?api-version=2026-02-01-preview' : null } },
+    { status: 202, json: async () => ({ status: 'Running' }) },
+    { status: 200, json: async () => ({ status: 'Succeeded', diskImage: { id: '63561979-2a62-4cb9-bb0e-fdf96a8adad4' } }) }
+  ];
+  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const diskId = await createDiskImage({
+    imageUrl: image,
+    managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+    subscriptionId: '00000000-0000-4000-8000-000000000001',
+    resourceGroup: 'sandbox-rg',
+    groupName: 'sandbox-group',
+    name: 'disk-probe',
+    getToken: async audience => {
+      assert.equal(audience, TOKEN_AUDIENCE);
+      return 'mocked-access-token-1234567890';
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ url: String(url), options });
+      return calls.shift();
+    },
+    pollIntervalMs: 0,
+    sleep: async () => {}
+  });
+  assert.equal(diskId, '63561979-2a62-4cb9-bb0e-fdf96a8adad4');
+  assert.equal(requests.length, 3);
+  assert.match(requests[0].url, /^https:\/\/management\.swedencentral\.azuredevcompute\.io\/subscriptions\/00000000-0000-4000-8000-000000000001\/resourceGroups\/sandbox-rg\/sandboxGroups\/sandbox-group\/diskimages\/v2\/async\?api-version=2026-02-01-preview$/);
+  assert.equal(requests[0].options.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    labels: { name: 'disk-probe' },
+    source: { kind: 'registry', imageUrl: image, managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6' }
+  });
+  assert.ok(requests[0].options.headers.authorization.startsWith('Bearer '));
+  assert.equal(requests[0].options.headers.authorization, 'Bearer mocked-access-token-1234567890');
+  assert.equal(requests[1].options.method, 'GET');
+});
+
+test('sandbox image references stay inside the approved ACR repository and contain no credentials', () => {
+  const digest = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   assert.equal(validateSandboxImageRef(digest), digest);
+  for (const image of [
+    'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox:e5e721a',
+    'https://crsquadacaa6b49feb.azurecr.io/squad/image:tag',
+    'user:password@crsquadacaa6b49feb.azurecr.io/squad/image:tag',
+    'other.azurecr.io/squad/image:tag',
+    'crsquadacaa6b49feb.azurecr.io/other/image:tag',
+    'crsquadacaa6b49feb.azurecr.io/squad/../image:tag',
+    'crsquadacaa6b49feb.azurecr.io/squad/image:tag?query=1'
+  ]) {
+    assert.throws(() => validateSandboxImageRef(image), /immutable sha256 digest/);
+  }
+});
+
+test('disk-image polling fails closed on operation failures, malformed responses, unsafe URLs, and timeout', async t => {
+  const base = {
+    imageUrl: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+    managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+    subscriptionId: '00000000-0000-4000-8000-000000000001',
+    resourceGroup: 'sandbox-rg',
+    groupName: 'sandbox-group',
+    name: 'disk-probe',
+    getToken: async () => 'mocked-access-token-1234567890',
+    pollIntervalMs: 0,
+    sleep: async () => {}
+  };
+  const accepted = location => ({ status: 202, headers: { get: () => location } });
+  const scopedOperationPath = '/subscriptions/00000000-0000-4000-8000-000000000001/resourceGroups/sandbox-rg/sandboxGroups/sandbox-group/diskimages/operations/op';
+  const operation = body => ({ status: 200, json: async () => body });
+  const useFetch = (...responses) => async () => responses.shift();
+
+  await t.test('terminal failure', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch(
+      accepted(scopedOperationPath),
+      operation({ status: 'Failed' })
+    ) }), /operation failed/);
+  });
+  await t.test('malformed success id', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch(
+      accepted(scopedOperationPath),
+      operation({ status: 'Succeeded', diskImage: { id: 'not-a-uuid' } })
+    ) }), /without a valid diskImage.id/);
+  });
+  await t.test('missing operation location', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch({ status: 202, headers: { get: () => null } }) }), /missing operation-location/);
+  });
+  await t.test('cross-origin operation location', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch(accepted(`https://evil.invalid${scopedOperationPath}`)) }), /outside the expected endpoint/);
+  });
+  await t.test('wrong resource scope', async () => {
+    await assert.rejects(createDiskImage({
+      ...base,
+      fetchImpl: useFetch(accepted('/subscriptions/00000000-0000-4000-8000-000000000001/resourceGroups/other-rg/sandboxGroups/sandbox-group/diskimages/operations/op'))
+    }), /outside the expected endpoint/);
+  });
+  await t.test('wrong sandbox group scope', async () => {
+    await assert.rejects(createDiskImage({
+      ...base,
+      fetchImpl: useFetch(accepted('/subscriptions/00000000-0000-4000-8000-000000000001/resourceGroups/sandbox-rg/sandboxGroups/other-group/diskimages/operations/op'))
+    }), /outside the expected endpoint/);
+  });
+  await t.test('malformed operation json', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch(
+      accepted(scopedOperationPath),
+      { status: 200, json: async () => { throw new Error('bad json'); } }
+    ) }), /malformed JSON/);
+  });
+  await t.test('timeout', async () => {
+    await assert.rejects(createDiskImage({
+      ...base,
+      timeoutMs: 0,
+      fetchImpl: useFetch(accepted(scopedOperationPath))
+    }), /operation timed out/);
+  });
+  await t.test('poll request timeout', async () => {
+    let pollCount = 0;
+    await assert.rejects(createDiskImage({
+      ...base,
+      timeoutMs: 1000,
+      requestTimeoutMs: 5,
+      fetchImpl: async () => {
+        if (pollCount++ === 0) return accepted(scopedOperationPath);
+        return new Promise(() => {});
+      }
+    }), /polling request timed out/);
+  });
+  await t.test('invalid create status', async () => {
+    await assert.rejects(createDiskImage({ ...base, fetchImpl: useFetch({ status: 401 }) }), /unexpected HTTP status 401/);
+  });
+});
+
+test('Azure token acquisition uses the ACA audience without logging or forwarding the token', async () => {
+  let captured;
+  const token = await getAzureAccessToken({
+    azBin: 'az-test',
+    subscriptionId: 'sub-test',
+    run: async (command, args) => {
+      captured = { command, args };
+      return { exitCode: 0, stdout: JSON.stringify({ accessToken: 'mocked-access-token-1234567890' }) };
+    }
+  });
+  assert.equal(token, 'mocked-access-token-1234567890');
+  assert.equal(captured.command, 'az-test');
+  assert.deepEqual(captured.args, ['account', 'get-access-token', '--resource', TOKEN_AUDIENCE, '--subscription', 'sub-test', '--output', 'json']);
+  await assert.rejects(getAzureAccessToken({ subscriptionId: 'sub-test', run: async () => ({ exitCode: 1, stdout: '', stderr: 'token leaked?' }) }), /acquisition failed/);
+});
+
+test('sandbox create boots from the returned disk id', async () => {
+  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
-  const oldGroup = process.env.SQUAD_SANDBOX_GROUP_NAME;
   try {
     process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
-    process.env.SQUAD_SANDBOX_GROUP_NAME = 'test-group';
-    const client = new AcaCliSandboxClient({ image: digest, acaBin: 'nonexistent-aca-binary' });
-    await assert.rejects(client.create({ name: 'persona', image: digest }), /unverified_image_contract/);
-    await assert.rejects(client.create({ name: 'integration', image: digest }), /unverified_image_contract/);
-    await assert.rejects(client.create({ name: 'persona', image: `${digest.slice(0, -1)}b` }), /does not match/);
+    const createCalls = [];
+    let diskCreates = 0;
+    const client = new AcaCliSandboxClient({
+      image,
+      group: 'test-group',
+      resourceGroup: 'test-rg',
+      subscriptionId: '00000000-0000-4000-8000-000000000001',
+      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      createDiskImage: async () => { diskCreates += 1; return '63561979-2a62-4cb9-bb0e-fdf96a8adad4'; },
+      runProcess: async (command, args, options) => {
+        createCalls.push({ command, args, options });
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+    });
+
+    const handle = await client.create({ name: 'persona-sandbox', image, cpu: '1000m', memory: '2048Mi', labels: { task_id: 'task-1' } });
+    assert.equal(handle.diskId, '63561979-2a62-4cb9-bb0e-fdf96a8adad4');
+    assert.equal(diskCreates, 1);
+    assert.equal(createCalls.length, 1);
+    assert.deepEqual(createCalls[0].args, [
+      'sandbox', 'create', '--region', 'swedencentral', '--group', 'test-group', '--name', 'persona-sandbox',
+      '--disk-id', '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
+      '--cpu', '1000m', '--memory', '2048Mi', '-l', 'task_id=task-1'
+    ]);
+    assert.equal(createCalls[0].args.includes('--disk'), false);
+    await client.delete(handle);
+    assert.deepEqual(createCalls[1].args, [
+      'sandbox', 'delete', '--region', 'swedencentral',
+      '--group', 'test-group', '--name', 'persona-sandbox', '--yes'
+    ]);
+    await assert.rejects(client.create({
+      name: 'wrong-image',
+      image: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'b'.repeat(64)}`
+    }), /does not match/);
   } finally {
     if (oldEnable === undefined) delete process.env.SQUAD_ENABLE_ACA_SANDBOX;
     else process.env.SQUAD_ENABLE_ACA_SANDBOX = oldEnable;
-    if (oldGroup === undefined) delete process.env.SQUAD_SANDBOX_GROUP_NAME;
-    else process.env.SQUAD_SANDBOX_GROUP_NAME = oldGroup;
   }
+});
+
+test('disk-image deletion targets only the returned UUID and waits for CLI completion', async () => {
+  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const commands = [];
+  const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
+  process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
+  try {
+    const client = new AcaCliSandboxClient({
+      image,
+      group: 'test-group',
+      resourceGroup: 'test-rg',
+      subscriptionId: '00000000-0000-4000-8000-000000000001',
+      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      createDiskImage: async () => '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
+      runProcess: async (command, args, options) => {
+        commands.push({ command, args, options });
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+    });
+    await client.create({ name: 'sandbox-1', image });
+    await client.deleteDiskImage();
+    const deleteCalls = commands.filter(call => call.args.includes('delete'));
+    assert.equal(deleteCalls.length, 1);
+    assert.deepEqual(deleteCalls[0].args, [
+      'sandboxgroup', 'disk', 'delete', '--region', 'swedencentral', '--group', 'test-group',
+      '--id', '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
+      '--subscription', '00000000-0000-4000-8000-000000000001',
+      '--resource-group', 'test-rg', '--wait-timeout', '180'
+    ]);
+    assert.equal(deleteCalls[0].options.timeoutMs, 210000);
+    assert.equal(client.diskImageId, null);
+    await client.deleteDiskImage();
+    assert.equal(commands.filter(call => call.args.includes('delete')).length, 1);
+  } finally {
+    if (oldEnable === undefined) delete process.env.SQUAD_ENABLE_ACA_SANDBOX;
+    else process.env.SQUAD_ENABLE_ACA_SANDBOX = oldEnable;
+  }
+});
+
+test('dispatcher reports disk-image cleanup failures after all sandbox deletions', async () => {
+  const name = 'disk-image-cleanup-failure';
+  const client = new FakeSandboxClient({ root: path.join(workRoot, name, 'sandboxes') });
+  client.deleteDiskImage = async () => {
+    assert.equal(client.deleted.length, client.created.length);
+    throw new Error('disk image cleanup failed');
+  };
+  const owner = member('test-alpha');
+  const { summary } = await dispatchCase(name, [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], { client });
+  assert.equal(summary.status, 'failed');
+  assert.equal(summary.disk_image_deletion_error, 'disk image cleanup failed');
+  assert.equal(client.deleted.length, client.created.length);
+});
+
+test('dispatcher retains disk-image when sandbox deletion fails', async () => {
+  const name = 'retain-disk-on-sandbox-delete-failure';
+  const client = new FakeSandboxClient({ root: path.join(workRoot, name, 'sandboxes') });
+  client.delete = async handle => {
+    client.deleted.push(handle.id);
+    throw new Error('sandbox delete failed');
+  };
+  let diskDeleteCalled = false;
+  client.deleteDiskImage = async () => { diskDeleteCalled = true; };
+  const owner = member('test-alpha');
+  const { summary } = await dispatchCase(name, [
+    { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+  ], { client });
+  assert.equal(diskDeleteCalled, false);
+  assert.equal(summary.status, 'failed');
+  assert.match(summary.disk_image_deletion_error, /retained because one or more sandbox deletions failed/);
+  assert.match(summary.tasks[0].deletion_error, /sandbox delete failed/);
 });
 
 test('dispatcher rejects unsafe artifact manifest paths', async () => {

@@ -12,6 +12,7 @@
     "status": { "type": "string", "enum": ["succeeded", "failed"] },
     "started_at": { "type": "string", "minLength": 1 },
     "ended_at": { "type": "string", "minLength": 1 },
+    "disk_image_deletion_error": { "type": "string" },
     "integration": {
       "type": "object",
       "additionalProperties": false,

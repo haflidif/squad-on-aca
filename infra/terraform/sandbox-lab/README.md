@@ -25,8 +25,9 @@ keys, SAS tokens or credentials in backend config or Terraform inputs. This
 root **reads** the existing RG and the exact existing ACR; it owns only the
 Sandbox Group, dispatcher UAMI, group-scoped Data Owner, environment-subject
 FIC and, if explicitly supplied and separately approved, an ACR-scoped
-`AcrPull` for the verified image-pull principal. Do not add image-pull
-principal IDs by guessing which identity the platform uses.
+`AcrPull` for the image-pull UAMI attached to the group. The dispatcher supplies
+that UAMI's client ID as `source.managedIdentityClientId` in the v2 disk-image
+request.
 The two isolated roots retain their own provider lock files. Review provider
 upgrades separately; do not copy the legacy root's provider selections.
 
@@ -45,7 +46,8 @@ Once outputs exist, produce an output JSON privately with `terraform output
 squad-sandbox-dispatch` and `infra/hooks/sandbox-lab-bootstrap.ps1 -Outputs
 <file> -Repository AzureViking/squad-on-aca-sandbox-lab -Environment
 squad-sandbox-dispatch` default to dry-run. Only explicit `--apply` / `-Apply`
-can set the four non-secret dispatch environment variables through `ghp`.
+can set the six non-secret dispatch environment variables through `ghp`,
+including the Sandbox Group resource group and image-pull UAMI client ID.
 The helper checks the existing protected environment first and refuses unless
 exactly one `required_reviewers` rule lists at least one reviewer and has
 `prevent_self_review: true`, admin bypass is off and only the `main` branch
@@ -60,9 +62,8 @@ any policy exemption tag the tenant requires; the default remains `Deny` and
 shared keys stay disabled. Create
 the private repo and protected environment manually with required reviewers,
 no self-approval and main-only deployment branches, then verify those settings.
-Set `SQUAD_ACA_BIN` and the immutable `SQUAD_SANDBOX_IMAGE_REF` manually only
-after the image/CLI contract is verified. Do not set the unverified-client
-override for unattended execution. The live adapter intentionally refuses
-sandbox creation with `unverified_image_contract` until an approved controlled
-probe establishes the exact image flag and ACR pull mechanism. No live plan or
-apply has been performed by these instructions.
+Set `SQUAD_ACA_BIN` and the immutable `SQUAD_SANDBOX_IMAGE_REF` manually after
+the image/CLI contract is verified. Private ACR image pulls require the
+image-pull UAMI's client ID in the v2 disk-image request and the optional
+registry-scoped `AcrPull` assignment. No live plan or apply has been performed
+by these instructions.

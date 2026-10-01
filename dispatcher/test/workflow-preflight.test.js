@@ -195,6 +195,8 @@ test('manual workflow is manual-only, defaults to fake, and separates live gates
   assert.match(workflow, /--client fake/);
   assert.match(workflow, /--live/);
   assert.match(workflow, /SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT/);
+  assert.match(workflow, /SQUAD_SANDBOX_RESOURCE_GROUP_NAME: \$\{\{ vars\.SQUAD_SANDBOX_RESOURCE_GROUP_NAME \}\}/);
+  assert.match(workflow, /SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: \$\{\{ vars\.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID \}\}/);
   assert.ok(runScripts(workflow).every(script => !/\$\{\{\s*secrets\./.test(script)), 'secrets must be passed only through environment fields');
   const liveJob = workflow.slice(workflow.indexOf('dispatch-live:'), workflow.indexOf('publish-live:'));
   assert.match(liveJob, /if: \$\{\{ inputs\.execution_mode == 'live' && inputs\.enable_sandbox_live \}\}/);
@@ -350,15 +352,18 @@ test('live preflight rejects missing credentials and unverified ACA configuratio
   assert.throws(() => validateInputs(liveEnv, { repoRoot: repo.temp }), /Live sandbox configuration is incomplete/);
   const config = {
     SQUAD_SANDBOX_GROUP_NAME: 'group',
+    SQUAD_SANDBOX_RESOURCE_GROUP_NAME: 'resource-group',
+    SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: '11111111-1111-4111-8111-111111111111',
     SQUAD_SANDBOX_AZURE_CLIENT_ID: 'client-id',
     SQUAD_SANDBOX_AZURE_TENANT_ID: 'tenant-id',
     SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: 'subscription-id',
     SQUAD_ACA_BIN: process.execPath,
-    SQUAD_SANDBOX_IMAGE_REF: `crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:${'a'.repeat(64)}`,
+    SQUAD_SANDBOX_IMAGE_REF: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
     SQUAD_COPILOT_TOKEN: 'github_pat_test'
   };
   assert.throws(() => validateLiveSandboxConfig(config), /SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1/);
   assert.throws(() => validateLiveSandboxConfig({ ...config, SQUAD_SANDBOX_IMAGE_REF: 'repo:latest' }), /immutable sha256 digest/);
+  assert.throws(() => validateLiveSandboxConfig({ ...config, SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: 'not-a-uuid' }), /managed identity client ID/);
   assert.throws(() => validateLiveSandboxConfig({
     ...config,
     SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT: '1',

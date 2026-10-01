@@ -1,13 +1,16 @@
 const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { buildSafeChildEnv } = require('../lib/util');
+const { createDiskImage, DEFAULT_ENDPOINT, TOKEN_AUDIENCE } = require('../lib/aca-disk-image');
 const { validateSandboxImageRef } = require('../lib/sandbox-image');
 
+const ACA_REGION = 'swedencentral';
+
 /*
- * UNVERIFIED ACA CLI CONTRACT
- * The following argv mapping is isolated here pending a controlled probe:
- * - create flags and image selection are unverified. Do not issue create until
- *   the exact immutable image argument is determined in a controlled probe.
- * - exec:   aca sandbox exec --group <group> --name <name> -- <argv...>
+ * Verified ACA contract: registry disk images use the regional v2 async API
+ * with a managed identity client ID; sandbox boot selects the returned disk
+ * image UUID through --disk-id.
+ * - exec: aca sandbox exec --group <group> --name <name> -- <argv...>
  * - exec stdin forwarding to the sandbox process is UNVERIFIED. The dispatcher
  *   depends on stdin for runner environment delivery so credentials do not
  *   appear in argv or the local aca process environment.
@@ -18,9 +21,8 @@ const { validateSandboxImageRef } = require('../lib/sandbox-image');
  * - delete: aca sandbox delete --group <group> --name <name> --yes
  * - There is no verified native file transfer contract. putFile/readFile use
  *   base64 over exec stdin/stdout as a conservative adapter.
- * - Sandbox create JSON output shape is UNVERIFIED. This client treats the
- *   requested name as the handle and preserves raw stdout for diagnostics.
- * - ACR auth from a Sandbox Group is UNVERIFIED and not modeled here.
+ * - Sandbox create JSON output shape is UNVERIFIED. The requested name is
+ *   retained as the handle.
  */
 
 function runProcess(command, args, options = {}) {
@@ -54,6 +56,24 @@ function runProcess(command, args, options = {}) {
   });
 }
 
+async function getAzureAccessToken({ azBin, subscriptionId, run = runProcess }) {
+  const result = await run(azBin, [
+    'account', 'get-access-token', '--resource', TOKEN_AUDIENCE,
+    '--subscription', subscriptionId, '--output', 'json'
+  ], { timeoutMs: 30000 });
+  if (result.exitCode !== 0 || result.timedOut) throw new Error('Azure access-token acquisition failed.');
+  let accessToken;
+  try {
+    accessToken = JSON.parse(result.stdout).accessToken;
+  } catch {
+    throw new Error('Azure access-token response is malformed.');
+  }
+  if (typeof accessToken !== 'string' || accessToken.length < 20 || /[\r\n]/.test(accessToken)) {
+    throw new Error('Azure access-token response is malformed.');
+  }
+  return accessToken;
+}
+
 class AcaCliSandboxClient {
   constructor(options = {}) {
     if (process.env.SQUAD_ENABLE_ACA_SANDBOX !== '1') {
@@ -62,21 +82,68 @@ class AcaCliSandboxClient {
     this.group = options.group || process.env.SQUAD_SANDBOX_GROUP_NAME;
     if (!this.group) throw new Error('SQUAD_SANDBOX_GROUP_NAME is required for the ACA Sandbox client.');
     this.image = validateSandboxImageRef(options.image || process.env.SQUAD_SANDBOX_IMAGE_REF);
+    this.resourceGroup = options.resourceGroup || process.env.SQUAD_SANDBOX_RESOURCE_GROUP_NAME;
+    this.subscriptionId = options.subscriptionId || process.env.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID;
+    this.imagePullClientId = options.imagePullClientId || process.env.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID;
+    if (!this.resourceGroup) throw new Error('SQUAD_SANDBOX_RESOURCE_GROUP_NAME is required for the ACA Sandbox client.');
+    if (!this.subscriptionId) throw new Error('SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID is required for the ACA Sandbox client.');
+    if (!this.imagePullClientId) throw new Error('SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID is required for the ACA Sandbox client.');
     this.acaBin = options.acaBin || process.env.SQUAD_ACA_BIN || process.env.ACA_BIN || 'aca';
     this.acaBinArgs = options.acaBinArgs || [];
+    this.region = options.region ?? process.env.SQUAD_SANDBOX_REGION ?? ACA_REGION;
+    if (this.region !== ACA_REGION) {
+      throw new Error(`Unsupported ACA Sandbox region "${this.region}"; only ${ACA_REGION} is supported by the configured data plane.`);
+    }
+    this.azBin = options.azBin || process.env.AZ_BIN || 'az';
+    this.endpoint = options.endpoint || DEFAULT_ENDPOINT;
+    this.fetch = options.fetch || globalThis.fetch;
+    this.runProcess = options.runProcess || runProcess;
+    this.getToken = options.getToken || (audience => {
+      if (audience !== TOKEN_AUDIENCE) throw new Error('Unexpected Azure token audience.');
+      return getAzureAccessToken({ azBin: this.azBin, subscriptionId: this.subscriptionId, run: this.runProcess });
+    });
+    this.createDiskImage = options.createDiskImage || createDiskImage;
+    this.diskImagePromise = null;
     this.secretEnvKeys = options.secretEnvKeys || [];
   }
 
   async create(spec) {
     if (validateSandboxImageRef(spec.image) !== this.image) {
-      throw new Error('Sandbox create image does not match the configured immutable digest.');
+      throw new Error('Sandbox create image does not match the configured image reference.');
     }
-    throw new Error('unverified_image_contract: ACA Sandbox create image flag and ACR pull behavior are unverified; inspect the installed aca sandbox create help and update the adapter after an approved controlled probe.');
+    if (!this.diskImagePromise) {
+      const diskName = `squad-${randomUUID()}`;
+      this.diskImagePromise = this.createDiskImage({
+        imageUrl: this.image,
+        managedIdentityClientId: this.imagePullClientId,
+        subscriptionId: this.subscriptionId,
+        resourceGroup: this.resourceGroup,
+        groupName: this.group,
+        name: diskName,
+        endpoint: this.endpoint,
+        fetchImpl: this.fetch,
+        getToken: this.getToken
+      }).catch(error => {
+        this.diskImagePromise = null;
+        throw error;
+      });
+    }
+    const diskId = await this.diskImagePromise;
+    this.diskImageId = diskId;
+    const labels = Object.entries(spec.labels || {}).flatMap(([key, value]) => ['-l', `${key}=${value}`]);
+    const args = [
+      ...this.acaBinArgs, 'sandbox', 'create', '--region', this.region, '--group', this.group, '--name', spec.name,
+      '--disk-id', diskId, '--cpu', spec.cpu || '1000m', '--memory', spec.memory || '2048Mi',
+      ...labels
+    ];
+    const result = await this.runProcess(this.acaBin, args, { timeoutMs: 120000, secretEnvKeys: this.secretEnvKeys });
+    if (result.exitCode !== 0 || result.timedOut) throw new Error('aca sandbox create failed.');
+    return { id: spec.name, name: spec.name, diskId };
   }
 
   async exec(handle, argv, options = {}) {
-    const args = [...this.acaBinArgs, 'sandbox', 'exec', '--group', this.group, '--name', handle.name || handle.id, '--', ...argv];
-    return runProcess(this.acaBin, args, { stdin: options.stdin, timeoutMs: options.timeoutMs, secretEnvKeys: this.secretEnvKeys });
+    const args = [...this.acaBinArgs, 'sandbox', 'exec', '--region', this.region, '--group', this.group, '--name', handle.name || handle.id, '--', ...argv];
+    return this.runProcess(this.acaBin, args, { stdin: options.stdin, timeoutMs: options.timeoutMs, secretEnvKeys: this.secretEnvKeys });
   }
 
   async putFile(handle, remotePath, bytes) {
@@ -100,9 +167,25 @@ class AcaCliSandboxClient {
   }
 
   async delete(handle) {
-    const result = await runProcess(this.acaBin, [...this.acaBinArgs, 'sandbox', 'delete', '--group', this.group, '--name', handle.name || handle.id, '--yes'], { timeoutMs: 120000, secretEnvKeys: this.secretEnvKeys });
+    const result = await this.runProcess(this.acaBin, [...this.acaBinArgs, 'sandbox', 'delete', '--region', this.region, '--group', this.group, '--name', handle.name || handle.id, '--yes'], { timeoutMs: 120000, secretEnvKeys: this.secretEnvKeys });
     if (result.exitCode !== 0) throw new Error(`aca sandbox delete failed: ${result.stderr || result.stdout}`);
+  }
+
+  async deleteDiskImage() {
+    if (!this.diskImageId) return;
+    const result = await this.runProcess(this.acaBin, [
+      ...this.acaBinArgs, 'sandboxgroup', 'disk', 'delete', '--region', this.region,
+      '--group', this.group, '--id', this.diskImageId,
+      '--subscription', this.subscriptionId,
+      '--resource-group', this.resourceGroup,
+      '--wait-timeout', '180'
+    ], { timeoutMs: 210000, secretEnvKeys: this.secretEnvKeys });
+    if (result.exitCode !== 0 || result.timedOut) {
+      throw new Error(`ACA disk image deletion failed for disk ${this.diskImageId} (exit code ${result.exitCode}).`);
+    }
+    this.diskImageId = null;
+    this.diskImagePromise = null;
   }
 }
 
-module.exports = { AcaCliSandboxClient };
+module.exports = { AcaCliSandboxClient, getAzureAccessToken };

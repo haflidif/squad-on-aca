@@ -24,7 +24,11 @@ test('lab Terraform roots own only isolated state and dispatch resources', () =>
   assert.match(lab, /Microsoft.App\/sandboxGroups@2026-07-01/);
   assert.match(lab, /scope\s*=\s*azapi_resource.sandbox_group.id/);
   assert.match(lab, /repo:AzureViking\/squad-on-aca-sandbox-lab:environment:squad-sandbox-dispatch/);
-  assert.match(lab, /image_pull_principal_id == null \? 0 : 1/);
+  assert.match(lab, /grant_group_acr_pull \? 1 : 0/);
+  assert.match(lab, /principal_id\s*=\s*azurerm_user_assigned_identity\.image_pull\.principal_id/);
+  assert.match(lab, /operator_principal_id == null \? 0 : 1/);
+  assert.match(read('infra/terraform/sandbox-lab/outputs.tf'), /output "image_pull_client_id" \{[^}]*azurerm_user_assigned_identity\.image_pull\.client_id/);
+  assert.match(read('infra/terraform/sandbox-lab/variables.tf'), /variable "grant_group_acr_pull" \{[^}]*default\s*=\s*false/);
   assert.doesNotMatch(lab + state, /resource "(?:azurerm_container_registry|azurerm_container_app_job|azurerm_storage_queue|github_)/);
   assert.doesNotMatch(lab, /AcrPush|SecurityControl/);
   assert.match(read('infra/terraform/sandbox-lab/backend.hcl.example'), /key\s*=\s*"sandbox-lab.tfstate"/);
@@ -39,17 +43,29 @@ test('bootstrap helper dry run never calls ghp or emits secrets or legacy settin
     subscription_id: value('e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'),
     resource_group_name: value('rg-squad-aca-sandbox-lab'),
     sandbox_group_name: value('sbg-squad-aca-sandbox-lab'),
+    image_pull_client_id: value('cccccccc-cccc-cccc-cccc-cccccccccccc'),
     dispatcher_client_id: value('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
     dispatcher_tenant_id: value('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
   };
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
   const options = ['--outputs', outputPath, '--repo', 'AzureViking/squad-on-aca-sandbox-lab', '--environment', 'squad-sandbox-dispatch'];
-  assert.equal(Object.keys(readVariables(outputPath)).length, 4);
+  assert.deepEqual(readVariables(outputPath), {
+    SQUAD_SANDBOX_GROUP_NAME: 'sbg-squad-aca-sandbox-lab',
+    SQUAD_SANDBOX_RESOURCE_GROUP_NAME: 'rg-squad-aca-sandbox-lab',
+    SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    SQUAD_SANDBOX_AZURE_CLIENT_ID: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    SQUAD_SANDBOX_AZURE_TENANT_ID: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'
+  });
   assert.throws(() => parseArguments([...options.slice(0, 2), '--repo', 'haflidif/squad-on-aca', ...options.slice(4)]), /Usage/);
   outputs.subscription_id.value = 'other';
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
   assert.throws(() => readVariables(outputPath), /approved subscription/);
   outputs.subscription_id.value = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e';
+  outputs.image_pull_client_id.value = 'not-a-client-id';
+  fs.writeFileSync(outputPath, JSON.stringify(outputs));
+  assert.throws(() => readVariables(outputPath), /image-pull client IDs/);
+  outputs.image_pull_client_id.value = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
   const result = spawnSync(process.execPath, [path.join(root, 'infra/hooks/sandbox-lab-bootstrap.js'), ...options], {
     encoding: 'utf8',
@@ -67,6 +83,7 @@ const labOutputs = () => ({
   subscription_id: { value: 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e' },
   resource_group_name: { value: 'rg-squad-aca-sandbox-lab' },
   sandbox_group_name: { value: 'sbg-squad-aca-sandbox-lab' },
+  image_pull_client_id: { value: 'cccccccc-cccc-cccc-cccc-cccccccccccc' },
   dispatcher_client_id: { value: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
   dispatcher_tenant_id: { value: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' }
 });
@@ -137,7 +154,7 @@ test('bootstrap apply accepts self-review protection on the required_reviewers r
   assert.equal(Object.hasOwn(environment, 'prevent_self_review'), false);
   const { result, calls, variableSets } = runApplyWithStubGhp(t, environment);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Set 4 non-secret dispatch environment variables/);
+  assert.match(result.stdout, /Set 6 non-secret dispatch environment variables/);
   assert.deepEqual(calls.slice(0, 2), [
     ['api', `repos/${LAB_REPO}/environments/${LAB_ENV}`],
     ['api', `repos/${LAB_REPO}/environments/${LAB_ENV}/deployment-branch-policies`]
@@ -145,11 +162,13 @@ test('bootstrap apply accepts self-review protection on the required_reviewers r
   const env = ['--repo', LAB_REPO, '--env', LAB_ENV];
   assert.deepEqual(variableSets, [
     ['variable', 'set', 'SQUAD_SANDBOX_GROUP_NAME', ...env, '--body', 'sbg-squad-aca-sandbox-lab'],
+    ['variable', 'set', 'SQUAD_SANDBOX_RESOURCE_GROUP_NAME', ...env, '--body', 'rg-squad-aca-sandbox-lab'],
+    ['variable', 'set', 'SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID', ...env, '--body', 'cccccccc-cccc-cccc-cccc-cccccccccccc'],
     ['variable', 'set', 'SQUAD_SANDBOX_AZURE_CLIENT_ID', ...env, '--body', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
     ['variable', 'set', 'SQUAD_SANDBOX_AZURE_TENANT_ID', ...env, '--body', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'],
     ['variable', 'set', 'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID', ...env, '--body', 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e']
   ]);
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 8);
   assert.doesNotMatch(JSON.stringify(calls), /secret|SQUAD_STORAGE_ACCOUNT|SQUAD_QUEUE_NAME|SQUAD_AZURE_|PUBLISH/i);
 });
 

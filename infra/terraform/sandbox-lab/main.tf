@@ -47,6 +47,19 @@ resource "azapi_resource" "sandbox_group" {
   parent_id                 = data.azurerm_resource_group.lab.id
   tags                      = local.tags
   schema_validation_enabled = false
+
+  # The v2 disk-image request selects this UAMI through source.managedIdentityClientId.
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.image_pull.id]
+  }
+}
+
+resource "azurerm_user_assigned_identity" "image_pull" {
+  name                = var.image_pull_identity_name
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.lab.name
+  tags                = local.tags
 }
 
 resource "azurerm_user_assigned_identity" "dispatcher" {
@@ -71,9 +84,16 @@ resource "azurerm_federated_identity_credential" "dispatch_environment" {
   subject             = "repo:AzureViking/squad-on-aca-sandbox-lab:environment:squad-sandbox-dispatch"
 }
 
+resource "azurerm_role_assignment" "operator_data_owner" {
+  count                = var.operator_principal_id == null ? 0 : 1
+  scope                = azapi_resource.sandbox_group.id
+  role_definition_name = "Container Apps SandboxGroup Data Owner"
+  principal_id         = var.operator_principal_id
+}
+
 resource "azurerm_role_assignment" "image_pull" {
-  count                = var.image_pull_principal_id == null ? 0 : 1
+  count                = var.grant_group_acr_pull ? 1 : 0
   scope                = data.azurerm_container_registry.images.id
   role_definition_name = "AcrPull"
-  principal_id         = var.image_pull_principal_id
+  principal_id         = azurerm_user_assigned_identity.image_pull.principal_id
 }

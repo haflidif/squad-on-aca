@@ -11,8 +11,12 @@ The default client is `fake`. It creates local sandbox directories under the out
 ```powershell
 $env:SQUAD_ENABLE_ACA_SANDBOX = '1'
 $env:SQUAD_SANDBOX_GROUP_NAME = '<sandbox-group-name>'
+$env:SQUAD_SANDBOX_RESOURCE_GROUP_NAME = '<resource-group>'
+$env:SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID = '<subscription-id>'
+$env:SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID = '<ACR-pull-UAMI-client-id>'
+$env:SQUAD_SANDBOX_REGION = 'swedencentral'
 $env:SQUAD_ACA_BIN = '<absolute-pinned-aca-path>'
-$env:SQUAD_SANDBOX_IMAGE_REF = 'crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/persona@sha256:<64-hex-digest>'
+$env:SQUAD_SANDBOX_IMAGE_REF = 'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:<64-hex-digest>'
 node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client aca --repo-full-name owner/repository --issue-number 42
 ```
 
@@ -44,14 +48,37 @@ The dispatcher redacts the injected Copilot token and common GitHub token prefix
 
 `SQUAD_ACA_BIN` can point the live client at a specific ACA CLI executable. This is mainly for pinned installations and tests that place a stub executable ahead of the real CLI.
 
-`SQUAD_SANDBOX_IMAGE_REF` must be an immutable `sha256` digest under
-`crsquadacaa6b49feb.azurecr.io/squad-sandbox-lab/`. Both persona and
-integration create specs carry the same image. Fake mode needs no image.
-The live adapter currently fails with `unverified_image_contract` before
-spawning a create command, even when the controlled-probe opt-in is set.
-Inspect the pinned CLI help and verify image selection and ACR pull behavior
-before implementing its actual create flags. Do not assume an image is selected
-implicitly or treat the override as authorization for production dispatch.
+`SQUAD_SANDBOX_IMAGE_REF` must be an immutable sha256 digest beneath
+`crsquadacaa6b49feb.azurecr.io/squad/`; mutable tags are rejected.
+The live adapter requests a managed disk image with the regional ACA Sandboxes
+v2 API at `management.swedencentral.azuredevcompute.io`. All ACA CLI sandbox
+and disk-image deletion commands explicitly pass `--region swedencentral`,
+matching that endpoint. `SQUAD_SANDBOX_REGION` defaults to `swedencentral`;
+other regions are rejected because endpoint selection is fixed. It obtains an Azure
+access token through the existing Azure CLI login for audience
+`https://management.azuredevcompute.io`, submits `source.kind=registry`,
+`source.imageUrl`, and `source.managedIdentityClientId`, then polls the
+`operation-location` until a terminal result. Only a validated
+`diskImage.id` UUID is used to boot sandboxes through
+`aca sandbox create --disk-id <uuid>`. The image pull identity client ID is
+separate from the dispatcher UAMI used for the Azure login. Tokens are held
+only in the REST request authorization header and are not logged or passed to
+the ACA CLI.
+
+One disk image is created per dispatcher client and shared only among that
+dispatch's persona and integration sandboxes. After all sandbox deletion
+attempts succeed, the dispatcher deletes that exact returned disk UUID and
+waits for the ACA CLI deletion command. If sandbox deletion failed, it retains
+the disk image; disk cleanup failures and intentional retention are recorded
+in `disk_image_deletion_error` and fail the dispatcher summary. This is
+run-scoped cleanup, not a persistent shared-image lifecycle. The live disk
+delete command and sandbox deletion behavior still require controlled
+verification.
+
+The API body and disk-id boot path were verified against the portal and a
+successful direct request. The client fails closed on malformed operation
+locations/responses, non-success HTTP status, failed operations, and polling
+timeouts. Fake mode needs no image or Azure configuration.
 
 Artifact paths are validated before download and again while writing. Paths must be relative POSIX paths, must not use Windows reserved device names, must not end a segment with a dot or space, must not contain colons or control characters, and must not collide after Unicode NFC normalization and case folding within one manifest.
 
@@ -65,13 +92,11 @@ CI on Linux should set `SQUAD_REQUIRE_PROC_ARGV_TEST=1` when running `agents/san
 
 These items are isolated in `dispatcher/clients/aca-cli-client.js` and remain UNVERIFIED until a controlled manual run against a real Sandbox Group:
 
-- Exact `aca sandbox create` flags and JSON output format.
+- Sandbox create JSON output format.
 - Exact `aca sandbox exec` argv and environment behavior.
 - Whether `aca sandbox exec` forwards stdin to the sandbox process for bootstrap environment delivery.
 - Whether native file transfer exists. The adapter currently uses base64 over exec stdin/stdout.
 - Sandbox delete behavior and timeout behavior.
-- ACR authentication from a Sandbox Group.
-- Exact immutable image selection flag and pull identity.
 
 ## Manual workflow and rollout gates
 
@@ -124,11 +149,14 @@ executable path. Configure these environment variables:
 | Name | Purpose |
 | --- | --- |
 | `SQUAD_SANDBOX_GROUP_NAME` | Existing Sandbox Group |
+| `SQUAD_SANDBOX_RESOURCE_GROUP_NAME` | Resource group containing the Sandbox Group |
 | `SQUAD_SANDBOX_AZURE_CLIENT_ID` | Dedicated dispatcher UAMI client ID |
 | `SQUAD_SANDBOX_AZURE_TENANT_ID` | Azure tenant |
 | `SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID` | Azure subscription |
+| `SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID` | Client ID of the UAMI granted ACR pull |
+| `SQUAD_SANDBOX_REGION` | ACA region; must be `swedencentral` for the configured data plane |
 | `SQUAD_ACA_BIN` | Absolute path to the pre-installed ACA CLI |
-| `SQUAD_SANDBOX_IMAGE_REF` | Immutable digest of the approved lab image in the existing ACR |
+| `SQUAD_SANDBOX_IMAGE_REF` | Approved tag or sha256 digest OCI reference in the existing ACR |
 | `SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT` | Must equal `1` for an explicitly acknowledged manual probe |
 
 Store `SQUAD_COPILOT_TOKEN` as a protected environment secret. It must be a
@@ -158,13 +186,12 @@ fails before the corresponding authentication or mutation step. The manual
 workflow never fires from labels, and the legacy queue template remains on
 ACA Jobs.
 
-This workflow is not production-ready. Exact ACA create and exec behavior,
-stdin forwarding, file transfer, deletion and timeout behavior, and Sandbox
-Group ACR authentication are still unverified. `SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1`
-is a deliberate controlled-probe gate, not proof of compatibility. Do not
+This workflow is not production-ready. Exec behavior, stdin forwarding, native
+file transfer, deletion and timeout behavior remain unverified.
+`SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1` remains a deliberate controlled-probe
+gate for these remaining live behaviors, not proof of compatibility. Do not
 enable unattended or label-driven Sandbox dispatch until the live checklist
-passes. The workflow does not invent alternate CLI flags or silently switch
-to file transfer.
+passes. The workflow does not silently switch to file transfer.
 
 
 ## Integration phase

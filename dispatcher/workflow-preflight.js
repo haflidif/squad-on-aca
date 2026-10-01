@@ -6,6 +6,7 @@ const { assertIssueBinding, issueNumber: parseIssueNumber } = require('./lib/iss
 const { validateSandboxImageRef } = require('./lib/sandbox-image');
 
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required.`);
@@ -86,6 +87,8 @@ function gitHead(repoRoot) {
 function validateLiveSandboxConfig(env) {
   const required = [
     'SQUAD_SANDBOX_GROUP_NAME',
+    'SQUAD_SANDBOX_RESOURCE_GROUP_NAME',
+    'SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID',
     'SQUAD_SANDBOX_AZURE_CLIENT_ID',
     'SQUAD_SANDBOX_AZURE_TENANT_ID',
     'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID',
@@ -95,6 +98,9 @@ function validateLiveSandboxConfig(env) {
   ];
   const missing = required.filter(name => typeof env[name] !== 'string' || env[name].trim() === '');
   if (missing.length) throw new Error(`Live sandbox configuration is incomplete: ${missing.join(', ')}.`);
+  if (!UUID_PATTERN.test(env.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID)) {
+    throw new Error('SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID must be a valid managed identity client ID.');
+  }
   validateSandboxImageRef(env.SQUAD_SANDBOX_IMAGE_REF);
   if (!env.SQUAD_COPILOT_TOKEN.startsWith('github_pat_')) {
     throw new Error('SQUAD_COPILOT_TOKEN must be a fine-grained github_pat_ token.');

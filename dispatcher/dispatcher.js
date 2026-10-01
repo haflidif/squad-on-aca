@@ -420,7 +420,21 @@ async function runDispatcher(options) {
   if (options.integrate !== false) {
     integration = await runIntegrationPhase({ plan, taskSummaries, outDir, client, bundlePath, config, token, log, projectRoot: PROJECT_ROOT });
   }
-  const executionStatus = taskSummaries.every(task => task.status === STATUS.SUCCEEDED) && (options.integrate === false || integration.status === STATUS.SUCCEEDED) ? STATUS.SUCCEEDED : STATUS.FAILED;
+  let diskImageDeletionError = '';
+  if (typeof client.deleteDiskImage === 'function') {
+    if (taskSummaries.some(task => task.deletion_error) || integration.deletion_error) {
+      diskImageDeletionError = 'Disk image retained because one or more sandbox deletions failed.';
+    } else {
+      try {
+        await client.deleteDiskImage();
+      } catch (error) {
+        diskImageDeletionError = redact(error.message, token);
+      }
+    }
+  }
+  const executionStatus = taskSummaries.every(task => task.status === STATUS.SUCCEEDED) &&
+    (options.integrate === false || integration.status === STATUS.SUCCEEDED) &&
+    !diskImageDeletionError ? STATUS.SUCCEEDED : STATUS.FAILED;
   const summary = {
     schema_version: 'aca-sandbox/v1',
     message_type: 'dispatcher.summary',
@@ -428,6 +442,7 @@ async function runDispatcher(options) {
     status: executionStatus,
     started_at: startedAt,
     ended_at: new Date().toISOString(),
+    disk_image_deletion_error: diskImageDeletionError,
     integration,
     tasks: taskSummaries
   };

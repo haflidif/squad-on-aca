@@ -3,7 +3,8 @@ output "subscription_id" {
 }
 
 output "resource_group_name" {
-  value = data.azurerm_resource_group.lab.name
+  value       = data.azurerm_resource_group.lab.name
+  description = "Resource group containing the Sandbox Group and identities."
 }
 
 output "sandbox_group_id" {
@@ -12,6 +13,19 @@ output "sandbox_group_id" {
 
 output "sandbox_group_name" {
   value = azapi_resource.sandbox_group.name
+}
+
+output "image_pull_identity_id" {
+  value = azurerm_user_assigned_identity.image_pull.id
+}
+
+output "image_pull_client_id" {
+  value       = azurerm_user_assigned_identity.image_pull.client_id
+  description = "Client ID supplied as source.managedIdentityClientId in v2 disk-image requests."
+}
+
+output "image_pull_principal_id" {
+  value = azurerm_user_assigned_identity.image_pull.principal_id
 }
 
 output "dispatcher_principal_id" {
