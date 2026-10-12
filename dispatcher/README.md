@@ -25,15 +25,20 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
 1. Validate the execution plan with `contracts/aca-sandbox/v1/tools/validate.js`.
 2. Build a schema-valid `persona.dispatch` envelope from each task and the roster snapshot in the plan. Persona names are values from the plan, never code constants.
 3. Run ready tasks up to the concurrency limit. If a dependency fails, dependent tasks are marked `skipped` and are not dispatched.
-4. Create a sandbox labeled by execution ID, task ID, and logical member ID.
+4. Create a sandbox labeled by execution ID, task ID, and logical member ID. The
+   live adapter adds a stable `squad_name` label derived from the spec name and
+   uses the generated sandbox UUID, not that label, as the handle. Caller labels
+   must not use the reserved `squad_name` key, keys must start with a letter
+   and use only letters, digits, `_`, `.` or `-`, and values must not contain
+   commas, `=`, or control characters. Invalid labels fail before any Azure call.
 5. Create a local git bundle for the exact baseline commit, upload it, clone it inside the sandbox, and detach to the baseline SHA. No remote URL or GitHub token is placed in the sandbox.
 6. Upload the dispatch envelope and run the persona worker.
-7. Start a fixed runner bootstrap and send a single JSON environment object on stdin. The bootstrap validates an allowlist, sets runner-only variables, and execs the persona runner. Classic `ghp_` tokens are rejected because ACA Sandbox Copilot credentials require fine-grained `github_pat_` tokens.
+7. Start a fixed runner bootstrap. The live ACA adapter stages its JSON environment payload in a mode-600 host file inside an access-restricted temporary directory, copies it into a mode-700 directory on verified `/dev/shm` tmpfs, sets the remote file to mode 600, and feeds it to the bootstrap through shell redirection. The bootstrap validates an allowlist, sets runner-only variables, and execs the persona runner. Classic `ghp_` tokens are rejected because ACA Sandbox Copilot credentials require fine-grained `github_pat_` tokens.
 8. Download `persona-result.json`, `artifact-manifest.json`, and artifacts listed in the manifest.
 9. Revalidate result contracts, recompute artifact sha256 values, scan downloaded files for credential material, and re-check patch paths against owned and protected paths.
 10. Delete the persona sandbox in a `finally` block. Delete failures are recorded in the task summary.
 11. If every required persona task succeeded, create a fresh integration sandbox labeled with `phase=integration`. Upload the same baseline bundle plus verified persona patches. No Copilot token or credential variable is sent.
-12. Run the integration runner through the same stdin bootstrap. The runner applies patches deterministically by dependency order and task ID, validates ownership again, optionally runs argv-only check commands, and emits an integrated patch.
+12. Run the integration runner through the same environment bootstrap. The live adapter uses the protected tmpfs-file transport; the offline fake client retains its stdin-only test transport. Integration receives no Copilot credential. The runner applies patches deterministically by dependency order and task ID, validates ownership again, optionally runs argv-only check commands, and emits an integrated patch.
 13. Download integration artifacts, validate schemas and sha256 values, rescan for credential patterns, and verify the integrated patch path set equals the union of persona patch path sets.
 14. Verify the integrated patch without checkout. The dispatcher builds a bare verification repository from the bundle, disables system and global git config, disables hooks, disables LFS and filters, writes a blanket attributes override, and applies patches to temporary index files only. For every changed path, the integrated patch must produce the same index mode, blob ID, and raw blob bytes as the single persona patch that owns that path.
 15. Delete the integration sandbox in a `finally` block.
@@ -44,16 +49,21 @@ The dispatcher reads `SQUAD_COPILOT_TOKEN` once at startup and immediately remov
 
 Azure identity variables required by the local `aca` CLI are preserved where they are not secrets, including `AZURE_CLIENT_ID`, managed identity endpoint variables, and other non-secret `AZURE_*` values. `AZURE_CLIENT_SECRET` is intentionally stripped if present and should not be required for this dispatcher path.
 
-The dispatcher redacts the injected Copilot token and common GitHub token prefixes from its logs and summaries. It also rejects any runner stdout, stderr, or downloaded artifact that contains the token. The token is never written to the dispatch envelope, bundle, argv, local `aca` process environment, or log files. Runner environment delivery uses stdin so `SQUAD_SOURCE_REPO_PATH`, `SQUAD_OUTPUT_DIR`, and `SQUAD_COPILOT_TOKEN` are not passed as `aca sandbox exec` arguments.
+The dispatcher redacts the injected Copilot token and common GitHub token prefixes from its logs and summaries. It also rejects any runner stdout, stderr, or downloaded artifact that contains the token. The token is never written to the dispatch envelope, bundle, `aca` command arguments, local `aca` process environment, or log files. Live runner environment delivery uses a transient host staging file protected by POSIX mode 600 inside a mode-700 directory, or by a verified current-user-only Windows ACL; failure to establish that protection stops before upload. The remote copy is placed in a mode-700 directory on verified `/dev/shm` tmpfs, changed to mode 600 before the bootstrap starts, read once by stdin redirection, and removed by the remote shell cleanup trap plus a host-side cleanup attempt. No payload bytes are placed in CLI arguments or local process environment. If remote cleanup fails, the call fails with a `ACA_RUNNER_ENV_CLEANUP_FAILED` error even when another step already failed. The message states that secret staging may remain in sandbox tmpfs until the sandbox is deleted and includes the redacted primary failure, never the payload. The task or integration summary records that message, and the sandbox is still deleted in the `finally` block. The fake client remains offline-only and retains its stdin-based test path.
 
 `SQUAD_ACA_BIN` can point the live client at a specific ACA CLI executable. This is mainly for pinned installations and tests that place a stub executable ahead of the real CLI.
 
 `SQUAD_SANDBOX_IMAGE_REF` must be an immutable sha256 digest beneath
 `crsquadacaa6b49feb.azurecr.io/squad/`; mutable tags are rejected.
 The live adapter requests a managed disk image with the regional ACA Sandboxes
-v2 API at `management.swedencentral.azuredevcompute.io`. All ACA CLI sandbox
-and disk-image deletion commands explicitly pass `--region swedencentral`,
-matching that endpoint. `SQUAD_SANDBOX_REGION` defaults to `swedencentral`;
+v2 API at `management.swedencentral.azuredevcompute.io`. Every ACA CLI command
+(sandbox create, exec, `fs cp`, delete, and disk-image delete) explicitly passes
+`--region swedencentral --subscription <SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID>`
+`--resource-group <SQUAD_SANDBOX_RESOURCE_GROUP_NAME>` before the command, so no
+ambient CLI context is used. The subscription must be a UUID and the resource
+group and sandbox group names are validated at client start. CLI failures report
+the exit code plus at most 400 characters of CLI output, with bearer tokens,
+JWTs, GitHub tokens, and signature or secret query values redacted. `SQUAD_SANDBOX_REGION` defaults to `swedencentral`;
 other regions are rejected because endpoint selection is fixed. It obtains an Azure
 access token through the existing Azure CLI login for audience
 `https://management.azuredevcompute.io`, submits `source.kind=registry`,
@@ -72,8 +82,9 @@ waits for the ACA CLI deletion command. If sandbox deletion failed, it retains
 the disk image; disk cleanup failures and intentional retention are recorded
 in `disk_image_deletion_error` and fail the dispatcher summary. This is
 run-scoped cleanup, not a persistent shared-image lifecycle. The live disk
-delete command and sandbox deletion behavior still require controlled
-verification.
+delete command and sandbox deletion passed the bounded 2026-10-09 lifecycle
+probe below; deletion failures and deletion while remote work is still running
+remain unverified.
 
 The API body and disk-id boot path were verified against the portal and a
 successful direct request. The client fails closed on malformed operation
@@ -82,7 +93,7 @@ timeouts. Fake mode needs no image or Azure configuration.
 
 Artifact paths are validated before download and again while writing. Paths must be relative POSIX paths, must not use Windows reserved device names, must not end a segment with a dot or space, must not contain colons or control characters, and must not collide after Unicode NFC normalization and case folding within one manifest.
 
-The live client depends on `aca sandbox exec` forwarding stdin to the sandbox process. That behavior is UNVERIFIED until live ACA validation. If stdin is not supported, the only planned fallback is an also UNVERIFIED mode-600 env JSON file on a runner-only tmpfs path, read once by the same bootstrap and deleted immediately after read.
+Live runner delivery depends on `aca sandbox fs cp` and `/dev/shm` being available in the sandbox. The protected-file design fails closed if `/dev/shm` is not mounted as tmpfs, is not writable, or the required owner/mode checks fail. `aca sandbox exec` stdin forwarding is unsupported by the installed CLI, so the live adapter does not pass runner payloads to its stdin stream.
 
 The persona worker now records `logs/isolation-mode.txt`. In the sandbox image it runs as root only long enough to keep staging/output directories private and execute Copilot as the separate `copilot-agent` user. Local tests without root or without that user run in `same-user` mode and assert the marker explicitly.
 
@@ -90,13 +101,60 @@ CI on Linux should set `SQUAD_REQUIRE_PROC_ARGV_TEST=1` when running `agents/san
 
 ## Live ACA verification checklist
 
-These items are isolated in `dispatcher/clients/aca-cli-client.js` and remain UNVERIFIED until a controlled manual run against a real Sandbox Group:
+Verified in a credential-free probe against ACA CLI `1.0.0-preview.4`, group
+`sbg-squad-aca-sandbox-lab`, region `swedencentral`:
 
-- Sandbox create JSON output format.
-- Exact `aca sandbox exec` argv and environment behavior.
-- Whether `aca sandbox exec` forwards stdin to the sandbox process for bootstrap environment delivery.
-- Whether native file transfer exists. The adapter currently uses base64 over exec stdin/stdout.
-- Sandbox delete behavior and timeout behavior.
+- `sandbox create --group ... --disk-id <uuid> --cpu 1000m --memory 2048Mi --label ...` creates a sandbox. There is no `--name`; output is plain text even when JSON output is requested. The progress line `Creating sandbox <uuid>...` is written to stderr and `Created sandbox: <uuid>` to stdout (confirmed with a raw `-o table` capture). The adapter requires exactly one matching line on each stream with the same UUID, rejects any extra, blank, or reordered line, and uses only the generated UUID as the handle. If the output cannot be verified, the error states that a sandbox may exist and disk-image deletion stays blocked until it is checked and removed manually.
+- `sandbox exec --group ... --id <uuid> -c <command>` runs a command string. Stdin is not forwarded. Argument vectors are converted to POSIX single-quoted command strings.
+- Native `sandbox fs cp` transferred a harmless local file to `<sandbox-id>:<remote-path>` and back with matching SHA256. The live adapter uses this API, not base64 over exec.
+- `sandbox delete --group ... --id <uuid> --yes` cleaned up the temporary sandbox; a follow-up list was empty.
+- Live-verified on 2026-10-01 through the adapter itself, with every command pinned to region, subscription and resource group: `create` returned sandbox `20074df2-6048-4444-8796-94e2802fcde5`; `execWithEnvironment` confirmed `/dev/shm` is tmpfs, copied the env JSON into a private tmpfs directory, the bootstrap consumed it through shell redirection and returned the expected path, and cleanup of the staging file and directory completed; the adapter then deleted the sandbox and `sandbox list` returned `[]`. Only non-secret values were sent (`/tmp/aca-probe-source`, `/tmp/aca-probe-output`); no Copilot or other credential was used. The shared disk image was left intact.
+- Live-verified on 2026-10-09 (15:07:15–15:08:38 UTC), under explicit approval
+  for exactly one disposable disk and sandbox: the adapter's v2 disk-image
+  client pulled the immutable image
+  `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:cea1d310e7109c18d24ae57de153565c722284382c89d0bc1b441840f59e2875`
+  through the existing pull identity. It created disk
+  `9ba335ea-3d20-4723-9492-86195aea1d71` (name
+  `squad-8db2bece-9ec4-4e23-aa24-bf4f2f499e3e`) and sandbox
+  `9fa8f3cd-4ede-4463-b8e6-a770b06d94c0` with `1000m` CPU, `2048Mi`
+  memory and label
+  `lifecycle_probe=lifecycle-c84b701b-0be4-44b1-8c73-22004c48e71e`.
+  `execWithEnvironment` delivered only harmless `FAKE_LIFECYCLE_MARKER`
+  and `SQUAD_OUTPUT_DIR` strings to the fixed bootstrap. The existing host
+  process runner's 5-second timeout returned `timedOut=true`, exit code `124`,
+  while a remote Node runner waited 12 seconds. CLI stdout did not capture
+  the runner's start message; a unique PID marker proved the runner reached
+  the environment handoff. Immediate inspection found PID 69 still alive
+  with matching process argv; after a further 13-second wait, the delayed
+  marker existed and that process had exited. **The local CLI timeout did
+  not cancel remote execution.** Both inspections confirmed the exact
+  `/dev/shm/squad-runner-4f3a5b30-0f4f-49ef-9b91-2c49246b4c58`
+  directory and its `environment.json` were absent despite the timeout.
+  Host staging was also empty and removed. In `finally`, the adapter
+  deleted the exact sandbox, then successfully deleted the exact disposable
+  disk through `sandboxgroup disk delete --wait-timeout 180`. Final
+  inventory contained no sandboxes and only shared disk
+  `63561979-2a62-4cb9-bb0e-fdf96a8adad4`, still `Ready`.
+
+Treat `timedOut=true` as a failed host wait, not proof of remote cancellation.
+The dispatcher's `finally` sandbox deletion is the resource teardown boundary;
+environment-file removal alone cannot terminate a runner or erase environment
+values already held by that process. Successful exact-ID deletion and inventory
+confirmation are sufficient for this probe's resource cleanup, but the runner
+had finished before deletion. This probe does **not** establish how quickly
+deletion terminates an actively running process. Keep deletion failures visible
+and retain the run disk when sandbox cleanup fails or is uncertain.
+
+The adapter now matches those create/exec/copy/delete forms, and the tmpfs
+environment handoff is live-verified as above. The code still verifies the
+`/dev/shm` tmpfs mount and restrictive ownership/modes on every run and fails
+closed otherwise. POSIX mode checks and Windows ACL setup are covered by offline
+tests. Still unverified live: remote cancellation or active-process termination
+on sandbox deletion, a handoff carrying a real Copilot credential, and the full
+persona plus integration dispatcher flow. The bounded probe verified local
+timeout semantics and disposable disk deletion, not those remaining gates.
+Both probes intentionally retained the shared disk image. Do not use a Copilot credential for
+any follow-up transport probe. Publication remains disabled.
 
 ## Manual workflow and rollout gates
 
@@ -186,12 +244,14 @@ fails before the corresponding authentication or mutation step. The manual
 workflow never fires from labels, and the legacy queue template remains on
 ACA Jobs.
 
-This workflow is not production-ready. Exec behavior, stdin forwarding, native
-file transfer, deletion and timeout behavior remain unverified.
-`SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1` remains a deliberate controlled-probe
-gate for these remaining live behaviors, not proof of compatibility. Do not
-enable unattended or label-driven Sandbox dispatch until the live checklist
-passes. The workflow does not silently switch to file transfer.
+This workflow is not production-ready. Basic create/exec/copy/delete syntax is
+verified, and the protected tmpfs environment handoff passed a credential-free live
+probe. A bounded lifecycle probe also verified local CLI timeout without remote
+cancellation, environment staging cleanup after timeout, and disposable disk
+deletion. Active-process termination on sandbox deletion and the complete live
+dispatcher flow remain unverified. The controlled-probe gate is
+not proof of compatibility. Do not enable unattended or label-driven Sandbox
+dispatch until the live checklist passes. Publication remains disabled.
 
 
 ## Integration phase

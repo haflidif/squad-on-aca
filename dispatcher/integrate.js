@@ -366,7 +366,9 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     const bootstrapArgv = config.clientKind === 'fake'
       ? ['node', path.join(projectRoot, 'agents', 'sandbox', 'runner', 'exec-with-env.js'), ...runnerArgv]
       : ['node', '/opt/squad-sandbox/runner/exec-with-env.js', ...runnerArgv];
-    const execResult = await client.exec(handle, bootstrapArgv, { stdin: `${JSON.stringify(env)}\n`, timeoutMs: config.timeoutMs });
+    const execResult = typeof client.execWithEnvironment === 'function'
+      ? await client.execWithEnvironment(handle, bootstrapArgv, env, { timeoutMs: config.timeoutMs })
+      : await client.exec(handle, bootstrapArgv, { stdin: `${JSON.stringify(env)}\n`, timeoutMs: config.timeoutMs });
     log(`integration runner exit ${execResult.exitCode}`);
     if (execResult.stdout) log(`integration stdout ${redact(execResult.stdout, token)}`);
     if (execResult.stderr) log(`integration stderr ${redact(execResult.stderr, token)}`);

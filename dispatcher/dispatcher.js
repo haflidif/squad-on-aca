@@ -288,10 +288,12 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
     const bootstrapArgv = config.clientKind === 'fake'
       ? ['node', path.join(projectRoot, 'agents', 'sandbox', 'runner', 'exec-with-env.js'), ...runnerArgv]
       : ['node', '/opt/squad-sandbox/runner/exec-with-env.js', ...runnerArgv];
-    const execResult = await client.exec(handle, bootstrapArgv, {
-      stdin: `${JSON.stringify(env)}\n`,
-      timeoutMs: config.timeoutMs
-    });
+    const execResult = typeof client.execWithEnvironment === 'function'
+      ? await client.execWithEnvironment(handle, bootstrapArgv, env, { timeoutMs: config.timeoutMs })
+      : await client.exec(handle, bootstrapArgv, {
+        stdin: `${JSON.stringify(env)}\n`,
+        timeoutMs: config.timeoutMs
+      });
     log(`task ${task.task_id} runner exit ${execResult.exitCode}`);
     if (execResult.stdout) log(`task ${task.task_id} stdout ${redact(execResult.stdout, token)}`);
     if (execResult.stderr) log(`task ${task.task_id} stderr ${redact(execResult.stderr, token)}`);
