@@ -22,6 +22,16 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const workflowsDir = path.join(repoRoot, '.github', 'workflows');
 const planFixture = path.join(repoRoot, 'contracts', 'aca-sandbox', 'v1', 'fixtures', 'dynamic-multi-agent-execution.example.json');
 const manualPlanFixture = path.join(repoRoot, 'dispatcher', 'fixtures', 'workflow-manual-plan.example.json');
+const hasTmpfsShm = (() => {
+  try {
+    return fs.readFileSync('/proc/mounts', 'utf8').split(/\r?\n/).some(line => {
+      const fields = line.split(/\s+/);
+      return fields[1] === '/dev/shm' && fields[2] === 'tmpfs';
+    });
+  } catch {
+    return false;
+  }
+})();
 
 function runGit(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', shell: false });
@@ -257,6 +267,10 @@ test('offline stub runs fake dispatch and integration end to end', async t => {
     t.skip('Bash is unavailable for the offline runner smoke test');
     return;
   }
+  if (!hasTmpfsShm) {
+    t.skip('The persona runner requires /dev/shm tmpfs for Copilot configuration.');
+    return;
+  }
   const repo = setupRepo(t);
   const plan = validateInputs(validEnv(repo), { repoRoot: repo.temp }).plan;
   const planPath = path.join(repo.temp, 'validated-squad-plan.json');
@@ -368,7 +382,7 @@ test('live preflight rejects missing credentials and unverified ACA configuratio
     ...config,
     SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT: '1',
     SQUAD_COPILOT_TOKEN: 'ghp_classic'
-  }), /fine-grained github_pat_/);
+  }), /Classic GitHub PAT/);
 });
 
 test('a failed dispatcher or integration summary cannot pass the publisher preflight', t => {
@@ -482,4 +496,23 @@ test('PEM staging validates the key, removes the secret from the process environ
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('manual workflow includes gated experimental Actions job with verified ACA CLI pin and copilot-requests:write', () => {
+  const workflow = fs.readFileSync(path.join(workflowsDir, 'squad-sandbox-manual.yml'), 'utf8');
+  assert.match(workflow, /copilot_auth_mode:[\s\S]*?default:\s*pat/);
+  assert.match(workflow, /enable_copilot_baseline:[\s\S]*?default:\s*false/);
+  assert.match(workflow, /enable_experimental_actions_job:[\s\S]*?default:\s*false/);
+  assert.match(workflow, /dispatch-actions-experimental:/);
+  const expJob = workflow.slice(workflow.indexOf('dispatch-actions-experimental:'), workflow.indexOf('dispatch-live:'));
+  assert.match(expJob, /runs-on:\s*ubuntu-latest/);
+  assert.match(expJob, /copilot-requests:\s*write/);
+  assert.match(expJob, /id-token:\s*write/);
+  assert.match(expJob, /contents:\s*read/);
+  assert.match(expJob, /94807575393858e9973041f32327a0562c754017a1668e4d6b19870f231d8f8e/);
+  assert.match(expJob, /--auth-mode\s+actions/);
+  const liveJob = workflow.slice(workflow.indexOf('dispatch-live:'), workflow.indexOf('publish-live:'));
+  assert.doesNotMatch(liveJob, /copilot-requests:\s*write/);
+  const publishJob = workflow.slice(workflow.indexOf('publish-live:'));
+  assert.doesNotMatch(publishJob, /dispatch-actions-experimental/);
 });

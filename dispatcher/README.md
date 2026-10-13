@@ -3,10 +3,97 @@
 The dispatcher is the trusted PR 5 fan-out boundary. It reads a `coordinator-execution` plan, validates it with the v1 contract validator, creates one sandbox per task, stages the repository from a local git bundle at the plan baseline, runs the persona worker, downloads artifacts, runs the integration sandbox after all required persona tasks succeed, and writes `dispatcher-summary.json`.
 
 ```powershell
-node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client fake --concurrency 3
+node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client fake --concurrency 3 --auth-mode pat
 ```
 
+## Local Windows operator path
+
+> Local operation is the selected first execution host. No persistent GitHub
+> runner, paid VM, runner registration, or OIDC trust change is required.
+> **Image released, full live flow not proven:** the corrected credit-bounded
+> image is published and digest-verified. See the worker's release receipt below.
+> Do not use the old probe or pre-credit-limit digest as the corrected release.
+
+From this checkout in PowerShell 7.3 or newer, run the durable read-only helper:
+
+```powershell
+.\infra\hooks\sandbox-lab-local.ps1 -PreflightOnly
+```
+
+This intentionally exits with an explicit missing-image/plan/approval blocker.
+It checks installed Node 22+, Azure CLI and the absolute installed
+`%USERPROFILE%\.aca\bin\aca.exe` at `1.0.0-preview.4`. It uses only the existing
+isolated `%USERPROFILE%\.squad-sandbox-lab\azcfg` Azure context (override with
+`-AzureConfigDir` if needed), requires its default account to be enabled in
+subscription `e69b8a95-fe38-42da-b5e6-e3e0a833cf9e` and tenant
+`49ff7219-653a-4644-8540-71d16dbf9c16`, and reads only the approved lab
+group, pull identity, sandbox inventory and disk inventory in `swedencentral`.
+It never logs in, sets an account, obtains an explicit access token, retrieves
+registry/GitHub credentials, creates or deletes resources, or writes a
+materialized plan or output directory. Azure CLI may maintain its own isolated
+cache when making authenticated reads; the default Azure configuration stays
+untouched. Missing or expired isolated login fails closed rather than repairing it.
+
+The helper sets configuration and gates only in the current process, strips
+inherited credentials/service-identity selectors from tool children, and restores
+every changed environment variable on success or error (including absence).
+It never reads `.env` or secret files, changes git configuration, or selects
+publication. **Preflight does not check a Copilot token or prove image contents,
+token entitlement, RBAC sufficiency for writes, or the full live dispatcher flow.**
+
+### First real task prerequisites
+
+1. Select the corrected immutable credit-bounded runner image. The scoped
+   `.azure\image-release-scope` AZCLI validation/publication plan validates image
+   publication only, not the broader deployment. The released digest is recorded
+   in `agents\sandbox\README.md`; use that receipt rather than a mutable tag or
+   the pre-credit-limit image. The known old `cea1d310…` probe image is rejected
+   by this helper.
+2. Use a reviewed **lab repository checkout**, not this personal repository.
+   Its `origin` must identify `AzureViking/squad-on-aca-sandbox-lab` without
+   credentials. Place a schema-valid single-persona plan inside that checkout,
+   with the actual checked-out baseline SHA (no `$CHECKED_OUT_SHA` template),
+   roster-derived owner, bounded owned paths, and exact selected lab repo/issue
+   binding. Dirty working-tree edits are not included in the baseline bundle;
+   ensure the reviewed lab baseline contains the intended implementation.
+3. Obtain explicit approval for the bounded real task and remaining unverified
+   client behavior. The wrapper requires `-AllowUnverifiedClient`, concurrency
+   exactly `1`, timeout `1000`–`300000` ms, an empty sandbox inventory, and a new
+   output directory. A host timeout does not cancel remote execution; inspect
+   exact-ID cleanup in the dispatcher summary and retain a disk if cleanup fails.
+4. Supply a licensed fine-grained `github_pat_` credential as caller-process
+   `SQUAD_COPILOT_TOKEN` immediately before the real command, using your secure
+   process-only credential mechanism. Do not paste it in command arguments,
+   transcripts, plans or files. No real token was acquired or used during this
+   preparation. The existing dispatcher consumes it once and uses its protected
+   transient host/tmpfs transport; the wrapper restores caller environment,
+   so remove the caller token yourself after the operation.
+
+After prerequisites 1–3, the exact **configuration preflight** command shape is:
+
+```powershell
+.\infra\hooks\sandbox-lab-local.ps1 -PreflightOnly `
+  -RepoPath 'C:\path\to\reviewed-lab-checkout' `
+  -PlanPath 'plans\reviewed-task.json' `
+  -Repository 'AzureViking/squad-on-aca-sandbox-lab' -IssueNumber '<real-issue-number>' `
+  -ImageRef 'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:<approved-new-64-hex-digest>' `
+  -Concurrency 1 -TimeoutMs 300000 -AllowUnverifiedClient
+```
+
+After separate real-task approval and credential supply, use the same command
+**without `-PreflightOnly`** and add `-OutDir 'C:\path\to\new-run-output'`.
+The helper calls the existing `dispatcher\cli.js dispatch --client aca`, then
+integration; it does not install a stub, register a runner, or call the publisher.
+Review `dispatcher-summary.json`, integration artifacts and cleanup failures.
+Do not delete the shared disk or blindly repeat a failed operation.
+
+## Direct dispatcher entrypoint
+
 The default client is `fake`. It creates local sandbox directories under the output directory and executes the real `agents/sandbox/runner/persona-run.sh` with bash. The live client is opt-in only:
+
+For the approved Windows lab, prefer the guarded helper above. Direct live CLI
+use is a lower-level entrypoint and also needs the isolated Azure context,
+reviewed image/plan and explicit unverified-client approval.
 
 ```powershell
 $env:SQUAD_ENABLE_ACA_SANDBOX = '1'
@@ -22,6 +109,24 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
 
 ## Flow
 
+### Bounded Copilot execution
+
+Each persona defaults to **30 soft AI credits** using pinned Copilot CLI
+**1.0.96** and exactly one `--max-ai-credits <value>` argv pair. To explicitly
+select another supported limit, use `--max-ai-credits N`, programmatic
+`maxAiCredits` (or `config.maxAiCredits`), or `SQUAD_COPILOT_MAX_AI_CREDITS`.
+Precedence is CLI/top-level option, configuration, then environment; all supplied
+values are validated before sandbox creation. Only safe integers **>= 30** are
+accepted: lower values, zero, empty values and arbitrary option strings fail
+closed rather than rounding up or disabling the limit.
+
+The dispatcher records the numeric limit in `persona.dispatch.max_ai_credits`
+and sends the matching runner-only environment value through the existing
+allowlisted bootstrap. Neither setting reaches Copilot's environment, and
+integration receives neither. This is a **per-persona soft AI-credit limit, not
+a hard USD cap or aggregate run budget**; in-flight requests can exceed it.
+Do not increase the default to circumvent an originally approved smaller budget.
+
 1. Validate the execution plan with `contracts/aca-sandbox/v1/tools/validate.js`.
 2. Build a schema-valid `persona.dispatch` envelope from each task and the roster snapshot in the plan. Persona names are values from the plan, never code constants.
 3. Run ready tasks up to the concurrency limit. If a dependency fails, dependent tasks are marked `skipped` and are not dispatched.
@@ -33,7 +138,7 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
    commas, `=`, or control characters. Invalid labels fail before any Azure call.
 5. Create a local git bundle for the exact baseline commit, upload it, clone it inside the sandbox, and detach to the baseline SHA. No remote URL or GitHub token is placed in the sandbox.
 6. Upload the dispatch envelope and run the persona worker.
-7. Start a fixed runner bootstrap. The live ACA adapter stages its JSON environment payload in a mode-600 host file inside an access-restricted temporary directory, copies it into a mode-700 directory on verified `/dev/shm` tmpfs, sets the remote file to mode 600, and feeds it to the bootstrap through shell redirection. The bootstrap validates an allowlist, sets runner-only variables, and execs the persona runner. Classic `ghp_` tokens are rejected because ACA Sandbox Copilot credentials require fine-grained `github_pat_` tokens.
+7. Start a fixed runner bootstrap. The live ACA adapter stages its JSON environment payload in a mode-600 host file inside an access-restricted temporary directory, copies it into a mode-700 directory on verified `/dev/shm` tmpfs, sets the remote file to mode 600, and feeds it to the bootstrap through shell redirection. The bootstrap validates an allowlist, sets runner-only variables, and execs the persona runner. Copilot auth modes are explicit (`--auth-mode pat|actions`): `pat` requires fine-grained `github_pat_` tokens, while `actions` accepts the current job-scoped `GITHUB_TOKEN` only from the workflow runtime (`GITHUB_ACTIONS=true` and a repository context). Actions tokens are opaque; their prefix is not used as authentication proof. Actions mode rejects known PAT prefixes and must be separately opted into by the workflow. The workflow token is scoped to the Copilot request step on the runner and is never forwarded as an Azure/OIDC credential. Classic `ghp_` tokens are rejected.
 8. Download `persona-result.json`, `artifact-manifest.json`, and artifacts listed in the manifest.
 9. Revalidate result contracts, recompute artifact sha256 values, scan downloaded files for credential material, and re-check patch paths against owned and protected paths.
 10. Delete the persona sandbox in a `finally` block. Delete failures are recorded in the task summary.
@@ -46,6 +151,14 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
 ## Credential and artifact boundary
 
 The dispatcher reads `SQUAD_COPILOT_TOKEN` once at startup and immediately removes it from `process.env`. Every dispatcher child process is then launched with an explicit sanitized environment. The filter removes `SQUAD_COPILOT_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN`, `GITHUB_PAT`, names matching `TOKEN`, `SECRET`, `PASSWORD`, or a trailing `PAT`, plus any secret keys listed by dispatcher configuration. This is defense in depth for `git bundle`, the fake client, and the live `aca` CLI process.
+
+Inside the persona runner, Copilot's `HOME` and `XDG_CONFIG_HOME` are private
+per-run directories on verified `/dev/shm` tmpfs. The pinned CLI's extracted
+public package cache is separately stored on the sandbox disk through
+`COPILOT_PKG_CACHE_HOME`; that cache contains no token, user configuration, or
+credential state. `COPILOT_AUTO_UPDATE=false` keeps the worker on the image's
+verified CLI version. The integration sandbox receives no Copilot credential
+or package cache.
 
 Azure identity variables required by the local `aca` CLI are preserved where they are not secrets, including `AZURE_CLIENT_ID`, managed identity endpoint variables, and other non-secret `AZURE_*` values. `AZURE_CLIENT_SECRET` is intentionally stripped if present and should not be required for this dispatcher path.
 
@@ -252,6 +365,47 @@ deletion. Active-process termination on sandbox deletion and the complete live
 dispatcher flow remain unverified. The controlled-probe gate is
 not proof of compatibility. Do not enable unattended or label-driven Sandbox
 dispatch until the live checklist passes. Publication remains disabled.
+
+### Lab readiness checkpoint (2026-10-12)
+
+- Verified both dedicated managed identity client IDs and tenant through the
+  isolated lab Azure CLI context. The Sandbox Group reports `Succeeded` in
+  `swedencentral`. Added and read back only the missing protected environment
+  variables `SQUAD_SANDBOX_RESOURCE_GROUP_NAME`,
+  `SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID`, and `SQUAD_SANDBOX_REGION`.
+- Kept the required reviewer, main-only branch policy, admin-bypass prohibition,
+  and previously approved sole-maintainer self-review exception unchanged.
+  Repository and dispatch-environment secret-name lists are empty.
+- **OIDC remains blocked:** GitHub subject-template metadata reports an immutable,
+  lowercase repository prefix. The existing dispatcher federated credential
+  trusts the legacy name-only `repo:AzureViking/...` subject. Review and align the
+  exact subject under separate authorization; no token exchange or trust change
+  occurred. Also review the preflight's exact-case lab repository comparisons.
+- The repository runner API returns zero registered runners. Organization runner
+  access returns HTTP 403, so organization runner availability is **unknown**.
+  Existing WSL supports offline Docker checks, but its profile-free tool lookup
+  finds no native Node or ACA executable. It is not a configured dedicated
+  dispatcher host or a registered GitHub runner.
+- The corrected image builds locally, but artifact-only release validation still
+  blocks ACR publication. Do not bind the old digest to the fixed runner.
+  Lab `main` still lacks that runner fix. No image reference, CLI path,
+  unverified-client opt-in, credential, or publication configuration was added.
+- Focused lab-helper and workflow-preflight tests pass **28/28** in an isolated,
+  network-disabled Linux container using a non-root user and an LF-normalized
+  source copy. Native Windows preflight testing passes 17, fails the offline
+  integration check, and skips one unavailable symlink check. This is offline
+  evidence, not a live dispatcher result.
+
+At that checkpoint, the next step was to resolve the image-release gate and approve a credential-free image/lifecycle
+probe. Before a real task, separately choose a trusted execution host, resolve
+OIDC subject compatibility, provide an entitled protected Copilot credential,
+and approve the issue-bound task, runtime and cost ceiling. Do not silently
+register WSL as a runner. Publication stays disabled.
+
+The 2026-10-13 scoped image release supersedes the image blocker in this
+historical checkpoint. It adds the validated default **30 soft AI-credit**
+per-persona bound and publishes a new immutable image, without executing live AI,
+changing OIDC/RBAC, enabling GitHub publication, or claiming full live-flow proof.
 
 
 ## Integration phase

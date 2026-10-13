@@ -19,6 +19,19 @@ The trusted dispatcher supplies:
   credential variables, and never places it in `runuser`, `setpriv`, `env`, or
   Copilot argv.
 - `SQUAD_COPILOT_BIN`: optional test override for the Copilot CLI binary.
+- `max_ai_credits` in the dispatch envelope and runner-only
+  `SQUAD_COPILOT_MAX_AI_CREDITS`: per-persona soft AI-credit limit. If both are
+  supplied, they must agree. Omission defaults to **30**. Values must be safe
+  integers at least 30, the minimum supported by pinned Copilot CLI **1.0.96**.
+  Invalid or conflicting values fail before cloning or invoking Copilot.
+
+Every persona invocation uses the fixed argv
+`--yolo --agent squad --max-ai-credits 30` (or the explicitly validated numeric
+limit). No free-form Copilot option string is accepted or shell-split.
+This is a **soft AI-credit limit**, not a hard USD or billing cap; an in-flight
+request can exceed it. It applies separately to each persona, not the whole
+fan-out. Integration does not invoke Copilot and receives no credit setting.
+The image build checks both CLI version and presence of `--max-ai-credits`.
 
 ## Repository acquisition
 
@@ -63,11 +76,18 @@ The runner writes logs, patch, result, manifest, ignored path reports, and other
 outputs to a private staged artifact directory first. After every artifact is
 written, it scans the full staged tree, including file names and path-derived
 messages, for the injected token value and common GitHub token prefixes. Only a
-clean staged tree is moved to `SQUAD_OUTPUT_DIR`. The Copilot process receives a
-minimal explicit environment: `PATH`, a persona-only `HOME`, `LANG`, `TERM`, and
-the scoped `GITHUB_TOKEN`. Runner paths such as `SQUAD_OUTPUT_DIR`, staging
-paths, source repository paths, and dispatcher paths are not inherited by
-Copilot.
+clean staged tree is moved to `SQUAD_OUTPUT_DIR`. The Copilot process receives a minimal explicit environment: `PATH`, a
+persona-only `HOME` and `XDG_CONFIG_HOME` on verified `/dev/shm` tmpfs, the
+public package-cache path `COPILOT_PKG_CACHE_HOME` on the sandbox disk,
+`COPILOT_AUTO_UPDATE=false`, `LANG`, `TERM`, and the scoped `GITHUB_TOKEN`.
+Runner paths such as `SQUAD_OUTPUT_DIR`, staging paths, source repository paths,
+and dispatcher paths are not inherited by Copilot. The package cache contains
+only the CLI's extracted public package; it does not contain credentials,
+Copilot configuration, or a user home.
+
+The image removes group and other write permissions from the copied runtime
+and contracts, including Windows-derived file modes. The root-owned runner
+cannot be modified by the unprivileged Copilot UID.
 
 `SQUAD_OUTPUT_DIR` must be empty before the runner starts. The runner also checks
 that it is still empty immediately before publishing staged artifacts. If
@@ -91,7 +111,11 @@ staging and output directories owned by the runner side with mode `700` while
 running Copilot with `runuser` or `setpriv`. The worktree and persona home are
 owned by `copilot-agent`, so Copilot can edit source but cannot read or write
 the runner artifact directories. The runner records the mode in
-`logs/isolation-mode.txt`.
+`logs/isolation-mode.txt`. When running under root, the runner scopes Git
+invocations on the `copilot-agent`-owned worktree and source directory with
+exact `-c safe.directory` flags so privileged Git operations (`rev-parse`, `add`,
+`diff`, `ls-files`) succeed without modifying global configuration or
+permitting wildcard directory trust.
 
 Local tests that do not run as root or do not have the `copilot-agent` user use
 an explicit `same-user` mode and assert that marker. That path is for offline
@@ -114,32 +138,34 @@ and the required ACA sandbox contract tool copied into
 `docker build agents/sandbox` form, because runtime contract dependencies live
 outside that directory.
 
-### npm registry on managed build hosts
+### Credit-bounded image release (2026-10-13)
 
-The build stage installs `@github/copilot` from the `NPM_REGISTRY` build arg,
-which defaults to the public `https://registry.npmjs.org/`. CI uses that default.
+- Immutable image:
+  `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:4b4a2c0ac696630e17a2ec06241aafa2b6ddb3ed57e7385d7d71a4dcfa84c23d`.
+- Unique tag: `runner-creditcap-1-0-96-20261013T121607Z-03ce4f75324f`.
+- Dirty build-source manifest SHA-256:
+  `03ce4f75324f0972427d47e4569cfd09e3477330b41eefad005cf2f80edac90f`.
+- Copilot CLI: **1.0.96**, with actual version and `--max-ai-credits` support
+  verified. Actual production argv capture is
+  `["--yolo","--agent","squad","--max-ai-credits","30"]`.
+- Digest-bound proofs pass as root and UID 10001, including credential isolation,
+  tmpfs credential HOME, disk package cache, leak/protected-path failure,
+  applicable integration output and all **21** runtime/contract file hashes.
+- Targeted Linux suite: **125 passed, 0 failed, 2 separately covered skips**;
+  dedicated root Git test: **1/1**; host contract/auth/bootstrap/credit/local
+  preflight/Dockerfile suite: **49/49**.
 
-Docker builds do not inherit the host npm configuration (`.npmrc`, global or
-user config, or environment). On a managed machine where the public npm registry
-is blocked, pass your organization's approved internal mirror explicitly:
+The release validates image publication only. It runs no live AI or cloud
+sandbox, changes no infrastructure/RBAC, and does not validate the broader
+deployment plan. The previous image without credit passthrough is not this
+release. Use the scoped `.azure\image-release-scope` proof for release details.
 
-```bash
-docker build -f agents/sandbox/Dockerfile \
-  --build-arg NPM_REGISTRY=https://<approved-internal-npm-mirror>/ \
-  -t squad-persona-sandbox:local .
-```
+### Pinned Copilot CLI release
 
-Use the full registry URL including any path segment, exactly as reported by
-`npm config get registry` on the host. A bare host name can return 404.
-
-Only use this for a mirror that serves public packages without authentication.
-Do not put auth tokens, passwords, or credentials in the URL, and do not pass
-npm auth through build args or build secrets for this image. Build arg values
-are recorded in build metadata. Before `npm install` runs, the build stage
-executes `agents/sandbox/build/validate-npm-registry.js`, which rejects
-non-`https://` values, `@` userinfo, query strings (for example `?token=`),
-fragments and malformed URLs without printing the value. TLS verification stays
-enabled; do not disable `strict-ssl` to work around mirror certificate issues.
+The build stage downloads GitHub Copilot CLI `v1.0.96` from the official
+`github/copilot-cli` release and verifies the Linux x64 archive against its
+published SHA-256 checksum before extracting it. The build also checks the
+installed CLI version. It does not install packages from npm.
 
 
 ## Integration runner

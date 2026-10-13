@@ -115,6 +115,7 @@ function createFakeCopilot(dir) {
   const file = path.join(dir, 'fake-copilot.sh');
   fs.writeFileSync(file, `#!/usr/bin/env bash
 set -euo pipefail
+node -e 'const assert=require("node:assert/strict"); assert.deepEqual(process.argv.slice(1), ["--yolo","--agent","squad","--max-ai-credits","30"])' -- "$@"
 prompt="$(cat)"
 : "\${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
 if [[ -n "\${FAKE_COPILOT_ENV_FILE:-}" ]]; then
@@ -169,6 +170,18 @@ async function dispatchCase(name, tasks, options = {}) {
 }
 
 test.beforeEach(() => resetDir(workRoot));
+
+test('invalid credit limits are rejected before sandbox create or bundle preparation', async () => {
+  for (const maxAiCredits of [0, 29, null, '', '30 --yolo', '30;echo injected', '3e1', 30.5, Infinity, NaN, {}, Number.MAX_SAFE_INTEGER + 1]) {
+    const owner = member('test-credit');
+    let creates = 0;
+    await assert.rejects(dispatchCase('invalid-credits', [
+      { task_id: 'task-alpha', owner, owned_paths: ['alpha'] }
+    ], { config: { maxAiCredits }, client: { create() { creates++; } } }), /max-ai-credits/);
+    assert.equal(creates, 0);
+    assert.equal(fs.existsSync(path.join(workRoot, 'invalid-credits', 'out')), false);
+  }
+});
 
 test('happy path with two independent tasks produces valid summary and verified artifacts', async () => {
   const ownerA = member('test-alpha');
@@ -289,15 +302,18 @@ test('runner environment is delivered through bootstrap stdin, not local spawn e
     assert.equal(JSON.stringify(runnerExec.env).includes('SQUAD_SOURCE_REPO_PATH'), false);
     const stdinPayload = JSON.parse(runnerExec.stdin);
     assert.equal(stdinPayload.SQUAD_COPILOT_TOKEN, token);
+    assert.equal(stdinPayload.SQUAD_COPILOT_MAX_AI_CREDITS, '30');
     assert.equal(stdinPayload.SQUAD_SOURCE_REPO_PATH.length > 0, true);
     const fakeEnv = fs.readFileSync(fakeEnvFile, 'utf8');
     assert.match(fakeEnv, /^GITHUB_TOKEN=github_pat_stdinOnlySecret$/m);
     assert.doesNotMatch(fakeEnv, /^SQUAD_SOURCE_REPO_PATH=/m);
     assert.doesNotMatch(fakeEnv, /^SQUAD_OUTPUT_DIR=/m);
+    assert.doesNotMatch(fakeEnv, /^SQUAD_COPILOT_MAX_AI_CREDITS=/m);
     const integrationExec = client.execCalls.find(call => call.argv.some(arg => String(arg).includes('integrate-run.sh')));
     assert(integrationExec, 'integration exec should use the env bootstrap');
     assert.deepEqual(integrationExec.env, {});
     assert.equal(integrationExec.stdin.includes('SQUAD_COPILOT_TOKEN'), false);
+    assert.equal(integrationExec.stdin.includes('SQUAD_COPILOT_MAX_AI_CREDITS'), false);
     assert.equal(integrationExec.stdin.includes(token), false);
   } finally {
     if (oldAllowlist === undefined) delete process.env.SQUAD_FAKE_COPILOT_ENV_ALLOWLIST;
@@ -1246,7 +1262,7 @@ test('ghp token is rejected up front', async () => {
   const owner = member('test-alpha');
   await assert.rejects(
     dispatchCase('ghp-reject', [{ task_id: 'task-alpha', owner, owned_paths: ['alpha'] }], { token: 'ghp_classicbad' }),
-    /fine-grained github_pat_ tokens/
+    /Classic GitHub PAT \(ghp_\) is not supported/
   );
 });
 

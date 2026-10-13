@@ -326,6 +326,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
   }
   let handle;
   let originalError;
+  let stage = 'integration-prepare';
   try {
     summary.status = 'running';
     const patchInfos = plan.tasks.map(task => patchArtifactForTask(outDir, taskSummaries.find(item => item.task_id === task.task_id), task));
@@ -340,6 +341,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     const dispatchPath = path.join(integrationRoot, 'integration-dispatch.json');
     writeJson(dispatchPath, envelope);
 
+    stage = 'sandbox-create';
     handle = await client.create({
       name: safeName(`${plan.run_id}-integration`),
       image: config.image,
@@ -349,11 +351,13 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
       autoSuspendSeconds: config.autoSuspendSeconds
     });
     summary.sandbox_id = handle.id || handle.name || '';
+    stage = 'integration-upload';
     await client.putFile(handle, '/workspace/baseline.bundle', fs.readFileSync(bundlePath));
     await client.putFile(handle, '/workspace/integration/integration-dispatch.json', fs.readFileSync(dispatchPath));
     for (const info of patchInfos) {
       await client.putFile(handle, `/workspace/integration/patches/${safeName(info.task.task_id)}.patch`, fs.readFileSync(info.patchPath));
     }
+    stage = 'runner-exec';
     const env = {
       SQUAD_INTEGRATION_DISPATCH_PATH: '/workspace/integration/integration-dispatch.json',
       SQUAD_BASELINE_BUNDLE_PATH: '/workspace/baseline.bundle',
@@ -374,6 +378,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     if (execResult.stderr) log(`integration stderr ${redact(execResult.stderr, token)}`);
     if (containsToken(execResult.stdout, token) || containsToken(execResult.stderr, token)) throw new Error('credential material detected in integration stdout or stderr');
     if (execResult.timedOut) throw new Error('integration runner timed out');
+    stage = 'artifact-collection';
     const integrationDir = path.join(outDir, 'integration');
     fs.rmSync(integrationDir, { recursive: true, force: true });
     const collected = await collectIntegrationArtifacts({ client, handle, outDir, integrationDir, plan, personaUnionPaths, token });
@@ -382,6 +387,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
       summary.failed_task_id = collected.integrationResult.failed_task_id || '';
       throw new Error(collected.integrationResult.error?.message || 'integration failed');
     }
+    stage = 'patch-verification';
     await verifyIntegratedPatchContent({ bundlePath, baselineSha: plan.baseline_sha, patchPath: collected.patchPath, patchInfos, workDir: path.join(outDir, '.dispatcher-work'), config });
     summary.status = STATUS.SUCCEEDED;
     summary.reason = 'integration succeeded';
@@ -391,6 +397,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     originalError = error;
     summary.status = STATUS.FAILED;
     summary.reason = redact(error.message, token);
+    log(`stage-failure integration stage=${stage}`);
     const match = /Task ([^ ]+)|Patch ([^ ]+)|for ([A-Za-z0-9._:-]+)/.exec(summary.reason);
     if (match) summary.failed_task_id = match[1] || match[2] || match[3] || '';
   } finally {

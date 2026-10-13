@@ -4,6 +4,7 @@ const { spawnSync } = require('node:child_process');
 const { validateContract } = require('../contracts/aca-sandbox/v1/tools/validate');
 const { assertIssueBinding, issueNumber: parseIssueNumber } = require('./lib/issue-binding');
 const { validateSandboxImageRef } = require('./lib/sandbox-image');
+const { validateCopilotAuth, COPILOT_AUTH_MODES } = require('./lib/auth');
 
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -102,9 +103,14 @@ function validateLiveSandboxConfig(env) {
     throw new Error('SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID must be a valid managed identity client ID.');
   }
   validateSandboxImageRef(env.SQUAD_SANDBOX_IMAGE_REF);
-  if (!env.SQUAD_COPILOT_TOKEN.startsWith('github_pat_')) {
-    throw new Error('SQUAD_COPILOT_TOKEN must be a fine-grained github_pat_ token.');
-  }
+  const authMode = env.SQUAD_COPILOT_AUTH_MODE || 'pat';
+  validateCopilotAuth({
+    token: env.SQUAD_COPILOT_TOKEN,
+    authMode,
+    isLive: true,
+    clientKind: 'aca',
+    env
+  });
   if (env.SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT !== '1') {
     throw new Error('Live ACA CLI behavior is unverified. Set SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1 only for a controlled manual probe.');
   }

@@ -2,6 +2,7 @@
 const path = require('node:path');
 const { runDispatcher } = require('./dispatcher');
 const { runPublish } = require('./publish');
+const { validateMaxAiCredits } = require('../contracts/aca-sandbox/v1/tools/copilot-credit-limit');
 
 function parseArgs(argv) {
   const args = { command: 'dispatch', client: 'fake' };
@@ -16,6 +17,11 @@ function parseArgs(argv) {
     else if (arg === '--repo') args.repoPath = argv[++index];
     else if (arg === '--out') args.outDir = argv[++index];
     else if (arg === '--client') args.client = argv[++index];
+    else if (arg === '--auth-mode') args.authMode = argv[++index];
+    else if (arg === '--max-ai-credits') {
+      if (argv[index + 1] === undefined) throw new Error('--max-ai-credits requires a value');
+      args.maxAiCredits = validateMaxAiCredits(argv[++index]);
+    }
     else if (arg === '--concurrency') args.concurrency = Number(argv[++index]);
     else if (arg === '--timeout-ms') args.config = { ...(args.config || {}), timeoutMs: Number(argv[++index]) };
     else if (arg === '--no-integrate') args.integrate = false;
@@ -36,7 +42,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Usage:\n  node dispatcher/cli.js --plan plan.json --repo <path> --out <dir> [--client fake|aca] [--repo-full-name owner/repo --issue-number N] [--concurrency N] [--no-integrate]\n  node dispatcher/cli.js publish --summary dispatcher-summary.json --repo <path> --plan plan.json --repo-full-name owner/repo --issue-number N [--issue-title title] [--target-branch branch] [--result publish-result.json] [--live]\n\nDefault dispatch client is fake. The aca client requires SQUAD_ENABLE_ACA_SANDBOX=1 and an exact plan issue binding. Live publish requires --live and SQUAD_ENABLE_PUBLISH=1.`;
+  return `Usage:\n  node dispatcher/cli.js --plan plan.json --repo <path> --out <dir> [--client fake|aca] [--auth-mode pat|actions] [--max-ai-credits N] [--repo-full-name owner/repo --issue-number N] [--concurrency N] [--no-integrate]\n  node dispatcher/cli.js publish --summary dispatcher-summary.json --repo <path> --plan plan.json --repo-full-name owner/repo --issue-number N [--issue-title title] [--target-branch branch] [--result publish-result.json] [--live]\n\nDefault dispatch client is fake. Copilot CLI 1.0.96 uses a per-persona soft AI-credit limit of 30 by default; explicit limits must be safe integers >= 30, not hard USD caps. The aca client requires SQUAD_ENABLE_ACA_SANDBOX=1 and an exact plan issue binding. Live publish requires --live and SQUAD_ENABLE_PUBLISH=1.`;
 }
 
 (async () => {

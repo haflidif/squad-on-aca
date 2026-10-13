@@ -2,10 +2,11 @@
 set -euo pipefail
 
 COPILOT_CREDENTIAL="${SQUAD_COPILOT_TOKEN:-${COPILOT_TOKEN:-}}"
-unset SQUAD_COPILOT_TOKEN COPILOT_TOKEN GITHUB_TOKEN
+unset SQUAD_COPILOT_TOKEN COPILOT_TOKEN GITHUB_TOKEN SQUAD_COPILOT_AUTH_MODE
 STAGING_DIR=""
 WORK_DIR=""
 PERSONA_HOME=""
+COPILOT_PKG_CACHE_HOME=""
 CLEANUP_WORK_DIR=false
 
 clear_copilot_credential() {
@@ -37,6 +38,7 @@ RUNNER_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 RUNTIME_DIR="$(cd "${RUNNER_DIR}/.." && pwd)"
 PATH_SCOPE_TOOL="${PATH_SCOPE_TOOL:-/opt/squad/contracts/aca-sandbox/v1/tools/path-scope.js}"
 COPILOT_LAUNCHER="${COPILOT_LAUNCHER:-${RUNNER_DIR}/copilot-launch.sh}"
+CREDIT_LIMIT_TOOL="$(dirname "${PATH_SCOPE_TOOL}")/copilot-credit-limit.js"
 
 # shellcheck source=/dev/null
 source "${RUNTIME_DIR}/lib/logging.sh"
@@ -45,10 +47,20 @@ DISPATCH_PATH="${1:-${SQUAD_PERSONA_DISPATCH_PATH:-}}"
 OUTPUT_DIR="${SQUAD_OUTPUT_DIR:-/workspace/output}"
 SOURCE_REPO_PATH="${SQUAD_SOURCE_REPO_PATH:-}"
 COPILOT_BIN="${SQUAD_COPILOT_BIN:-copilot}"
+MAX_AI_CREDITS="$(node "${CREDIT_LIMIT_TOOL}" "${DISPATCH_PATH}")" \
+  || { clear_copilot_credential; exit 2; }
+unset SQUAD_COPILOT_MAX_AI_CREDITS
+COPILOT_ARGS=(--yolo --agent squad --max-ai-credits "${MAX_AI_CREDITS}")
 
 mkdir -p "${OUTPUT_DIR}"
 chmod 700 "${OUTPUT_DIR}" 2>/dev/null || true
 STAGING_PARENT="${SQUAD_STAGING_PARENT:-$(dirname "${OUTPUT_DIR}")}"
+if ! awk '$2 == "/dev/shm" && $3 == "tmpfs" { found = 1 } END { exit !found }' /proc/mounts; then
+  die "Copilot credential home requires /dev/shm to be mounted as tmpfs."
+fi
+COPILOT_PKG_CACHE_HOME="${STAGING_PARENT}/.copilot-package-cache"
+mkdir -p "${COPILOT_PKG_CACHE_HOME}"
+chmod 755 "${COPILOT_PKG_CACHE_HOME}"
 if [[ -n "$(find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   SQUAD_RESULT_MODE=minimal node "${RUNNER_DIR}/write-result.js" "${DISPATCH_PATH}" "${OUTPUT_DIR}" \
@@ -60,7 +72,7 @@ if [[ -n "$(find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
 fi
 STAGING_DIR="$(mktemp -d "${STAGING_PARENT}/.persona-artifacts.XXXXXX")"
 chmod 700 "${STAGING_DIR}"
-PERSONA_HOME="$(mktemp -d "${STAGING_PARENT}/.persona-home.XXXXXX")"
+PERSONA_HOME="$(mktemp -d "/dev/shm/.persona-home.XXXXXX")"
 chmod 700 "${PERSONA_HOME}"
 if [[ -n "${SQUAD_WORK_DIR:-}" ]]; then
   WORK_DIR="${SQUAD_WORK_DIR}"
@@ -68,6 +80,9 @@ if [[ -n "${SQUAD_WORK_DIR:-}" ]]; then
 else
   WORK_DIR="$(mktemp -d "${STAGING_PARENT}/.persona-worktree.XXXXXX")"
   CLEANUP_WORK_DIR=true
+fi
+if command -v readlink >/dev/null 2>&1; then
+  WORK_DIR="$(readlink -f "${WORK_DIR}" 2>/dev/null || printf '%s' "${WORK_DIR}")"
 fi
 
 mkdir -p "${STAGING_DIR}/patches" "${STAGING_DIR}/logs"
@@ -77,6 +92,17 @@ ISOLATION_LOG="${STAGING_DIR}/logs/isolation-mode.txt"
 
 TOKEN_PATTERN='(github_pat_[A-Za-z0-9_]+|gh[ops]_[A-Za-z0-9_]+)'
 CREDENTIAL_LEAK_DETECTED=false
+
+git() {
+  local -a safe_args=()
+  if [[ -n "${WORK_DIR:-}" ]]; then
+    safe_args+=(-c "safe.directory=${WORK_DIR}")
+  fi
+  if [[ -n "${SOURCE_REPO_PATH:-}" ]]; then
+    safe_args+=(-c "safe.directory=${SOURCE_REPO_PATH}")
+  fi
+  command git "${safe_args[@]}" "$@"
+}
 
 clear_output_dir() {
   mkdir -p "${OUTPUT_DIR}"
@@ -218,7 +244,8 @@ prepare_copilot_isolation() {
   if [[ "$(id -u)" == "0" ]] && id copilot-agent >/dev/null 2>&1; then
     COPILOT_USER="copilot-agent"
     COPILOT_ISOLATION_MODE="separate-user"
-    chown -R "${COPILOT_USER}:${COPILOT_USER}" "${WORK_DIR}" "${PERSONA_HOME}"
+    chown -R "${COPILOT_USER}:${COPILOT_USER}" "${WORK_DIR}" "${PERSONA_HOME}" "${COPILOT_PKG_CACHE_HOME}"
+    chmod 755 "${COPILOT_PKG_CACHE_HOME}"
     chmod 700 "${STAGING_DIR}" "${OUTPUT_DIR}" "${PERSONA_HOME}" 2>/dev/null || true
   fi
   printf 'copilot_isolation_mode=%s\n' "${COPILOT_ISOLATION_MODE}" > "${ISOLATION_LOG}"
@@ -229,20 +256,20 @@ run_copilot_command() {
   exec 3< <(printf '%s\n' "${COPILOT_CREDENTIAL}")
   if [[ "${COPILOT_ISOLATION_MODE}" == "separate-user" ]]; then
     if command -v runuser >/dev/null 2>&1; then
-      runuser -u "${COPILOT_USER}" -- env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+      runuser -u "${COPILOT_USER}" -- env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" "${COPILOT_ARGS[@]}"
       status=$?
     elif command -v setpriv >/dev/null 2>&1; then
       local copilot_uid copilot_gid
       copilot_uid="$(id -u "${COPILOT_USER}")"
       copilot_gid="$(id -g "${COPILOT_USER}")"
-      setpriv --reuid="${copilot_uid}" --regid="${copilot_gid}" --init-groups env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+      setpriv --reuid="${copilot_uid}" --regid="${copilot_gid}" --init-groups env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" "${COPILOT_ARGS[@]}"
       status=$?
     else
       echo "No supported privilege-drop command found for separate-user Copilot isolation." >&2
       status=126
     fi
   else
-    env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" --yolo --agent squad
+    env "${COPILOT_ENV[@]}" bash "${COPILOT_LAUNCHER}" "${COPILOT_BIN}" "${COPILOT_ARGS[@]}"
     status=$?
   fi
   exec 3<&-
@@ -316,6 +343,9 @@ fi
   || write_result_and_exit "failed" "No pre-staged repository path was supplied." "SOURCE_REPO_REQUIRED" "SQUAD_SOURCE_REPO_PATH is required. Dispatcher must pre-stage a baseline repository." 1
 [[ -d "${SOURCE_REPO_PATH}" ]] \
   || write_result_and_exit "failed" "Pre-staged repository path was not found." "SOURCE_REPO_NOT_FOUND" "SQUAD_SOURCE_REPO_PATH is not a directory: ${SOURCE_REPO_PATH}" 1
+if command -v readlink >/dev/null 2>&1; then
+  SOURCE_REPO_PATH="$(readlink -f "${SOURCE_REPO_PATH}" 2>/dev/null || printf '%s' "${SOURCE_REPO_PATH}")"
+fi
 
 rm -rf "${WORK_DIR}"
 git clone --no-hardlinks "${SOURCE_REPO_PATH}" "${WORK_DIR}" >/dev/null 2>&1 \
@@ -361,6 +391,9 @@ if [[ "${COPILOT_EXIT}" -eq 0 ]]; then
     -i
     "PATH=${PATH:-/usr/local/bin:/usr/bin:/bin}"
     "HOME=${PERSONA_HOME}"
+    "XDG_CONFIG_HOME=${PERSONA_HOME}"
+    "COPILOT_PKG_CACHE_HOME=${COPILOT_PKG_CACHE_HOME}"
+    "COPILOT_AUTO_UPDATE=false"
     "LANG=${LANG:-C.UTF-8}"
     "TERM=${TERM:-dumb}"
   )

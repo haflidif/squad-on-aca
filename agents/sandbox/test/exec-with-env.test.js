@@ -32,6 +32,15 @@ test('exec-with-env accepts a flat object of string keys and string values', () 
   assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
 });
 
+test('exec-with-env allows only the named credit setting, not arbitrary Copilot options', () => {
+  const result = spawnSync(process.execPath, [
+    execWithEnv, process.execPath, '-e',
+    'process.exit(process.env.SQUAD_COPILOT_MAX_AI_CREDITS === "30" ? 0 : 3)'
+  ], { cwd: repoRoot, encoding: 'utf8', input: '{"SQUAD_COPILOT_MAX_AI_CREDITS":"30"}', env: {} });
+  assert.equal(result.status, 0, result.stderr);
+  assertRejected('{"SQUAD_COPILOT_OPTIONS":"secret-value"}', /not allowed/);
+});
+
 test('exec-with-env rejects duplicate keys before JSON.parse can collapse them', () => {
   assertRejected('{"SQUAD_OUTPUT_DIR":"secret-value","SQUAD_OUTPUT_DIR":"out"}', /duplicate keys/);
 });

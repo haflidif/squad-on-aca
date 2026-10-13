@@ -1,8 +1,6 @@
 *
 !agents/
 !agents/sandbox/
-!agents/sandbox/build/
-!agents/sandbox/build/validate-npm-registry.js
 !agents/sandbox/lib/
 !agents/sandbox/lib/**
 !agents/sandbox/runner/

@@ -18,6 +18,11 @@
     "owned_paths"
   ],
   "properties": {
+    "max_ai_credits": {
+      "type": "integer",
+      "minimum": 30,
+      "description": "Per-persona Copilot soft AI-credit limit; defaults to 30 when omitted. Not a hard monetary cap."
+    },
     "schema_version": {
       "$ref": "common.schema.json#/$defs/schemaVersion"
     },

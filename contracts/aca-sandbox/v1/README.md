@@ -32,6 +32,13 @@ publish to GitHub.
 
 ## Compatibility guarantee
 
+`persona.dispatch` optionally carries numeric `max_ai_credits`: a safe integer
+at least **30**, the minimum supported by Copilot CLI **1.0.96**. Updated
+dispatchers always emit it; updated runners default older envelopes to **30**
+and reject invalid values or conflicting bootstrap settings before Copilot
+runs. The limit is per persona and soft, not a hard monetary cap. Integration
+envelopes have no credit setting because their runner never invokes Copilot.
+
 The existing ACA Job queue message remains valid with only these required
 fields:
 

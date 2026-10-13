@@ -16,6 +16,8 @@ const {
 const { FakeSandboxClient } = require('./clients/fake-sandbox-client');
 const { AcaCliSandboxClient } = require('./clients/aca-cli-client');
 const { validateSandboxImageRef } = require('./lib/sandbox-image');
+const { validateCopilotAuth } = require('./lib/auth');
+const { DEFAULT_MAX_AI_CREDITS, validateMaxAiCredits } = require('../contracts/aca-sandbox/v1/tools/copilot-credit-limit');
 const { runIntegrationPhase, integrationSummaryBase } = require('./integrate');
 
 const DEFAULTS = { cpu: '1000m', memory: '2048Mi', autoSuspendSeconds: 300, concurrency: 3, timeoutMs: 300000, cloneTimeoutMs: 120000 };
@@ -106,7 +108,7 @@ function writeFreshArtifactFile(root, relativePath, bytes) {
   return hostPath;
 }
 
-function buildDispatch(plan, task) {
+function buildDispatch(plan, task, maxAiCredits = DEFAULT_MAX_AI_CREDITS) {
   const dispatch = {
     schema_version: plan.schema_version,
     message_type: 'persona.dispatch',
@@ -120,7 +122,8 @@ function buildDispatch(plan, task) {
     roster: plan.roster,
     provider: plan.provider,
     artifact_refs: task.artifact_refs || [],
-    owned_paths: task.owned_paths
+    owned_paths: task.owned_paths,
+    max_ai_credits: validateMaxAiCredits(maxAiCredits)
   };
   if (plan.parent_run_id) dispatch.parent_run_id = plan.parent_run_id;
   return dispatch;
@@ -244,11 +247,13 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
   summary.started_at = new Date().toISOString();
   let handle;
   let originalError;
+  let stage = 'dispatch-validation';
   try {
-    const dispatch = buildDispatch(plan, task);
+    const dispatch = buildDispatch(plan, task, config.maxAiCredits);
     const dispatchValidation = validateContract('persona-dispatch.schema.json', dispatch, plan);
     if (!dispatchValidation.valid) throw new Error(`dispatch validation failed: ${dispatchValidation.errors.join('; ')}`);
 
+    stage = 'sandbox-create';
     handle = await client.create({
       name: safeName(`${plan.run_id}-${task.task_id}`),
       image: config.image,
@@ -263,14 +268,20 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
     });
     summary.sandbox_id = handle.id || handle.name || '';
 
+    stage = 'baseline-upload';
     await client.putFile(handle, '/workspace/baseline.bundle', fs.readFileSync(bundlePath));
+    stage = 'baseline-clone';
     await cloneBundleInSandbox(client, handle, '/workspace/baseline.bundle', '/workspace/source', plan.baseline_sha, config.cloneTimeoutMs);
+    stage = 'dispatch-upload';
     await client.putFile(handle, '/workspace/dispatch.json', Buffer.from(`${JSON.stringify(dispatch, null, 2)}\n`));
 
+    stage = 'runner-exec';
     const env = {
       SQUAD_SOURCE_REPO_PATH: '/workspace/source',
       SQUAD_OUTPUT_DIR: '/workspace/output',
-      SQUAD_COPILOT_TOKEN: token
+      SQUAD_COPILOT_TOKEN: token,
+      SQUAD_COPILOT_AUTH_MODE: config.authMode || 'pat',
+      SQUAD_COPILOT_MAX_AI_CREDITS: String(config.maxAiCredits)
     };
     if (config.clientKind === 'fake') {
       env.PATH_SCOPE_TOOL = path.join(projectRoot, 'contracts', 'aca-sandbox', 'v1', 'tools', 'path-scope.js');
@@ -302,6 +313,7 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
     }
     if (execResult.timedOut) throw new Error('sandbox runner timed out');
 
+    stage = 'artifact-collection';
     const collected = await collectAndVerifyArtifacts({ client, handle, task, dispatch, plan, taskOutDir: path.join(outDir, 'tasks', safeName(task.task_id)), token });
     summary.artifact_paths = collected.artifactHostPaths.map(file => toPosixPath(path.relative(outDir, file)));
     summary.status = STATUS.SUCCEEDED;
@@ -310,6 +322,7 @@ async function runTask({ plan, task, projectRoot, outDir, client, bundlePath, co
     originalError = error;
     summary.status = STATUS.FAILED;
     summary.reason = redact(error.message, token);
+    log(`stage-failure task=${task.task_id} stage=${stage}`);
   } finally {
     if (handle) {
       try {
@@ -349,14 +362,25 @@ async function runDispatcher(options) {
     }
   }
 
+  const authMode = options.authMode || options.copilotAuthMode || process.env.SQUAD_COPILOT_AUTH_MODE || 'pat';
   const token = options.copilotToken ?? process.env.SQUAD_COPILOT_TOKEN ?? '';
   delete process.env.SQUAD_COPILOT_TOKEN;
-  if (!token) throw new Error('SQUAD_COPILOT_TOKEN is required.');
-  if (token.startsWith('ghp_')) throw new Error('ACA Sandbox Copilot credentials require fine-grained github_pat_ tokens, not classic ghp_ tokens.');
+  validateCopilotAuth({
+    token,
+    authMode,
+    isLive: clientKind === 'aca',
+    clientKind,
+    env: process.env
+  });
 
   const config = { ...DEFAULTS, ...(options.config || {}) };
   config.concurrency = Number(options.concurrency || config.concurrency || DEFAULTS.concurrency);
   config.clientKind = clientKind;
+  config.authMode = authMode;
+  const creditLimits = [options.maxAiCredits, config.maxAiCredits, process.env.SQUAD_COPILOT_MAX_AI_CREDITS]
+    .filter(value => value !== undefined);
+  creditLimits.forEach(validateMaxAiCredits);
+  config.maxAiCredits = validateMaxAiCredits(creditLimits[0]);
   if (clientKind === 'aca') config.image = validateSandboxImageRef(options.image || config.image || process.env.SQUAD_SANDBOX_IMAGE_REF);
   fs.mkdirSync(outDir, { recursive: true });
   const logPath = path.join(outDir, 'dispatcher.log');

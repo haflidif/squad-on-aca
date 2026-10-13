@@ -4,14 +4,41 @@
 >
 > **Mode:** Implementation only. No authorization to create resources, configure GitHub, run a live probe, or incur charges.
 >
-> **Scoped approval completed (2026-10-09):** Haflidi explicitly approved one
-> bounded lifecycle probe and cleanup in the existing lab: one disposable disk,
-> one `1000m`/`2048Mi` sandbox, harmless environment handoff and timeout test,
-> then deletion of only those new resources. This approval does not authorize
-> execution of the overall plan, further deployment, Copilot credentials or
-> publication. The plan status remains unchanged.
+> **Scoped approval (2026-10-12):** Haflidi explicitly authorized rebuilding and
+> publishing a unique immutable lab persona worker image in the existing ACR
+> `crsquadacaa6b49feb` under `squad/persona-sandbox` repository, without
+> overwriting existing tags or touching the shared disk. This approval is
+> strictly scoped to the container image release (incorporating the verified git
+> `safe.directory` runner fix) and does not authorize execution of the overall
+> deployment plan, full infrastructure changes, new VMs/runners, permission
+> grants, credential changes, or live sandbox tests. The plan status remains
+> Ready for Validation.
 >
 > **Prepared:** 2026-09-28. Source of truth for this lab's preparation, validation, deployment gates, and cleanup.
+
+## Current execution-host decision — local operator first
+
+Haflidi selected **local operation without a persistent GitHub runner**.
+Use the existing Windows machine, installed ACA `1.0.0-preview.4`, Azure CLI,
+Node, and the isolated `%USERPROFILE%\.squad-sandbox-lab\azcfg` account context.
+`infra\hooks\sandbox-lab-local.ps1` adds read-only preflight and a bounded
+wrapper around the existing dispatcher; see
+[`dispatcher/README.md`](../dispatcher/README.md#local-windows-operator-path)
+for exact command shapes and prerequisites.
+
+This supersedes the self-hosted-runner requirement **for the first local
+operator-run task only**. GitHub OIDC/FIC subject incompatibility remains a
+future Actions-host blocker, not a reason to register this machine or change
+trust now. No runner, paid host, permission grant or cloud execution is part
+of this preparation. Publication remains disabled.
+
+The corrected local image is not remotely released: the available validation
+workflow offers full-stack recipes, not artifact-only validation. Do not bypass
+that gate, promote the old image, or mark this plan Validated/Deployed.
+First real dispatch still requires the approved new immutable digest, reviewed
+lab checkout with exact repo/issue/commit-bound single-persona plan, explicit
+controlled-client/task approval, and a licensed caller-process token. Preflight
+without those inputs reports blockers rather than claiming live readiness.
 
 ## 1. Outcome, scope, and approved context
 
@@ -240,5 +267,8 @@ This plan authorizes read-only subscription inspection, but not resource mutatio
 | Timeout and remote survival | `execWithEnvironment` handed harmless `FAKE_LIFECYCLE_MARKER` and `SQUAD_OUTPUT_DIR` strings to the fixed bootstrap and a Node runner waiting 12 seconds. The existing host process runner timed out at 5 seconds and returned `timedOut=true`, exit `124`. No start message appeared in captured CLI stdout, but the unique PID marker proved successful environment delivery. Immediate inspection found PID 69 alive, state `S`, with argv matching the run marker. After another 13 seconds, the delayed completion marker existed and the runner process was gone. **Host CLI termination did not cancel remote execution.** |
 | Lifecycle probe cleanup | Both immediate and delayed inspection confirmed the exact tmpfs staging directory `/dev/shm/squad-runner-4f3a5b30-0f4f-49ef-9b91-2c49246b4c58` and its `environment.json` were absent after timeout; local staging was empty and removed. In `finally`, the adapter successfully deleted the exact new sandbox, then deleted only disk `9ba335ea-3d20-4723-9492-86195aea1d71` through `sandboxgroup disk delete --wait-timeout 180`. Final sandbox list was `[]`; disk list contained only shared `63561979-2a62-4cb9-bb0e-fdf96a8adad4`, still `Ready`. No probe resources remain. |
 | Termination boundary assessment | Treat local timeout as execution failure, never remote cancellation. Dispatcher `finally` deletion is the resource teardown boundary, not environment-file cleanup; a running process can retain environment values after staging removal. Exact-ID deletion plus inventory confirmation sufficed for this probe's cleanup. The runner finished before deletion, so termination of an actively running process by sandbox deletion remains unverified. Failed or uncertain sandbox deletion must fail the run and retain its disk for operator cleanup. |
-| Not done | Active-process termination on sandbox deletion, deletion failure paths, full persona plus credential-free integration dispatch, Copilot credential/entitlement (no credential may be used for transport probes), dedicated self-hosted runner, and cost ceiling remain pending. Do not delete the shared ready image. This bounded approval is exhausted; publication and unattended dispatch remain disabled. |
+| Runner safe.directory fix & test (2026-10-12) | Verified exact invocation-scoped `safe.directory` wrapping in `agents/sandbox/runner/persona-run.sh` (SHA256: `49cdd6129aad7738fdd9bf6400aa1fb80af9804a6473f7e57804c1ec843e6257`), matching live injection probe test evidence. Offline unit tests in `agents/sandbox/test/persona-run.test.js` passed, including real Linux root to UID 10001 privilege drop regression. |
+| Persona sandbox local image build (2026-10-12) | Host Windows Docker daemon was inactive (not silently started). Local WSL2 Ubuntu Docker Engine 27.5.1 utilized. Base images `crsquadacaa6b49feb.azurecr.io/base/golang:1.23.4-bookworm` and `base/debian:bookworm-20240701-slim` pulled via scoped non-persistent token auth (`az acr login --expose-token`). Built local image `squad-persona-sandbox:local` (Image ID: `sha256:22f95795122a...`). Verified runner inside container has exact matching SHA256 (`49cdd6...`), GitHub Copilot CLI 1.0.96, and Node v22.23.3. Build context sanitized via Dockerfile.dockerignore; internal mirror `packagefeedproxy.microsoft.io/npm/` validated without credentials. Provenance saved to `image-build-provenance.json`. |
+| Azure Validate gating & publish halt (2026-10-12) | Official validation workflow script `references/scripts/workflow.ps1` executed. Blocked: `azure-validate` and `azure-deploy` skills only define deployment recipes for full infrastructure stacks (AZD, BICEP, TERRAFORM, AZCLI). Artifact-only container image releases have no qualifying provisioning recipe in the standard workflow. Per strict instructions, manual transition to `Validated` is prohibited and unvalidated Azure mutation is forbidden. ACR publication is halted pending coordinator review and gate resolution. |
+| Not done | ACR remote publication of the built image, creation of updated disk image, active-process termination on sandbox deletion, full persona plus credential-free integration dispatch, Copilot credential/entitlement, and dedicated self-hosted runner remain pending. Do not delete the shared ready disk image `63561979-2a62-4cb9-bb0e-fdf96a8adad4`. |
 | Private operator files | `%USERPROFILE%\.squad-sandbox-lab\` (tfvars, backend config, local bootstrap state, plans, outputs). Not in Git; back up the bootstrap state. |

@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { validateMaxAiCredits } = require('./copilot-credit-limit');
 const {
   findOverlappingOwnedPaths,
   isSubsetOfOwnedPaths,
@@ -194,6 +195,13 @@ function semanticErrors(contractName, value, context) {
       }
     }
     if (contractName === 'persona-dispatch.schema.json') {
+      if (value.max_ai_credits !== undefined) {
+        try {
+          validateMaxAiCredits(value.max_ai_credits);
+        } catch {
+          errors.push('max_ai_credits must be a safe integer >= 30');
+        }
+      }
       errors.push(...validateOwnedPathList(value.owned_paths, 'owned_paths'));
       if (context?.tasks) {
         const task = context.tasks.find(candidate => candidate.task_id === value.task_id);
