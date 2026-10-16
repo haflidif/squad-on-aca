@@ -9,9 +9,8 @@ const { validateChangedPaths } = require('../contracts/aca-sandbox/v1/tools/path
 const { readJson, writeJson, sha256File, sha256Bytes, safeName, redact, containsToken, buildSafeChildEnv } = require('./lib/util');
 const { hardenedGitArgs, hardenedVerificationEnv, verificationGitCommand } = require('./lib/hardened-git');
 
-const BOT_NAME = 'squad-aca-bot[bot]';
-const BOT_EMAIL = '3362344+squad-aca-bot[bot]@users.noreply.github.com';
-const LIFECYCLE_LABELS = ['squad:processing', 'squad:queued', 'squad:revising'];
+const { memberLabelDefinitions } = require('../scripts/member-labels.cjs');
+const LIFECYCLE_LABELS = ['sandbox:processing', 'sandbox:queued', 'sandbox:revising', 'sandbox:failed'];
 const PUBLISH_ALLOWED_GIT = new Set(['rev-parse', 'fetch', 'merge-base', 'ls-remote', 'read-tree', 'apply', 'write-tree', 'commit-tree', 'push', 'diff', 'diff-tree', 'cat-file']);
 const TOKEN_PATTERN = /github_pat_[A-Za-z0-9_]+|gh[opsur]_[A-Za-z0-9_]+|ghp_[A-Za-z0-9_]+|ghs_[A-Za-z0-9_]+|gho_[A-Za-z0-9_]+/;
 const DEFAULT_GIT_HOST = 'github.com';
@@ -149,7 +148,7 @@ function gitConfigEnv(ctx, entries, extra = {}) {
 }
 function authGitEnv(ctx, repoUrl, token, extraEntries = []) {
   const entries = [
-    [`http.${repoUrl}.extraheader`, `AUTHORIZATION: bearer ${token}`],
+    [`http.${repoUrl}.extraheader`, `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`],
     ['http.followRedirects', 'false'],
     ['credential.helper', ''],
     ...extraEntries
@@ -199,9 +198,9 @@ async function readCommitObject(ctx, ref) {
   };
   return { message, author: parseIdentity(authorLine, 'author'), committer: parseIdentity(committerLine, 'committer') };
 }
-async function verifyBranchCommitMetadata(ctx, { ref, expectedMessage, label }) {
+async function verifyBranchCommitMetadata(ctx, { ref, expectedMessage, label, identity }) {
   const commit = await readCommitObject(ctx, ref);
-  const expected = { name: BOT_NAME, email: BOT_EMAIL };
+  const expected = identity;
   if (commit.message !== expectedMessage) {
     throw new Error(`${label} commit message does not match the publisher-generated message`);
   }
@@ -269,12 +268,42 @@ function validateDelta(delta, tasks) {
   }
   return violations;
 }
-async function buildCommit(ctx, { baselineSha, patchPath, tasks, executionId, issueNumber, issueTitle, branch, commitDate }) {
+function withTaskRoles(tasks, roster = { members: [] }) {
+  return tasks.map(task => {
+    const member = roster.members.find(candidate => candidate.logical_member_id === task.owner.logical_member_id);
+    if (member && (member.resolved_persistent_name !== task.owner.resolved_persistent_name || member.charter_ref !== task.owner.charter_ref)) {
+      throw new Error('Publication member identity does not match the checked-out roster');
+    }
+    return { ...task, owner: { ...task.owner, role: member?.role || task.owner.role || task.owner.membership } };
+  });
+}
+function contributorTrailers(tasks) {
+  return [...new Set(tasks.map(task => `Squad-Contributor: ${stripControls(task.owner.resolved_persistent_name).replace(/[\r\n\t]/g, ' ')} (${stripControls(task.owner.role || task.owner.membership).replace(/[\r\n\t]/g, ' ')})`))];
+}
+function commitMessage({ tasks, subject, issueNumber, issueTitle, executionId, branch, personas = [], identity }) {
+  return [
+    subject,
+    '',
+    `Issue: #${issueNumber} ${stripControls(issueTitle || '')}`,
+    `Execution: ${executionId}`,
+    `Branch: ${branch}`,
+    '',
+    'Contributing personas:',
+    ...personas.map(item => `- ${stripControls(item)}`),
+    '',
+    `Squad-Execution-Id: ${executionId}`,
+    ...contributorTrailers(tasks),
+    `Co-authored-by: ${identity.name} <${identity.email}>`,
+    ''
+  ].join('\n');
+}
+async function buildCommit(ctx, { baselineSha, patchPath, tasks, executionId, issueNumber, issueTitle, branch, commitDate, identity }) {
   assertNoTokenPatterns(issueTitle, 'issue title');
   for (const task of tasks) {
     assertNoTokenPatterns(task.task_id, 'task id');
     assertNoTokenPatterns(task.owner?.logical_member_id, 'logical member');
     assertNoTokenPatterns(task.owner?.resolved_persistent_name, 'persistent name');
+    assertNoTokenPatterns(task.owner?.role, 'member role');
   }
   const indexFile = path.join(ctx.homeDir, 'publish.index');
   fs.rmSync(indexFile, { force: true });
@@ -287,29 +316,16 @@ async function buildCommit(ctx, { baselineSha, patchPath, tasks, executionId, is
   const personas = [...new Map(tasks.map(t => [t.owner.logical_member_id, t.owner])).values()]
     .map(owner => `${owner.logical_member_id} (${owner.resolved_persistent_name})`).sort();
   const subject = `squad: publish issue #${issueNumber} from ${executionId}`;
-  const body = [
-    subject,
-    '',
-    `Issue: #${issueNumber} ${stripControls(issueTitle || '')}`,
-    `Execution: ${executionId}`,
-    `Branch: ${branch}`,
-    '',
-    'Contributing personas:',
-    ...personas.map(item => `- ${stripControls(item)}`),
-    '',
-    `Squad-Execution-Id: ${executionId}`,
-    `Co-authored-by: ${BOT_NAME} <${BOT_EMAIL}>`,
-    ''
-  ].join('\n');
+  const body = commitMessage({ tasks, subject, issueNumber, issueTitle, executionId, branch, personas, identity });
   const commit = await gitText(ctx, ['commit-tree', tree, '-p', baselineSha], {
     stdin: body,
     extraEnv: {
       GIT_INDEX_FILE: indexFile,
-      GIT_AUTHOR_NAME: BOT_NAME,
-      GIT_AUTHOR_EMAIL: BOT_EMAIL,
+      GIT_AUTHOR_NAME: identity.name,
+      GIT_AUTHOR_EMAIL: identity.email,
       GIT_AUTHOR_DATE: commitDate || '2000-01-01T00:00:00Z',
-      GIT_COMMITTER_NAME: BOT_NAME,
-      GIT_COMMITTER_EMAIL: BOT_EMAIL,
+      GIT_COMMITTER_NAME: identity.name,
+      GIT_COMMITTER_EMAIL: identity.email,
       GIT_COMMITTER_DATE: commitDate || '2000-01-01T00:00:00Z'
     }
   });
@@ -323,9 +339,9 @@ function titleForIssue(issueTitle, issueNumber) {
   return `squad: ${base}`.slice(0, 100);
 }
 function markdownTable(tasks) {
-  const rows = ['| Task ID | Logical member | Persistent name | Owned paths | Status |', '|---|---|---|---|---|'];
+  const rows = ['| Task ID | Logical member | Persistent name | Role | Owned paths | Status |', '|---|---|---|---|---|---|'];
   for (const task of tasks) {
-    rows.push(`| ${sanitizeUntrusted(task.task_id, 'task id', 80)} | ${sanitizeUntrusted(task.owner.logical_member_id, 'logical member', 80)} | ${sanitizeUntrusted(task.owner.resolved_persistent_name, 'persistent name', 120)} | ${sanitizeUntrusted((task.owned_paths || []).join(', '), 'owned paths', 200)} | ${sanitizeUntrusted(task.status || 'succeeded', 'task status', 40)} |`);
+    rows.push(`| ${sanitizeUntrusted(task.task_id, 'task id', 80)} | ${sanitizeUntrusted(task.owner.logical_member_id, 'logical member', 80)} | ${sanitizeUntrusted(task.owner.resolved_persistent_name, 'persistent name', 120)} | ${sanitizeUntrusted(task.owner.role || task.owner.membership || 'persona', 'role', 120)} | ${sanitizeUntrusted((task.owned_paths || []).join(', '), 'owned paths', 200)} | ${sanitizeUntrusted(task.status || 'succeeded', 'task status', 40)} |`);
   }
   return rows.join('\n');
 }
@@ -376,10 +392,12 @@ function failedPublishResult({ summary, branch, commitSha, pr }) {
 }
 class FakeGitHubClient {
   constructor() { this.prs = []; this.labels = []; this.comments = []; this.commentListPages = []; this.tokenRequests = []; this.token = 'github_pat_fakePublishToken'; this.nextCreatedHeadSha = undefined; this.deleteLabelStatus = new Map(); }
+  async getPublisherIdentity() { return { name: 'test-publisher[bot]', email: '123+test-publisher[bot]@users.noreply.github.com' }; }
   async createInstallationToken(options) { this.tokenRequests.push(options); return { token: this.token }; }
   async findPullRequestByHead({ head }) { return this.prs.find(pr => pullRequestHeadRef(pr) === head) || null; }
   async createPullRequest({ head, headSha, base, title, body, draft }) { const pr = { number: this.prs.length + 1, html_url: `https://github.example/pr/${this.prs.length + 1}`, head: { ref: head, sha: this.nextCreatedHeadSha ?? headSha }, base, title, body, draft, state: 'open' }; this.prs.push(pr); return pr; }
-  async setIssueLabels({ add = [], remove = [] }) {
+  async setIssueLabels({ owner, repo, issueNumber, add = [], remove = [] }) {
+    if ([...add, ...remove].some(label => !LIFECYCLE_LABELS.includes(label))) throw new Error('Publisher labels must be sandbox lifecycle labels');
     for (const label of remove) {
       const status = this.deleteLabelStatus instanceof Map ? this.deleteLabelStatus.get(label) : undefined;
       if (status && status !== 404) {
@@ -388,16 +406,19 @@ class FakeGitHubClient {
         throw error;
       }
     }
-    this.labels.push({ add, remove });
+    this.labels.push({ issueNumber, add, remove });
     return { added: add, removed: remove };
+  }
+  async setPullRequestLabels({ owner, repo, prNumber, memberLabels }) {
+    await this.setIssueLabels({ owner, repo, issueNumber: prNumber, add: ['sandbox:queued'], remove: ['sandbox:processing', 'sandbox:failed'] });
+    this.labels.push({ issueNumber: prNumber, add: memberLabels.map(label => label.name), remove: [] });
   }
   async createIssueComment({ body }) { const comment = { id: this.comments.length + 1, body }; this.comments.push(comment); return comment; }
   async listIssueComments({ page = 1, perPage = GITHUB_COMMENT_PAGE_SIZE } = {}) {
     this.commentListPages.push(page);
     return this.comments.slice((page - 1) * perPage, page * perPage);
   }
-}
-class RealGitHubClient {
+}class RealGitHubClient {
   constructor({ apiBase = 'https://api.github.com', appId, installationId, privateKeyPem, live, maxResponseBytes = MAX_GITHUB_RESPONSE_BYTES, requestTimeoutMs = GITHUB_REQUEST_TIMEOUT_MS }) {
     this.apiBase = apiBase;
     this.appId = appId;
@@ -480,7 +501,36 @@ class RealGitHubClient {
     return pulls[0] || null;
   }
   async createPullRequest({ owner, repo, head, base, title, body, draft }) { return this.request('POST', `/repos/${owner}/${repo}/pulls`, { head, base, title, body, draft }, this.token); }
+  async getPublisherIdentity() {
+    const app = await this.request('GET', '/app', undefined, this.jwt());
+    if (!/^[a-z0-9-]+$/.test(app.slug || '')) throw new Error('Publishing App slug is invalid');
+    const name = `${app.slug}[bot]`;
+    const bot = await this.request('GET', `/users/${encodeURIComponent(name)}`, undefined, this.token);
+    if (bot.login !== name || !Number.isSafeInteger(bot.id) || bot.id < 1) throw new Error('Publishing App bot identity is invalid');
+    return { name, email: `${bot.id}+${name}@users.noreply.github.com` };
+  }
+  async ensureLabel({ owner, repo }, definition) {
+    const labelPath = `/repos/${owner}/${repo}/labels/${encodeURIComponent(definition.name)}`;
+    try { await this.request('GET', labelPath, undefined, this.token); }
+    catch (error) {
+      if (error.statusCode !== 404) throw error;
+      try { await this.request('POST', `/repos/${owner}/${repo}/labels`, definition, this.token); }
+      catch (createError) {
+        if (createError.statusCode !== 422) throw createError;
+        await this.request('GET', labelPath, undefined, this.token);
+      }
+    }
+  }
+  async setPullRequestLabels({ owner, repo, prNumber, memberLabels }) {
+    await this.setIssueLabels({ owner, repo, issueNumber: prNumber, add: ['sandbox:queued'], remove: ['sandbox:processing', 'sandbox:failed'] });
+    for (const label of memberLabels) await this.ensureLabel({ owner, repo }, label);
+    if (memberLabels.length) await this.request('POST', `/repos/${owner}/${repo}/issues/${prNumber}/labels`, { labels: memberLabels.map(label => label.name) }, this.token);
+  }
   async setIssueLabels({ owner, repo, issueNumber, add = [], remove = [] }) {
+    if ([...add, ...remove].some(label => !LIFECYCLE_LABELS.includes(label))) throw new Error('Publisher labels must be sandbox lifecycle labels');
+    for (const label of add) {
+      await this.ensureLabel({ owner, repo }, { name: label, color: label === 'sandbox:failed' ? 'B60205' : '9B8FCC', description: 'Sandbox execution lifecycle' });
+    }
     for (const label of add) await this.request('POST', `/repos/${owner}/${repo}/issues/${issueNumber}/labels`, { labels: [label] }, this.token);
     for (const label of remove) {
       await this.request('DELETE', `/repos/${owner}/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`, undefined, this.token).catch(error => {
@@ -496,6 +546,36 @@ class RealGitHubClient {
     if (!Number.isInteger(perPage) || perPage !== GITHUB_COMMENT_PAGE_SIZE) throw new Error('GitHub issue comments page size is invalid');
     return this.request('GET', `/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=${perPage}&page=${page}`, undefined, this.token);
   }
+}
+function validateIntegrationArtifacts(summaryPath, summary) {
+  const manifest = readJson(integrationManifestPath(summaryPath));
+  const manifestValidation = validateContract('artifact-manifest.schema.json', manifest);
+  if (!manifestValidation.valid) throw new Error(`integration artifact manifest is invalid: ${manifestValidation.errors.join('; ')}`);
+  if (manifest.task_id !== 'integration') throw new Error('integration artifact manifest task_id must be integration');
+  if (manifest.run_id !== summary.run_id) throw new Error('integration artifact manifest run_id does not match dispatcher summary');
+  if (summary.baseline_sha && manifest.baseline_sha.toLowerCase() !== summary.baseline_sha.toLowerCase()) {
+    throw new Error('integration artifact manifest baseline_sha does not match dispatcher summary');
+  }
+  const patchPath = integratedPatchPath(summaryPath, summary);
+  const patchSha = sha256File(patchPath);
+  if (patchSha !== summary.integration.sha256.toLowerCase()) throw new Error('integrated patch sha256 does not match dispatcher summary');
+  const patchArtifact = manifest.artifacts.find(artifact => artifact.kind === 'patch');
+  if (!patchArtifact || patchArtifact.sha256.toLowerCase() !== patchSha) throw new Error('integrated patch sha256 does not match artifact manifest');
+  if (`integration/${patchArtifact.path}` !== summary.integration.integrated_patch_path.replace(/\\/g, '/')) {
+    throw new Error('integrated patch path does not match the integration artifact manifest');
+  }
+  const baselineSha = manifest.baseline_sha;
+  if (!baselineSha) throw new Error('baseline sha is required in the integration artifact manifest');
+  return { manifest, patchPath, patchSha, baselineSha };
+}
+
+async function labelPublication(client, { owner, repo, issueNumber, prNumber, tasks, roster }) {
+  const members = roster?.members || [...new Map(tasks.map(task => [task.owner.logical_member_id, task.owner])).values()];
+  const definitions = memberLabelDefinitions(members.map(member => ({ name: member.resolved_persistent_name, role: member.role || member.membership })));
+  const selected = new Set(tasks.map(task => task.owner.logical_member_id));
+  const memberLabels = definitions.filter((label, index) => selected.has(members[index].logical_member_id));
+  await client.setPullRequestLabels({ owner, repo, prNumber, memberLabels });
+  return client.setIssueLabels({ owner, repo, issueNumber, remove: ['sandbox:processing', 'sandbox:failed'], add: ['sandbox:queued'] });
 }
 function readPemFromEnv() {
   const keyPath = process.env.SQUAD_GITHUB_APP_PRIVATE_KEY_PATH || process.env.GITHUB_APP_PRIVATE_KEY_PATH || '';
@@ -525,31 +605,16 @@ async function runPublish(options) {
   if (!validation.valid) throw new Error(`dispatcher summary is invalid: ${validation.errors.join('; ')}`);
   if (summary.status !== 'succeeded') throw new Error('dispatcher summary status must be succeeded');
   if (!summary.integration || summary.integration.status !== 'succeeded') throw new Error('dispatcher integration status must be succeeded');
-  const manifest = readJson(integrationManifestPath(summaryPath));
-  const manifestValidation = validateContract('artifact-manifest.schema.json', manifest);
-  if (!manifestValidation.valid) throw new Error(`integration artifact manifest is invalid: ${manifestValidation.errors.join('; ')}`);
-  if (manifest.task_id !== 'integration') throw new Error('integration artifact manifest task_id must be integration');
-  if (manifest.run_id !== summary.run_id) throw new Error('integration artifact manifest run_id does not match dispatcher summary');
-  if (summary.baseline_sha && manifest.baseline_sha.toLowerCase() !== summary.baseline_sha.toLowerCase()) {
-    throw new Error('integration artifact manifest baseline_sha does not match dispatcher summary');
-  }
-  const patchPath = integratedPatchPath(summaryPath, summary);
-  const patchSha = sha256File(patchPath);
-  if (patchSha !== summary.integration.sha256.toLowerCase()) throw new Error('integrated patch sha256 does not match dispatcher summary');
-  const patchArtifact = manifest.artifacts.find(a => a.kind === 'patch');
-  if (!patchArtifact || patchArtifact.sha256.toLowerCase() !== patchSha) throw new Error('integrated patch sha256 does not match artifact manifest');
-  if (!patchArtifact || `integration/${patchArtifact.path}` !== summary.integration.integrated_patch_path.replace(/\\/g, '/')) {
-    throw new Error('integrated patch path does not match the integration artifact manifest');
-  }
-  const baselineSha = manifest.baseline_sha;
-  if (!baselineSha) throw new Error('baseline sha is required in the integration artifact manifest');
+  const { manifest, patchPath, patchSha, baselineSha } = validateIntegrationArtifacts(summaryPath, summary);
   if (options.baselineSha && options.baselineSha.toLowerCase() !== baselineSha.toLowerCase()) {
     throw new Error('--baseline-sha does not match the integration artifact manifest');
   }
   if (options.live && !options.planPath) throw new Error('Live publication requires a validated execution plan with an issue binding.');
   const plan = options.planPath ? readJson(path.resolve(options.planPath)) : null;
-  const planTasks = plan ? plan.tasks : (summary.execution_tasks || options.tasks || []);
-  if (!Array.isArray(planTasks) || !planTasks.length) throw new Error('publisher requires plan tasks via --plan or dispatcher summary execution_tasks');
+  const executionTasks = plan ? plan.tasks : (summary.execution_tasks || options.tasks || []);
+  if (!Array.isArray(executionTasks) || !executionTasks.length) throw new Error('publisher requires plan tasks via --plan or dispatcher summary execution_tasks');
+  const roster = fs.existsSync(path.join(repoPath, '.squad', 'team.md')) ? require('../scripts/issue-plan.cjs').loadRoster(repoPath) : undefined;
+  const planTasks = withTaskRoles(executionTasks, roster);
   const issueNumber = parseIssueNumber(options.issueNumber ?? summary.issue?.number);
   const issueTitle = options.issueTitle || summary.issue?.title || `Issue ${issueNumber}`;
   const repoFullName = options.repoFullName || summary.repository || '';
@@ -575,17 +640,18 @@ async function runPublish(options) {
   try {
     const branch = branchName({ issueNumber, executionId: summary.run_id, issueTitle });
     let client = options.githubClient;
-    if (!client) client = options.live ? new RealGitHubClient({ appId: process.env.GITHUB_APP_ID, installationId: process.env.GITHUB_APP_INSTALLATION_ID, privateKeyPem: readPemFromEnv(), live: true }) : new FakeGitHubClient();
+    if (!client) client = options.live ? new RealGitHubClient({ appId: process.env.SQUAD_GITHUB_APP_ID || process.env.GITHUB_APP_ID, installationId: process.env.SQUAD_GITHUB_APP_INSTALLATION_ID || process.env.GITHUB_APP_INSTALLATION_ID, privateKeyPem: readPemFromEnv(), live: true }) : new FakeGitHubClient();
     const tokenResult = await client.createInstallationToken({ owner, repo, permissions: { contents: 'write', pull_requests: 'write', issues: 'write' } });
     const token = tokenResult.token || '';
     client.token = token;
     if (!token) throw new Error('installation token was empty');
+    const identity = await client.getPublisherIdentity();
     delete process.env.GITHUB_TOKEN; delete process.env.GH_TOKEN; delete process.env.GITHUB_PAT; delete process.env.GITHUB_APP_PRIVATE_KEY_PATH; delete process.env.SQUAD_GITHUB_APP_PRIVATE_KEY_PATH;
     const rewriteEntries = localGitRewriteEntries(repoUrl, options.gitRewriteBaseUrl);
     const remoteEnv = authGitEnv(ctx, repoUrl, token, rewriteEntries);
     const targetBranch = options.targetBranch || summary.target_branch || await defaultBranch(ctx, repoUrl, remoteEnv);
     await verifyRemoteBaseline(ctx, repoUrl, targetBranch, baselineSha, remoteEnv);
-    const commitInfo = await buildCommit(ctx, { baselineSha, patchPath, tasks: planTasks, executionId: summary.run_id, issueNumber, issueTitle, branch, commitDate: summary.ended_at || summary.started_at });
+    const commitInfo = await buildCommit(ctx, { baselineSha, patchPath, tasks: planTasks, executionId: summary.run_id, issueNumber, issueTitle, branch, commitDate: summary.ended_at || summary.started_at, identity });
     const existingPr = await client.findPullRequestByHead({ owner, repo, head: branch, state: 'all' });
     if (existingPr) {
       if (existingPr.state && existingPr.state !== 'open') throw new Error(`publish branch ${branch} already has a ${existingPr.merged_at ? 'merged' : 'closed'} pull request; refusing to push or create another PR`);
@@ -597,7 +663,7 @@ async function runPublish(options) {
       const fetched = await fetchRemoteBranch(ctx, repoUrl, branch, remoteEnv);
       if (fetched.sha !== current) throw new Error(`publish branch ${branch} changed while verifying; refusing to reuse`);
       await verifyPublishedBranchContent(ctx, { ref: fetched.ref, expectedTree: commitInfo.tree, baselineSha, label: `open pull request branch ${branch}` });
-      const labels = await client.setIssueLabels({ owner, repo, issueNumber, remove: ['squad:processing'], add: ['squad:queued'] });
+      const labels = await labelPublication(client, { owner, repo, issueNumber, prNumber: existingPr.number, tasks: planTasks, roster });
       await ensurePublishComment(client, { owner, repo, issueNumber, prUrl: existingPr.html_url, executionId: summary.run_id });
       const existing = { schema_version: 'aca-sandbox/v1', message_type: 'publish.result', run_id: summary.run_id, status: 'succeeded', branch, commit_sha: current, pr_number: existingPr.number, pr_url: existingPr.html_url, idempotency: 'existing', labels };
       writeJson(outPath, existing);
@@ -608,8 +674,8 @@ async function runPublish(options) {
     if (currentRemote) {
       const fetched = await fetchRemoteBranch(ctx, repoUrl, branch, remoteEnv);
       if (fetched.sha !== currentRemote) throw new Error(`publish branch ${branch} changed while verifying; refusing to create PR`);
-      await verifyPublishedBranchContent(ctx, { ref: fetched.ref, expectedTree: commitInfo.tree, baselineSha, label: `existing remote branch ${branch}` });
-      await verifyBranchCommitMetadata(ctx, { ref: fetched.ref, expectedMessage: commitInfo.message, label: `existing remote branch ${branch}` });
+      await verifyPublishedBranchContent(ctx, { ref: fetched.ref, expectedTree: commitInfo.tree, baselineSha, label: `existing remote branch ${branch}`, identity });
+      await verifyBranchCommitMetadata(ctx, { ref: fetched.ref, expectedMessage: commitInfo.message, label: `existing remote branch ${branch}`, identity });
       publishedCommit = currentRemote;
     } else {
       const pushEnv = authGitEnv(ctx, repoUrl, token, rewriteEntries);
@@ -623,7 +689,7 @@ async function runPublish(options) {
       writeJson(outPath, failed);
       throw new Error(`created pull request head ${prHeadSha || 'missing'} does not match published commit ${publishedCommit}; refusing to mark publish successful`);
     }
-    const labels = await client.setIssueLabels({ owner, repo, issueNumber, remove: ['squad:processing'], add: ['squad:queued'] });
+    const labels = await labelPublication(client, { owner, repo, issueNumber, prNumber: pr.number, tasks: planTasks, roster });
     await ensurePublishComment(client, { owner, repo, issueNumber, prUrl: pr.html_url, executionId: summary.run_id });
     const result = { schema_version: 'aca-sandbox/v1', message_type: 'publish.result', run_id: summary.run_id, status: 'succeeded', branch, commit_sha: publishedCommit, pr_number: pr.number, pr_url: pr.html_url, idempotency: 'created', labels };
     const resultValidation = validateContract('publish-result.schema.json', result);
@@ -635,4 +701,4 @@ async function runPublish(options) {
     cleanupGitContext(ctx);
   }
 }
-module.exports = { runPublish, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, branchName, prBody, readPemFromEnv, LIFECYCLE_LABELS };
+module.exports = { runPublish, labelPublication, authGitEnv, validateIntegrationArtifacts, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, branchName, prBody, readPemFromEnv, LIFECYCLE_LABELS, contributorTrailers, commitMessage, withTaskRoles };

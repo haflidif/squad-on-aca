@@ -9,6 +9,15 @@ const { EventEmitter } = require('node:events');
 const { runPublish, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, readPemFromEnv } = require('../publish');
 
 const workRoot = path.join(__dirname, '.publish-work');
+const publisherIdentity = { name: 'test-publisher[bot]', email: '123+test-publisher[bot]@users.noreply.github.com' };
+function expectedPublishLabels(prNumber = 1) {
+  const lifecycle = { add: ['sandbox:queued'], remove: ['sandbox:processing', 'sandbox:failed'] };
+  return [
+    { issueNumber: prNumber, ...lifecycle },
+    { issueNumber: prNumber, add: ['squad:test-test-agent-1'], remove: [] },
+    { issueNumber: 42, ...lifecycle }
+  ];
+}
 // Actions sets GITHUB_REPOSITORY; tests that need the workflow-repository check set it explicitly.
 delete process.env.GITHUB_REPOSITORY;
 function resetDir(dir) { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); }
@@ -84,7 +93,8 @@ function expectedPublishMessage({ issueNumber = 42, executionId = 'exec-12345', 
     ...personas.map(item => `- ${item}`),
     '',
     `Squad-Execution-Id: ${executionId}`,
-    'Co-authored-by: squad-aca-bot[bot] <3362344+squad-aca-bot[bot]@users.noreply.github.com>',
+    'Squad-Contributor: Test test-agent-1 (persona)',
+    `Co-authored-by: ${publisherIdentity.name} <${publisherIdentity.email}>`,
     ''
   ].join('\n');
 }
@@ -108,7 +118,7 @@ test('happy path creates one branch commit draft PR labels and expected tree', a
   assert.match(client.prs[0].body, /\| Task ID \| Logical member/);
   assert.doesNotMatch(client.prs[0].body, /@team/);
   assert.doesNotMatch(client.prs[0].body, /#123/);
-  assert.deepEqual(client.labels[0], { add: ['squad:queued'], remove: ['squad:processing'] });
+  assert.deepEqual(client.labels, expectedPublishLabels(result.pr_number));
   assert.equal(client.comments.length, 1);
   assert.match(client.comments[0].body, /<!-- squad-aca-publish:exec-12345 -->/);
   const branchSha = git(['ls-remote', 'origin', `refs/heads/${result.branch}`], repo).split(/\s+/)[0];
@@ -202,12 +212,17 @@ test('publisher validates integration manifest identity before any GitHub client
   ]) {
     const c = createRepoCase(name);
     const client = new FakeGitHubClient();
-    let calls = 0;
-    const originalTokenRequest = client.createInstallationToken.bind(client);
-    client.createInstallationToken = async options => {
-      calls += 1;
-      return originalTokenRequest(options);
-    };
+    const calls = [];
+    const guardedClient = new Proxy(client, {
+      get(target, key) {
+        const value = target[key];
+        if (typeof value !== 'function') return value;
+        return (...args) => {
+          calls.push(key);
+          return value.apply(target, args);
+        };
+      }
+    });
     if (mutate) {
       const manifestPath = path.join(c.out, 'integration', 'artifact-manifest.json');
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -220,12 +235,12 @@ test('publisher validates integration manifest identity before any GitHub client
       planPath: c.planPath,
       repoFullName: 'example/repo',
       issueNumber: 42,
-      githubClient: client,
+      githubClient: guardedClient,
       baselineSha: name === 'misleading-baseline-override' ? 'f'.repeat(40) : undefined,
       outPath: path.join(c.out, 'publish-result.json'),
       ...rewriteOptions(c)
     }), expected);
-    assert.equal(calls, 0, `${name} must fail before requesting an installation token`);
+    assert.deepEqual(calls, [], `${name} must fail before any GitHub client call`);
   }
 });
 
@@ -237,7 +252,8 @@ test('rerun with same execution is idempotent and does not push or create a seco
   assert.equal(first.client.prs.length, 1);
   assert.equal(spawns.some(s => s.args.includes('push')), false);
   assert.equal(first.client.comments.length, 1, 'existing PR reuse must not duplicate marker comments');
-  assert.deepEqual(first.client.labels[1], { add: ['squad:queued'], remove: ['squad:processing'] });
+  assert.deepEqual(first.client.labels, [...expectedPublishLabels(first.result.pr_number), ...expectedPublishLabels(second.result.pr_number)]);
+  assert.equal(second.result.commit_sha, first.result.commit_sha);
 });
 
 test('existing PR reuse repairs lifecycle labels and missing marker comment', async () => {
@@ -246,7 +262,7 @@ test('existing PR reuse repairs lifecycle labels and missing marker comment', as
   first.client.comments = [{ id: 1, body: 'unrelated comment' }];
   const second = await runPublish({ summaryPath: first.summaryPath, repoPath: first.repo, planPath: first.planPath, repoFullName: 'example/repo', issueNumber: 42, issueTitle: 'Fix @team #123 <b>', githubClient: first.client, outPath: path.join(first.out, 'second.json'), ...rewriteOptions(first) });
   assert.equal(second.result.idempotency, 'existing');
-  assert.deepEqual(first.client.labels[0], { add: ['squad:queued'], remove: ['squad:processing'] });
+  assert.deepEqual(first.client.labels, expectedPublishLabels(second.result.pr_number));
   assert.equal(first.client.comments.length, 2);
   assert.match(first.client.comments[1].body, /<!-- squad-aca-publish:exec-12345 -->/);
 });
@@ -393,11 +409,11 @@ test('existing matching branch without PR may differ only by author and committe
     env: {
       ...process.env,
       GIT_INDEX_FILE: indexFile,
-      GIT_AUTHOR_NAME: 'squad-aca-bot[bot]',
-      GIT_AUTHOR_EMAIL: '3362344+squad-aca-bot[bot]@users.noreply.github.com',
+      GIT_AUTHOR_NAME: publisherIdentity.name,
+      GIT_AUTHOR_EMAIL: publisherIdentity.email,
       GIT_AUTHOR_DATE: '2026-09-26T00:00:02Z',
-      GIT_COMMITTER_NAME: 'squad-aca-bot[bot]',
-      GIT_COMMITTER_EMAIL: '3362344+squad-aca-bot[bot]@users.noreply.github.com',
+      GIT_COMMITTER_NAME: publisherIdentity.name,
+      GIT_COMMITTER_EMAIL: publisherIdentity.email,
       GIT_COMMITTER_DATE: '2026-09-26T00:00:02Z'
     }
   });
@@ -411,7 +427,7 @@ test('existing matching branch without PR may differ only by author and committe
 });
 
 test('existing matching branch without PR rejects planted message and foreign author', async () => {
-  const makeCommit = (name, message, authorName = 'squad-aca-bot[bot]', authorEmail = '3362344+squad-aca-bot[bot]@users.noreply.github.com') => {
+  const makeCommit = (name, message, authorName = publisherIdentity.name, authorEmail = publisherIdentity.email) => {
     const c = createRepoCase(name);
     const branch = 'squad/aca-sandbox/issue-42-exec-12345-fix';
     const indexFile = path.join(c.root, `${name}.index`);
@@ -456,16 +472,16 @@ test('created PR head mismatch records failed receipt and does not label or comm
 
 test('label DELETE errors fail except 404 is ignored', async () => {
   const failing = new FakeGitHubClient();
-  failing.deleteLabelStatus.set('squad:processing', 500);
-  await assert.rejects(publishCase('label-delete-500', { client: failing, issueTitle: 'Fix' }), /DELETE squad:processing failed with 500/);
+  failing.deleteLabelStatus.set('sandbox:processing', 500);
+  await assert.rejects(publishCase('label-delete-500', { client: failing, issueTitle: 'Fix' }), /DELETE sandbox:processing failed with 500/);
   assert.equal(failing.prs.length, 1);
   assert.equal(failing.comments.length, 0);
 
   const missing = new FakeGitHubClient();
-  missing.deleteLabelStatus.set('squad:processing', 404);
+  missing.deleteLabelStatus.set('sandbox:processing', 404);
   const ok = await publishCase('label-delete-404', { client: missing, issueTitle: 'Fix' });
   assert.equal(ok.result.status, 'succeeded');
-  assert.deepEqual(missing.labels[0], { add: ['squad:queued'], remove: ['squad:processing'] });
+  assert.deepEqual(missing.labels, expectedPublishLabels(ok.result.pr_number));
 });
 
 test('token is scoped to repository URL for fetch and push and never in argv or output', async () => {
@@ -475,21 +491,36 @@ test('token is scoped to repository URL for fetch and push and never in argv or 
   const c = createRepoCase('token-boundary');
   const spawns = [];
   const published = await runPublish({ summaryPath: c.summaryPath, repoPath: c.repo, planPath: c.planPath, repoFullName: 'example/repo', issueNumber: 42, issueTitle: 'Fix @team #123 <b>', githubClient: client, onGitSpawn: s => spawns.push(s), outPath: path.join(c.out, 'publish-result.json'), ...rewriteOptions(c) });
-  for (const spawn of spawns) assert.equal(spawn.args.join(' ').includes(client.token), false);
-  const withToken = spawns.filter(spawn => JSON.stringify(spawn.env).includes(client.token));
+  const encodedSecret = Buffer.from(`x-access-token:${secret}`).toString('base64');
+  const header = `AUTHORIZATION: basic ${encodedSecret}`;
+  for (const spawn of spawns) {
+    for (const credential of [secret, encodedSecret]) assert.equal(spawn.args.join(' ').includes(credential), false);
+    assert.equal(JSON.stringify(spawn.env).includes(secret), false, 'only the encoded credential belongs in the child environment');
+  }
+  const withToken = spawns.filter(spawn => Object.values(spawn.env).includes(header));
+  const remoteSpawns = spawns.filter(spawn => ['fetch', 'push', 'ls-remote'].some(command => spawn.args.includes(command)));
   assert(withToken.length >= 2);
+  assert.deepEqual(withToken, remoteSpawns, 'credentials must be present for every remote command and absent for local commands');
   assert(withToken.some(spawn => spawn.args.includes('fetch')));
   assert(withToken.some(spawn => spawn.args.includes('push')));
+  for (const spawn of withToken) {
+    assert(spawn.args.includes('https://github.com/example/repo.git'));
+    assert.equal(spawn.env.GIT_CONFIG_KEY_0, 'http.https://github.com/example/repo.git.extraheader');
+    assert.equal(spawn.env.GIT_CONFIG_VALUE_0, header);
+    assert.equal(spawn.env.GIT_CONFIG_KEY_1, 'http.followRedirects');
+    assert.equal(spawn.env.GIT_CONFIG_VALUE_1, 'false');
+    assert.equal(spawn.env.GIT_CONFIG_KEY_2, 'credential.helper');
+    assert.equal(spawn.env.GIT_CONFIG_VALUE_2, '');
+    const headerKeys = Object.entries(spawn.env).filter(([key, value]) => key.startsWith('GIT_CONFIG_KEY_') && /extraheader/i.test(value));
+    assert.deepEqual(headerKeys, [['GIT_CONFIG_KEY_0', 'http.https://github.com/example/repo.git.extraheader']]);
+  }
   const push = withToken.find(spawn => spawn.args.includes('push'));
-  assert(push.args.includes('https://github.com/example/repo.git'));
   assert(push.args.includes('--force-with-lease=refs/heads/squad/aca-sandbox/issue-42-exec-12345-fix-team-123-b:'));
-  assert.equal(push.env.GIT_CONFIG_KEY_0, 'http.https://github.com/example/repo.git.extraheader');
-  assert.equal(push.env.GIT_CONFIG_KEY_1, 'http.followRedirects');
-  assert.equal(push.env.GIT_CONFIG_VALUE_1, 'false');
-  assert.equal(push.env.GIT_CONFIG_KEY_2, 'credential.helper');
   assert.deepEqual(Object.keys(published).sort(), ['result', 'resultPath']);
-  assert.equal(JSON.stringify(published).includes(secret), false, 'serialized runPublish result must not contain the installation token');
-  assert.equal(fs.readFileSync(published.resultPath, 'utf8').includes(secret), false);
+  for (const credential of [secret, encodedSecret]) {
+    assert.equal(JSON.stringify(published).includes(credential), false, 'serialized runPublish result must not contain raw or encoded credentials');
+    assert.equal(fs.readFileSync(published.resultPath, 'utf8').includes(credential), false);
+  }
   assert.equal(Object.hasOwn(process.env, 'GITHUB_TOKEN'), false);
 });
 

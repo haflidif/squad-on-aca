@@ -1,5 +1,5 @@
 const COPILOT_AUTH_MODES = Object.freeze(['pat', 'actions']);
-const ACTIONS_AUTH_REPOSITORY = 'haflidif/squad-on-aca-auth-lab';
+const ACTIONS_AUTH_REPOSITORY = 'haflidif/squad-on-aca';
 
 const NOTE_ENV_NOT_CRYPTOGRAPHIC_ORIGIN =
   'Workflow environment variables confirm job-scoped runtime context but are not cryptographic proof of origin. Token permissions must be validated live at runtime.';
@@ -62,8 +62,11 @@ function validateCopilotAuth({ token, authMode = 'pat', isLive = false, clientKi
       if (env.GITHUB_REPOSITORY !== ACTIONS_AUTH_REPOSITORY) {
         throw new Error(`Actions auth mode is restricted to ${ACTIONS_AUTH_REPOSITORY}.`);
       }
-      if (env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_REF !== 'refs/heads/main') {
-        throw new Error('Actions auth mode requires a manual workflow_dispatch on the main branch.');
+      if (!['workflow_dispatch', 'issues'].includes(env.GITHUB_EVENT_NAME) || env.GITHUB_REF !== 'refs/heads/main') {
+        throw new Error('Actions auth mode requires a manual workflow_dispatch or an opted-in issues event on the main branch.');
+      }
+      if (env.GITHUB_EVENT_NAME === 'issues' && env.SQUAD_ISSUE_FLOW_OPT_IN !== '1') {
+        throw new Error('Actions auth mode for issues events requires SQUAD_ISSUE_FLOW_OPT_IN=1.');
       }
     }
 

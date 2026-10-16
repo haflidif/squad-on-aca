@@ -6,6 +6,12 @@ The dispatcher is the trusted PR 5 fan-out boundary. It reads a `coordinator-exe
 node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client fake --concurrency 3 --auth-mode pat
 ```
 
+## Opt-in issue flow
+
+The legacy ACA Job workflow remains the default. The separate `squad-sandbox-issue.yml` workflow runs only for issues labeled `sandbox-run` when `SQUAD_ISSUE_FLOW_ENABLED` is `true`; `SQUAD_ISSUE_OPT_IN_NUMBER` can further restrict the allowed issue. A repository collaborator with write access must apply the label. The workflow runs a Lead routing stage and up to three scoped member stages, integrates their changes, then publishes the validated result as a draft pull request.
+
+Set `SQUAD_ISSUE_FLOW_ENABLED` as a repository variable to enable dispatch. Set `SQUAD_ISSUE_OPT_IN_NUMBER` as a `squad-sandbox-issue` environment variable to restrict it to one issue, and configure the ACA settings in that environment. In `squad-publish`, set `SQUAD_GITHUB_APP_ID` and `SQUAD_GITHUB_APP_INSTALLATION_ID` as variables and `SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` as a secret. The flow uses `sandbox:*` lifecycle labels and `squad:<member>` routing labels; it does not run unless explicitly enabled.
+
 ## Local Windows operator path
 
 > Local operation is the selected first execution host. No persistent GitHub

@@ -79,7 +79,7 @@ test('validateCopilotAuth handles actions mode', () => {
   const validActions = 'opaque-workflow-token-1234567890';
   const workflowEnv = {
     GITHUB_ACTIONS: 'true',
-    GITHUB_REPOSITORY: 'haflidif/squad-on-aca-auth-lab',
+    GITHUB_REPOSITORY: 'haflidif/squad-on-aca',
     GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main'
   };
@@ -120,8 +120,23 @@ test('validateCopilotAuth handles actions mode', () => {
   );
   assert.throws(
     () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_REF: 'refs/heads/feature' } }),
-    /manual workflow_dispatch on the main branch/
+    /workflow_dispatch or an opted-in issues event on the main branch/
   );
+  assert.throws(
+    () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_EVENT_NAME: 'pull_request' } }),
+    /workflow_dispatch or an opted-in issues event/
+  );
+  assert.throws(
+    () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_EVENT_NAME: 'issues' } }),
+    /requires SQUAD_ISSUE_FLOW_OPT_IN=1/
+  );
+  assert.equal(validateCopilotAuth({
+    token: validActions,
+    authMode: 'actions',
+    isLive: true,
+    clientKind: 'aca',
+    env: { ...workflowEnv, GITHUB_EVENT_NAME: 'issues', SQUAD_ISSUE_FLOW_OPT_IN: '1' }
+  }).valid, true);
   assert.throws(
     () => validateCopilotAuth({
       token: validActions,
@@ -130,7 +145,7 @@ test('validateCopilotAuth handles actions mode', () => {
       clientKind: 'aca',
       env: { ...workflowEnv, GITHUB_REPOSITORY: 'AzureViking/squad-on-aca-sandbox-lab' }
     }),
-    /restricted to haflidif\/squad-on-aca-auth-lab/
+    /restricted to haflidif\/squad-on-aca/
   );
 });
 

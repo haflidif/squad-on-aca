@@ -399,7 +399,8 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     summary.reason = redact(error.message, token);
     log(`stage-failure integration stage=${stage}`);
     const match = /Task ([^ ]+)|Patch ([^ ]+)|for ([A-Za-z0-9._:-]+)/.exec(summary.reason);
-    if (match) summary.failed_task_id = match[1] || match[2] || match[3] || '';
+    const inferredTask = match && (match[1] || match[2] || match[3]);
+    if (!summary.failed_task_id && plan.tasks.some(task => task.task_id === inferredTask)) summary.failed_task_id = inferredTask;
   } finally {
     if (handle) {
       try {
