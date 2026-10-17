@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { loadRoster, supportedKind, evaluateEvent } = require('./issue-plan.cjs');
+const { loadConfig, memberPaths, globToRegExp, isDeniedPath } = require('./sandbox-flow-config.cjs');
 const { ensureLabel } = require('./issue-triage.cjs');
 const BRANCH = /^squad\/aca-sandbox\/issue-([1-9][0-9]*)-[a-z0-9-]+$/;
 const HINT = '<!-- squad-sandbox-conflict-hint:v1 -->';
@@ -62,10 +63,14 @@ function validateActionsRevise(env, root = env.GITHUB_WORKSPACE || path.resolve(
 function validateBaseline(repo, ctx) {
   requireCurrentMain(repo, ctx.main_sha, ctx.head_sha);
   const rows = git(repo, ['diff', '--raw', '--no-renames', ctx.main_sha, ctx.head_sha]).trim().split('\n').filter(Boolean);
+  const config = loadConfig(repo);
+  const roster = loadRoster(repo);
+  const allowedMembers = roster.members.filter(member => ctx.allowed_members.includes(member.logical_member_id));
   for (const row of rows) {
     const match = /^:(\d+) (\d+) [a-f0-9]+ [a-f0-9]+ [AMD]\t(.+)$/.exec(row);
-    const allowed = match && /^(?:README\.md|docs\/[A-Za-z0-9_./-]+|agents\/sandbox\/[A-Za-z0-9_./-]+|dispatcher\/[A-Za-z0-9_./-]+|scripts\/[A-Za-z0-9_.-]+\.test\.cjs|contracts\/aca-sandbox\/v1\/test\/[A-Za-z0-9_./-]+|examples\/terraform\/[A-Za-z0-9_./-]+\.(?:tf|md))$/.test(match[3]);
-    if (!match || !['000000', '100644', '100755'].includes(match[1]) || !['000000', '100644', '100755'].includes(match[2]) || !allowed || match[3].split('/').some(part => !part || part === '.' || part === '..')) fail('REVISE_BASELINE_SCOPE_REJECTED');
+    const relative = match?.[3];
+    const allowed = relative && !isDeniedPath(relative, repo) && allowedMembers.some(member => memberPaths(member, config).some(pattern => globToRegExp(pattern).test(relative)));
+    if (!match || !['000000', '100644', '100755'].includes(match[1]) || !['000000', '100644', '100755'].includes(match[2]) || !allowed) fail('REVISE_BASELINE_SCOPE_REJECTED');
   }
 }
 function validateSelections(ctx, selections) {

@@ -53,7 +53,7 @@ function makePlan(stage = 'lead') {
     : buildMemberPlan({
       ...result, runId: ENV.GITHUB_RUN_ID, attempt: ENV.GITHUB_RUN_ATTEMPT, roster: ROSTER,
       member: ROSTER.members.find(member => supportedKind(member) === 'testing'),
-      selections: [{ member: ROSTER.members.find(candidate => supportedKind(candidate) === 'testing'), objective: 'Add focused regression coverage.', owned_paths: ['dispatcher/test/**'] }]
+      selections: [{ member: ROSTER.members.find(candidate => supportedKind(candidate) === 'testing'), objective: 'Add focused regression coverage.', owned_paths: ['tests/**'] }]
     });
   plan.baseline_sha = plan.tasks[0].baseline_sha = 'a'.repeat(40);
   return plan;
@@ -80,22 +80,15 @@ test('lead plan matches the active roster and validates routing decision JSON', 
   assert.equal(plan.roster.hash, crypto.createHash('sha256').update(JSON.stringify(plan.roster.members), 'utf8').digest('hex'));
 });
 
-test('member plan is owned by the selected product roster member and verifies assigned tests', () => {
+test('member plan uses the generic integration safety checks', () => {
   const member = ROSTER.members.find(candidate => supportedKind(candidate) === 'testing');
   assert.ok(member);
   const plan = makePlan('member');
   assert.equal(validateContract('coordinator-execution.schema.json', plan).valid, true);
   assert.deepEqual(plan.tasks[0].owner, plan.roster.members.find(candidate => candidate.logical_member_id === member.logical_member_id));
   assert.ok(plan.tasks[0].objective.includes(`Read ${member.charter_ref} first`));
-  assert.deepEqual(plan.tasks[0].owned_paths, ['dispatcher/test/**']);
-  assert.equal(plan.integration.check_commands[0].name, 'verify-member-tests');
-  scratch(dir => {
-    fs.mkdirSync(path.join(dir, 'dispatcher', 'test'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'dispatcher', 'test', 'owned.test.js'), "require('node:test')('owned', () => {});\n");
-    assert.equal(runCheck(plan, dir).status, 0);
-    fs.writeFileSync(path.join(dir, 'dispatcher', 'test', 'owned.test.js'), "throw new Error('failing test');\n");
-    assert.equal(runCheck(plan, dir).status, 1);
-  });
+  assert.deepEqual(plan.tasks[0].owned_paths, ['tests/**']);
+  assert.equal(plan.integration.check_commands[0].name, 'verify-generic-changes');
 });
 
 test('product roster supports the active implementation, infrastructure, and testing roles', () => {
@@ -105,17 +98,23 @@ test('product roster supports the active implementation, infrastructure, and tes
   assert.equal(supportedKind(members.cassian), 'testing');
   assert.equal(supportedKind(members.rai), null);
   const decision = { reason: 'Separate implementation and test scopes.', members: [
-    { member: 'lando', objective: 'Update the container runner.', owned_paths: ['agents/sandbox/**'] },
-    { member: 'cassian', objective: 'Add focused tests.', owned_paths: ['dispatcher/test/**'] }
+    { member: 'lando', objective: 'Update the container runner.', owned_paths: ['src/**'] },
+    { member: 'cassian', objective: 'Add focused tests.', owned_paths: ['tests/**'] }
   ] };
   assert.equal(validateRoutingDecision(decision, ROSTER).selections.length, 2);
 });
 test('routing decision integration check accepts only the allowlisted shape', () => scratch(dir => {
+  const git = args => {
+    const result = spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git(['init', '--quiet']); git(['config', 'user.name', 'Issue Flow Test']); git(['config', 'user.email', 'issue-flow@example.invalid']);
+  git(['commit', '--quiet', '--allow-empty', '-m', 'baseline']);
   const plan = makePlan();
   fs.mkdirSync(path.join(dir, 'routing'));
   const allowed = ROSTER.members.find(member => supportedKind(member) === 'testing');
   const file = path.join(dir, 'routing', 'decision.json');
-  const valid = { reason: 'Add focused tests.', members: [{ member: allowed.logical_member_id, objective: 'Add regression tests.', owned_paths: ['dispatcher/test/**'] }] };
+  const valid = { reason: 'Add focused tests.', members: [{ member: allowed.logical_member_id, objective: 'Add regression tests.', owned_paths: ['tests/**'] }] };
   fs.writeFileSync(file, JSON.stringify(valid));
   assert.equal(runCheck(plan, dir).status, 0);
   for (const value of [
@@ -186,7 +185,7 @@ test('member stage artifact retains its validated integration manifest and patch
   const sha256 = crypto.createHash('sha256').update(patchBytes).digest('hex');
   const selected = ROSTER.members.find(member => supportedKind(member) === 'testing');
   const selections = validateRoutingDecision({ reason: 'Add focused tests.', members: [
-    { member: selected.logical_member_id, objective: 'Add regression coverage.', owned_paths: ['dispatcher/test/**'] }
+    { member: selected.logical_member_id, objective: 'Add regression coverage.', owned_paths: ['tests/**'] }
   ] }, ROSTER).selections;
   const plan = buildMemberPlan({ repository: REPO, issueNumber: 2, runId: '123456789', attempt: '1', roster: ROSTER, selections });
   plan.baseline_sha = 'a'.repeat(40);

@@ -20,7 +20,7 @@ const options = { repository: 'test-owner/test-repo', issueNumber: 7, runId: '12
 function decision() {
   return { reason: 'Independently scoped documentation and tests.', members: [
     { member: roster.members[1].logical_member_id, objective: 'Update the project overview.', owned_paths: ['README.md'] },
-    { member: roster.members[2].logical_member_id, objective: 'Add regression tests.', owned_paths: ['scripts/example.test.cjs', 'dispatcher/test/**'] }
+    { member: roster.members[2].logical_member_id, objective: 'Add regression tests.', owned_paths: ['tests/example.test.cjs', 'tests/**'] }
   ] };
 }
 function planFor(value = decision()) {
@@ -49,7 +49,7 @@ test('valid two-member decision produces distinct persona tasks and a valid cont
     assert.ok(task.objective.includes(decision().members[i].objective));
     assert.deepEqual(task.owned_paths, decision().members[i].owned_paths);
   }
-  assert.deepEqual(plan.integration.check_commands.map(check => check.name), ['verify-member-tests']);
+  assert.deepEqual(plan.integration.check_commands.map(check => check.name), ['verify-generic-changes']);
 });
 
 for (const [name, mutate, code] of [
@@ -58,17 +58,15 @@ for (const [name, mutate, code] of [
   ['empty list', d => { d.members = []; }, 'DECISION_MEMBER_COUNT_INVALID'],
   ['out of roster', d => { d.members[1].member = 'test-missing'; }, 'ROUTED_MEMBER_REJECTED'],
   ['Lead chosen', d => { d.members[1].member = roster.lead.logical_member_id; }, 'ROUTED_MEMBER_REJECTED'],
-  ['unsupported role', d => { d.members[1].member = roster.members[4].logical_member_id; }, 'MEMBER_NOT_SUPPORTED'],
   ['overlapping files', d => { d.members[1].owned_paths = ['README.md']; }, 'DECISION_SCOPES_OVERLAP'],
-  ['parent scope overlap', d => { d.members[0].owned_paths = ['dispatcher/test']; }, 'DECISION_SCOPES_OVERLAP'],
+  ['parent scope overlap', d => { d.members[0].owned_paths = ['tests']; }, 'DECISION_SCOPES_OVERLAP'],
   ['case folded overlap', d => { d.members[1].owned_paths = ['readme.md']; }, 'DECISION_SCOPES_OVERLAP'],
   ['empty scopes', d => { d.members[1].owned_paths = []; }, 'DECISION_SHAPE_INVALID'],
   ['empty objective', d => { d.members[1].objective = ''; }, 'DECISION_SHAPE_INVALID'],
   ['unsafe objective', d => { d.members[1].objective = 'bad\nobjective'; }, 'DECISION_SHAPE_INVALID'],
   ['test scope escape', d => { d.members[1].owned_paths = ['scripts/../issue-plan.cjs']; }, 'DECISION_SCOPE_INVALID'],
-  ['production script', d => { d.members[1].owned_paths = ['scripts/issue-plan.cjs']; }, 'DECISION_SCOPE_UNSUPPORTED'],
-  ['broad directory', d => { d.members[1].owned_paths = ['scripts']; }, 'DECISION_SCOPE_UNSUPPORTED'],
-  ['unsupported docs path', d => { d.members[0].owned_paths = ['REMOTE-AUTH.md']; }, 'DECISION_SCOPE_UNSUPPORTED']
+  ['production script', d => { d.members[1].owned_paths = ['scripts/issue-plan.cjs']; }, 'DECISION_SCOPE_DENIED'],
+  ['unsupported role', d => { d.members[1].member = roster.members[4].logical_member_id; }, 'ROUTED_MEMBER_REJECTED']
 ]) test(`decision rejects ${name}`, () => {
   const value = decision(); mutate(value);
   assert.throws(() => validateDecision(JSON.stringify(value), roster), error => error.code === code);
@@ -91,87 +89,6 @@ test('Lead prompt and executable check agree on multi-member validation', () => 
   fs.writeFileSync(file, JSON.stringify(invalid));
   assert.equal(spawnSync(process.execPath, check.argv.slice(1), { cwd: dir }).status, 1);
 }));
-
-function runOwnedTests(dir, scopes) {
-  const value = decision();
-  value.members[1].owned_paths = scopes;
-  const plan = planFor(value);
-  const check = plan.integration.check_commands.find(command => command.name === 'verify-member-tests');
-  assert.deepEqual(JSON.parse(check.argv[3]), scopes);
-  const env = { ...process.env };
-  delete env.NODE_TEST_CONTEXT;
-  return spawnSync(process.execPath, check.argv.slice(1), { cwd: dir, encoding: 'utf8', env });
-}
-function writeTestFile(dir, file, content) {
-  const target = path.join(dir, ...file.split('/'));
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, content);
-}
-const passingTest = name => `require('node:test')(${JSON.stringify(name)}, () => {});`;
-
-test('member check runs only concrete owned script tests without requiring dispatcher tests', () => scratch(dir => {
-  writeTestFile(dir, 'scripts/owned.test.cjs', passingTest('owned-script'));
-  writeTestFile(dir, 'scripts/unowned.test.cjs', 'throw new Error("unowned test ran");');
-  const result = runOwnedTests(dir, ['scripts/owned.test.cjs']);
-  assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.match(result.stdout, /owned-script/);
-  assert.doesNotMatch(result.stdout, /unowned test ran/);
-}));
-
-test('member check runs only concrete owned dispatcher tests and not helper files', () => scratch(dir => {
-  writeTestFile(dir, 'dispatcher/test/nested/owned.test.js', passingTest('owned-dispatcher'));
-  writeTestFile(dir, 'dispatcher/test/helper.js', 'throw new Error("helper ran as test");');
-  writeTestFile(dir, 'dispatcher/test/helper.test.cjs', 'throw new Error("wrong extension ran");');
-  writeTestFile(dir, 'dispatcher/test/unowned.test.js', 'throw new Error("unowned test ran");');
-  const result = runOwnedTests(dir, ['dispatcher/test/nested/owned.test.js']);
-  assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.match(result.stdout, /owned-dispatcher/);
-}));
-
-test('dispatcher wildcard recursively selects only test.js files and deduplicates sorted owned tests', () => scratch(dir => {
-  writeTestFile(dir, 'dispatcher/test/z.test.js', passingTest('owned-z'));
-  writeTestFile(dir, 'dispatcher/test/nested/a.test.js', passingTest('owned-a'));
-  writeTestFile(dir, 'dispatcher/test/helper.js', 'throw new Error("helper ran as test");');
-  writeTestFile(dir, 'dispatcher/test/other.test.cjs', 'throw new Error("wrong extension ran");');
-  writeTestFile(dir, 'scripts/unowned.test.cjs', 'throw new Error("unowned test ran");');
-  const result = runOwnedTests(dir, ['dispatcher/test/z.test.js', 'dispatcher/test/**', 'dispatcher/test/z.test.js']);
-  assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.match(result.stdout, /\btests 2\b/);
-  assert.ok(result.stdout.indexOf('owned-a') < result.stdout.indexOf('owned-z'), result.stdout);
-}));
-
-test('member check propagates an owned test failure', () => scratch(dir => {
-  writeTestFile(dir, 'scripts/owned.test.cjs', 'throw new Error("owned failure fixture");');
-  const result = runOwnedTests(dir, ['scripts/owned.test.cjs']);
-  assert.equal(result.status, 1);
-  assert.match(result.stdout + result.stderr, /owned failure fixture/);
-}));
-
-for (const file of ['scripts/missing.test.cjs', 'dispatcher/test/nested/missing.test.js']) {
-  test(`member check clearly fails for missing owned test ${file}`, () => scratch(dir => {
-    writeTestFile(dir, 'scripts/unowned.test.cjs', passingTest('must-not-run'));
-    const result = runOwnedTests(dir, [file]);
-    assert.equal(result.status, 1);
-    assert.ok(result.stderr.includes(`Owned test file does not exist after integration: ${file}`), result.stderr);
-    assert.doesNotMatch(result.stdout, /must-not-run/);
-  }));
-}
-
-test('member check fails closed for empty wildcard matches and non-test-only scopes', () => scratch(dir => {
-  writeTestFile(dir, 'dispatcher/test/helper.js', 'throw new Error("helper ran as test");');
-  for (const scopes of [['dispatcher/test/**']]) {
-    const result = runOwnedTests(dir, scopes);
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /No owned test files matched after integration/);
-  }
-}));
-
-test('member plan rejects unsafe test paths before constructing command arguments', () => {
-  for (const scope of ['scripts/evil.test.cjs;echo', 'scripts/../escape.test.cjs', 'dispatcher/test/../../escape.test.js', 'dispatcher/test/file.test.js\n', 'scripts/*.test.cjs']) {
-    const value = decision(); value.members[1].owned_paths = [scope];
-    assert.throws(() => buildMemberPlan({ ...options, selections: value.members.map(entry => ({ ...entry, member: roster.members.find(candidate => candidate.logical_member_id === entry.member) })) }), /DECISION_SCOPES?_/);
-  }
-});
 
 test('one integration dispatch contains both tasks', () => {
   const plan = planFor();
@@ -332,7 +249,7 @@ test('report creates member labels and adds failed state on publication failure'
   const root = path.resolve(__dirname, '..');
   const { loadRoster, supportedKind } = require('./issue-plan.cjs');
   const actual = loadRoster(root);
-  const selected = actual.members.filter(member => member !== actual.lead && supportedKind(member)).map(member => ({ ...member, objective: 'Execute bounded work.', owned_paths: supportedKind(member) === 'documentation' ? ['README.md'] : supportedKind(member) === 'testing' ? ['dispatcher/test/**'] : supportedKind(member) === 'infrastructure' ? ['examples/terraform/**'] : ['agents/sandbox/**'] }));
+  const selected = actual.members.filter(member => member !== actual.lead && supportedKind(member)).map(member => ({ ...member, objective: 'Execute bounded work.', owned_paths: supportedKind(member) === 'documentation' ? ['README.md'] : supportedKind(member) === 'testing' ? ['tests/**'] : supportedKind(member) === 'infrastructure' ? ['infra/**'] : ['src/**'] }));
   const result = { status: 'succeeded', route: { reason: 'Execute bounded work.', members: selected }, stages: { lead: { status: 'succeeded' }, member: { status: 'succeeded' } } };
   fs.writeFileSync(path.join(dir, 'issue-result.json'), JSON.stringify(result));
   const calls = [];
@@ -399,7 +316,7 @@ test('testing-only and reversed two-member decisions keep their individual scope
   const plan = planFor(single);
   assert.equal(plan.tasks.length, 1);
   assert.equal(plan.tasks[0].owner.logical_member_id, roster.members[2].logical_member_id);
-  assert.deepEqual(plan.integration.check_commands.map(check => check.name), ['verify-member-tests']);
+  assert.deepEqual(plan.integration.check_commands.map(check => check.name), ['verify-generic-changes']);
   const reversed = decision(); reversed.members.reverse();
   assert.equal(planFor(reversed).tasks.length, 2);
 });

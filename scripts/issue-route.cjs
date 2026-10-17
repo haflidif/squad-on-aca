@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { IssueFlowError, buildMemberPlan, evaluateEvent, loadRoster, validateRoutingDecision } = require('./issue-plan.cjs');
+const { loadConfig } = require('./sandbox-flow-config.cjs');
 
 const MAX_SUMMARY_BYTES = 4 * 1024 * 1024;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -73,10 +74,10 @@ function addedDecisionContent(patch) {
   return file.additions.join('\n');
 }
 
-function validateDecision(text, roster) {
+function validateDecision(text, roster, config = null, repoRoot = process.cwd()) {
   let decision;
   try { decision = JSON.parse(text); } catch { fail('DECISION_JSON_INVALID'); }
-  try { return validateRoutingDecision(decision, roster); }
+  try { return validateRoutingDecision(decision, roster, config, repoRoot); }
   catch (error) { fail(error.code || 'DECISION_SHAPE_INVALID'); }
 }
 
@@ -90,7 +91,8 @@ function route({ summaryFile, eventFile, outDir, env, repoRoot }) {
   if (typeof summary.integration.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(summary.integration.sha256) || crypto.createHash('sha256').update(patchBytes).digest('hex') !== summary.integration.sha256) fail('PATCH_HASH_MISMATCH');
   const content = addedDecisionContent(patchBytes.toString('utf8'));
   const roster = loadRoster(repoRoot);
-  const { decision, member, selections } = validateDecision(content, roster);
+  const config = loadConfig(repoRoot);
+  const { decision, member, selections } = validateDecision(content, roster, config, repoRoot);
   const event = readJsonFile(eventFile, 2 * 1024 * 1024);
   const issue = evaluateEvent(event, env);
   const revisePath = path.join(repoRoot, '.squad-issue', 'revise.json');
@@ -105,7 +107,8 @@ function route({ summaryFile, eventFile, outDir, env, repoRoot }) {
     runId: env.GITHUB_RUN_ID,
     attempt: env.GITHUB_RUN_ATTEMPT || '1',
     roster,
-    selections
+    selections,
+    config
   });
   if (revise) {
     plan.baseline_sha = revise.head_sha;

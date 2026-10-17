@@ -457,40 +457,8 @@ jobs:
           path: ${{ runner.temp }}/squad-postprocess-input
       - name: Exclude gate data from the formatter worktree
         run: echo ".squad-issue/" >> .git/info/exclude
-      - name: Validate trusted postprocess configuration
-        id: config
-        run: node scripts/issue-postprocess.cjs validate --repo "$GITHUB_WORKSPACE"
-      - name: Install pinned Terraform with release checksum verification
-        if: ${{ steps.config.outputs.terraform != '' }}
-        env:
-          VERSION: ${{ steps.config.outputs.terraform }}
-        run: |
-          set -euo pipefail
-          archive="terraform_${VERSION}_linux_amd64.zip"
-          base="https://releases.hashicorp.com/terraform/${VERSION}"
-          curl -fsSL "${base}/${archive}" -o "$RUNNER_TEMP/${archive}"
-          curl -fsSL "${base}/terraform_${VERSION}_SHA256SUMS" -o "$RUNNER_TEMP/terraform_SHA256SUMS"
-          grep "  ${archive}$" "$RUNNER_TEMP/terraform_SHA256SUMS" | (cd "$RUNNER_TEMP" && sha256sum -c -)
-          mkdir -p "$RUNNER_TEMP/terraform-bin"
-          unzip -q "$RUNNER_TEMP/${archive}" -d "$RUNNER_TEMP/terraform-bin"
-          echo "$RUNNER_TEMP/terraform-bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/terraform-bin/terraform" version
-      - name: Install pinned terraform-docs with release checksum verification
-        if: ${{ steps.config.outputs.terraform_docs != '' }}
-        env:
-          VERSION: ${{ steps.config.outputs.terraform_docs }}
-        run: |
-          set -euo pipefail
-          archive="terraform-docs-v${VERSION}-linux-amd64.tar.gz"
-          base="https://github.com/terraform-docs/terraform-docs/releases/download/v${VERSION}"
-          curl -fsSL "${base}/${archive}" -o "$RUNNER_TEMP/${archive}"
-          curl -fsSL "${base}/terraform-docs-v${VERSION}_checksums.txt" -o "$RUNNER_TEMP/terraform-docs-checksums.txt"
-          grep "  ${archive}$" "$RUNNER_TEMP/terraform-docs-checksums.txt" | (cd "$RUNNER_TEMP" && sha256sum -c -)
-          mkdir -p "$RUNNER_TEMP/terraform-docs-bin"
-          tar -xzf "$RUNNER_TEMP/${archive}" -C "$RUNNER_TEMP/terraform-docs-bin" terraform-docs
-          chmod 755 "$RUNNER_TEMP/terraform-docs-bin/terraform-docs"
-          echo "$RUNNER_TEMP/terraform-docs-bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/terraform-docs-bin/terraform-docs" --version
+      - name: Validate trusted flow config and install pinned tools
+        run: node scripts/install-sandbox-tools.cjs --repo "$GITHUB_WORKSPACE" --destination "$RUNNER_TEMP/sandbox-tools"
       - name: Run scoped deterministic postprocess steps
         run: >-
           node scripts/issue-postprocess.cjs run

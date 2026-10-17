@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRoster, validateRoutingDecision } = require('./issue-plan.cjs');
+const { loadConfig } = require('./sandbox-flow-config.cjs');
 const { summarizeStored, renderComment, isNoChangeRevise } = require('./issue-report.cjs');
 const { memberLabelDefinitions } = require('./member-labels.cjs');
 
@@ -35,7 +36,7 @@ async function postReport({ github, context, root, reportDir, jobs }) {
     const roster = loadRoster(root);
     const { selections } = validateRoutingDecision({ reason: result.route.reason, members: result.route.members.map(member => ({
       member: member.logical_member_id, objective: member.objective, owned_paths: member.owned_paths
-    })) }, roster);
+    })) }, roster, loadConfig(root), root);
     const definitions = memberLabelDefinitions(roster.members.map(member => ({ name: member.resolved_persistent_name, role: member.role })));
     const labels = [];
     for (const selection of selections) {

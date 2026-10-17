@@ -150,9 +150,16 @@ test('baseline object verification rejects behind main, symlinks and protected-c
   const directory = path.join(__dirname, '..', `.revise-fixture-${crypto.randomUUID()}`); fs.mkdirSync(directory);
   const git = args => { const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', ...args], { cwd: directory, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
   try {
-    git(['init', '--quiet']); fs.writeFileSync(path.join(directory, 'README.md'), 'main\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'main']); const main = git(['rev-parse', 'HEAD']);
+    git(['init', '--quiet']);
+    const squad = path.join(directory, '.squad'); fs.mkdirSync(path.join(squad, 'agents', 'test-infra'), { recursive: true });
+    fs.writeFileSync(path.join(squad, 'team.md'), '| Name | Role | Charter | Status |\n| Fixture Lead | Lead | `.squad/agents/test-lead/charter.md` | Active |\n| Test Infra | Infrastructure | `.squad/agents/test-infra/charter.md` | Active |\n');
+    fs.mkdirSync(path.join(squad, 'agents', 'test-lead'), { recursive: true });
+    fs.writeFileSync(path.join(squad, 'agents', 'test-lead', 'charter.md'), '- **Name:** Fixture Lead\n');
+    fs.writeFileSync(path.join(squad, 'agents', 'test-infra', 'charter.md'), '- **Name:** Test Infra\n');
+    fs.writeFileSync(path.join(squad, 'sandbox-flow.json'), JSON.stringify({ version: 1, members: { infrastructure: { allowed_paths: ['README.md'] } } }));
+    fs.writeFileSync(path.join(directory, 'README.md'), 'main\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'main']); const main = git(['rev-parse', 'HEAD']);
     fs.writeFileSync(path.join(directory, 'README.md'), 'PR\n'); git(['add', '.']); const tree = git(['write-tree']); const head = git(['commit-tree', tree, '-p', main, '-m', 'PR']);
-    const ctx = { main_sha: main, head_sha: head };
+    const ctx = { main_sha: main, head_sha: head, allowed_members: ['test-infra'] };
     assert.doesNotThrow(() => validateBaseline(directory, ctx));
     assert.equal(git(['rev-parse', 'HEAD']), main);
     assert.throws(() => requireCurrentMain(directory, head, main), /Merge current main/);

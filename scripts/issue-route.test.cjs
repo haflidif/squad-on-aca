@@ -34,7 +34,7 @@ function decisionPatch(member, reason = 'Implement the requested product change.
   else {
     const selected = ROSTER.members.find(candidate => candidate.logical_member_id === member);
     const kind = supportedKind(selected);
-    const scope = kind === 'testing' ? 'dispatcher/test/**' : kind === 'infrastructure' ? 'examples/terraform/**' : 'agents/sandbox/**';
+    const scope = kind === 'testing' ? 'tests/**' : kind === 'infrastructure' ? 'infra/**' : 'src/**';
     decision = { reason, members: [{ member, objective: 'Complete the bounded issue objective.', owned_paths: [scope] }] };
   }
   const content = JSON.stringify(decision, null, 2).split('\n');
@@ -68,7 +68,7 @@ function routeFixture(dir, member, reasonText) {
 
 test('added decision content is extracted only from the new expected file', () => {
   const content = addedDecisionContent(decisionPatch(IMPLEMENTER.logical_member_id));
-  assert.deepEqual(JSON.parse(content), { reason: 'Implement the requested product change.', members: [{ member: IMPLEMENTER.logical_member_id, objective: 'Complete the bounded issue objective.', owned_paths: ['agents/sandbox/**'] }] });
+  assert.deepEqual(JSON.parse(content), { reason: 'Implement the requested product change.', members: [{ member: IMPLEMENTER.logical_member_id, objective: 'Complete the bounded issue objective.', owned_paths: ['src/**'] }] });
 });
 
 test('route builds a member plan from the lead integration patch', () => scratch(dir => {
@@ -81,22 +81,13 @@ test('route builds a member plan from the lead integration patch', () => scratch
   assert.equal(routeResult.reason, 'Implement the requested product change.');
   assert.equal(plan.tasks[0].owner.logical_member_id, IMPLEMENTER.logical_member_id);
   assert.equal(plan.tasks[0].owner.resolved_persistent_name, IMPLEMENTER.resolved_persistent_name);
-  assert.deepEqual(plan.tasks[0].owned_paths, ['agents/sandbox/**']);
+  assert.deepEqual(plan.tasks[0].owned_paths, ['src/**']);
 }));
 
 test('route rejects lead and non-roster selections', () => {
   for (const member of [ROSTER.lead.logical_member_id, 'unknown-member']) {
     assert.throws(() => validateDecision(JSON.stringify({ member, reason: 'Not an implementer.' }), ROSTER), error => error.code === 'ROUTED_MEMBER_REJECTED');
   }
-});
-
-test('route fails closed for active non-implementation roles', () => {
-  const unsupported = ROSTER.members.find(member => member !== ROSTER.lead && !supportedKind(member));
-  if (!unsupported) return;
-  scratch(dir => {
-    const files = routeFixture(dir, unsupported.logical_member_id);
-    assert.throws(() => route({ ...files, env: ENV, repoRoot: ROOT }), error => error.code === 'MEMBER_NOT_SUPPORTED');
-  });
 });
 
 for (const [name, patch] of [
@@ -112,7 +103,7 @@ for (const [name, patch] of [
 
 test('route rejects unsafe reason values and extra JSON properties', () => {
   assert.throws(() => validateDecision(JSON.stringify({ member: IMPLEMENTER.logical_member_id, reason: 'bad\nreason' }), ROSTER), error => error.code === 'DECISION_SHAPE_INVALID');
-  assert.throws(() => validateDecision(JSON.stringify({ reason: 'short', extra: true, members: [{ member: IMPLEMENTER.logical_member_id, objective: 'Update code.', owned_paths: ['agents/sandbox/**'] }] }), ROSTER), error => error.code === 'DECISION_SHAPE_INVALID');
+  assert.throws(() => validateDecision(JSON.stringify({ reason: 'short', extra: true, members: [{ member: IMPLEMENTER.logical_member_id, objective: 'Update code.', owned_paths: ['src/**'] }] }), ROSTER), error => error.code === 'DECISION_SHAPE_INVALID');
 });
 
 test('summary patch path containment rejects traversal', () => scratch(dir => {
@@ -135,8 +126,8 @@ test('route emits one two-task member plan and preserves both routed objectives'
   const tester = ROSTER.members.find(member => member !== ROSTER.lead && supportedKind(member) === 'testing');
   assert.ok(tester);
   const decision = { reason: 'Independent implementation and regression coverage.', members: [
-    { member: IMPLEMENTER.logical_member_id, objective: 'Update the container runner.', owned_paths: ['agents/sandbox/**'] },
-    { member: tester.logical_member_id, objective: 'Add focused regression coverage.', owned_paths: ['scripts/example.test.cjs'] }
+    { member: IMPLEMENTER.logical_member_id, objective: 'Update the container runner.', owned_paths: ['src/**'] },
+    { member: tester.logical_member_id, objective: 'Add focused regression coverage.', owned_paths: ['tests/example.test.cjs'] }
   ] };
   const files = makeFixture(dir, decisionPatch(decision));
   const result = route({ ...files, env: ENV, repoRoot: ROOT });
@@ -149,9 +140,9 @@ test('route emits one two-task member plan and preserves both routed objectives'
 }));
 
 
-test('route persists a three-member plan with infrastructure code ownership', () => scratch(dir => {
+test('route persists a three-member generic implementation plan', () => scratch(dir => {
   const kinds = ['infrastructure', 'testing', 'implementation'];
-  const scopes = [['examples/terraform/main.tf'], ['scripts/example.test.cjs'], ['agents/sandbox/**']];
+  const scopes = [['infra/config.yaml'], ['tests/example.test.cjs'], ['src/**']];
   const decision = { reason: 'Independent infrastructure tests and implementation.', members: kinds.map((kind, index) => {
     const member = ROSTER.members.find(candidate => supportedKind(candidate) === kind);
     assert.ok(member);
@@ -163,15 +154,15 @@ test('route persists a three-member plan with infrastructure code ownership', ()
   const plan = JSON.parse(fs.readFileSync(path.join(files.outDir, 'member-plan.json'), 'utf8'));
   assert.equal(plan.tasks.length, 3);
   assert.deepEqual(plan.tasks.map(task => task.owned_paths), scopes);
-  assert.ok(plan.integration.check_commands.some(check => check.name === 'verify-infra-files'));
+  assert.deepEqual(plan.integration.check_commands.map(check => check.name), ['verify-generic-changes']);
 }));
 
 test('route persists dependency task IDs and stages without relying on member names', () => scratch(dir => {
   const builder = ROSTER.members.find(member => supportedKind(member) === 'infrastructure');
   const tester = ROSTER.members.find(member => supportedKind(member) === 'testing');
   const decision = { reason: 'Tests need implementation files.', members: [
-    { member: tester.logical_member_id, objective: 'Test actual files.', owned_paths: ['scripts/example.test.cjs'], depends_on: [builder.logical_member_id] },
-    { member: builder.logical_member_id, objective: 'Implement example.', owned_paths: ['examples/terraform/main.tf'] }
+    { member: tester.logical_member_id, objective: 'Test actual files.', owned_paths: ['tests/example.test.cjs'], depends_on: [builder.logical_member_id] },
+    { member: builder.logical_member_id, objective: 'Implement example.', owned_paths: ['infra/config.yaml'] }
   ] };
   const files = makeFixture(dir, decisionPatch(decision));
   route({ ...files, env: ENV, repoRoot: ROOT });

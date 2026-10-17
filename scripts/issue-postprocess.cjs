@@ -1,79 +1,29 @@
 'use strict';
 
-// Repo-trusted post-integration formatting: argv-only allowlisted tools, bounded timeouts, and per-step path scopes.
+// Repo-trusted post-integration steps use pinned tools, bounded timeouts, and per-step path scopes.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-
-const ALLOWED_TOOLS = new Set(['terraform', 'terraform-docs', 'node']);
-const TOOL_KEYS = new Set(['terraform', 'terraform_docs']);
+const { loadConfig, validateConfig: validateFlowConfig, validPathPattern, globToRegExp, isDeniedPath } = require('./sandbox-flow-config.cjs');
 const DEFAULT_TIMEOUT_MS = 120000;
-const MAX_TIMEOUT_MS = 600000;
-const MAX_STEPS = 10;
-const DENIED_ROOTS = ['.github', '.squad', 'dispatcher', 'scripts', 'infra'];
 
 function fail(message) { throw new Error(message); }
-function validPathPattern(value) {
-  if (typeof value !== 'string' || !value || value.includes('\\') || value.startsWith('/') || /^[A-Za-z]:/.test(value) || /[\x00-\x1f\x7f]/u.test(value)) return false;
-  const segments = value.split('/');
-  if (segments.some(segment => !segment || segment === '.' || segment === '..' || segment.endsWith('.')) || /[*?]/u.test(segments[0])) return false;
-  const root = segments[0].replace(/[?*].*$/u, '').toLowerCase();
-  return !DENIED_ROOTS.some(denied => root === denied || root.startsWith(`${denied}/`));
-}
-function globToRegExp(pattern) {
-  let result = '^';
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i];
-    if (char === '*') {
-      if (pattern[i + 1] === '*') {
-        i++;
-        if (pattern[i + 1] === '/') { i++; result += '(?:.*/)?'; }
-        else result += '.*';
-      } else result += '[^/]*';
-    } else if (char === '?') result += '[^/]';
-    else result += char.replace(/[|\\{}()[\]^$+?.]/gu, '\\$&');
-  }
-  return new RegExp(`${result}$`, 'u');
-}
 function pathMatches(pattern, file) { return globToRegExp(pattern).test(file); }
 function validateConfig(config) {
-  if (!config || typeof config !== 'object' || Array.isArray(config) || config.version !== 1 || Object.keys(config).some(key => !['version', 'tools', 'steps'].includes(key))) fail('POSTPROCESS_CONFIG_INVALID version');
-  if (!config.tools || typeof config.tools !== 'object' || Array.isArray(config.tools)) fail('POSTPROCESS_CONFIG_INVALID tools');
-  for (const [key, version] of Object.entries(config.tools)) {
-    if (!TOOL_KEYS.has(key) || typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) fail(`POSTPROCESS_CONFIG_INVALID tool ${key}`);
-  }
-  if (!Array.isArray(config.steps) || config.steps.length > MAX_STEPS) fail('POSTPROCESS_CONFIG_INVALID steps');
-  const names = new Set();
-  for (const [index, step] of config.steps.entries()) {
-    if (!step || typeof step !== 'object' || Array.isArray(step) || Object.keys(step).some(key => !['name', 'run', 'paths', 'timeout_ms'].includes(key))) fail(`POSTPROCESS_CONFIG_INVALID step ${index}`);
-    if (typeof step.name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(step.name) || names.has(step.name)) fail(`POSTPROCESS_CONFIG_INVALID step ${index} name`);
-    names.add(step.name);
-    if (!Array.isArray(step.run) || step.run.length < 1 || step.run.some(arg => typeof arg !== 'string' || /[\x00\r\n]/u.test(arg))) fail(`POSTPROCESS_CONFIG_INVALID step ${step.name} run`);
-    const executable = step.run[0];
-    if (!ALLOWED_TOOLS.has(executable)) fail(`POSTPROCESS_CONFIG_INVALID executable ${executable}`);
-    const unsafeArgument = step.run.slice(1).some(arg => {
-      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : arg;
-      return /(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(value) || /^(?:[\\/]|[A-Za-z]:[\\/])/u.test(value);
-    });
-    if (unsafeArgument) fail(`POSTPROCESS_CONFIG_INVALID step ${step.name} path traversal`);
-    if (executable === 'terraform' && !config.tools.terraform) fail(`POSTPROCESS_CONFIG_INVALID terraform version missing`);
-    if (executable === 'terraform-docs' && !config.tools.terraform_docs) fail(`POSTPROCESS_CONFIG_INVALID terraform_docs version missing`);
-    if (step.timeout_ms !== undefined && (!Number.isInteger(step.timeout_ms) || step.timeout_ms < 1000 || step.timeout_ms > MAX_TIMEOUT_MS)) fail(`POSTPROCESS_CONFIG_INVALID step ${step.name} timeout_ms`);
-    if (!Array.isArray(step.paths) || step.paths.length < 1 || step.paths.some(pattern => !validPathPattern(pattern))) fail(`POSTPROCESS_CONFIG_INVALID step ${step.name} paths`);
-  }
-  return config;
+  validateFlowConfig(config);
+  return config.postprocess || { tools: {}, steps: [] };
 }
 function selectSteps(config, touchedPaths) {
   const normalized = touchedPaths.map(file => file.replace(/\\/g, '/'));
   return config.steps.filter(step => normalized.some(file => step.paths.some(pattern => pathMatches(pattern, file))));
 }
-function findScopeViolations(before, after, step) {
+function findScopeViolations(before, after, step, root = process.cwd()) {
   const changed = new Set([...before.keys(), ...after.keys()]);
   const outOfScope = [];
   for (const file of changed) {
     if (before.get(file) === after.get(file)) continue;
-    if (!step.paths.some(pattern => pathMatches(pattern, file))) outOfScope.push(file);
+    if (isDeniedPath(file, root) || !step.paths.some(pattern => pathMatches(pattern, file))) outOfScope.push(file);
   }
   return outOfScope.sort();
 }
@@ -91,7 +41,13 @@ function snapshot(repo) {
     if (!absolute.startsWith(`${path.resolve(repo)}${path.sep}`)) fail('POSTPROCESS_SCOPE_VIOLATION path escaped repository');
     let stat;
     try { stat = fs.lstatSync(absolute); } catch { result.set(name, '<deleted>'); continue; }
-    if (stat.isSymbolicLink()) result.set(name, `symlink:${fs.readlinkSync(absolute)}`);
+    if (stat.isSymbolicLink()) {
+      let target;
+      try { target = fs.realpathSync(absolute); } catch { fail('POSTPROCESS_SCOPE_VIOLATION symlink target unresolved'); }
+      const relativeTarget = path.relative(path.resolve(repo), target);
+      if (relativeTarget === '..' || relativeTarget.startsWith(`..${path.sep}`) || path.isAbsolute(relativeTarget)) fail('POSTPROCESS_SCOPE_VIOLATION symlink escaped repository');
+      result.set(name, `symlink:${fs.readlinkSync(absolute)}`);
+    }
     else if (stat.isFile()) result.set(name, hash(fs.readFileSync(absolute)));
     else result.set(name, `type:${stat.mode}`);
   }
@@ -128,11 +84,10 @@ function runPostprocess({ artifactDir, repo, outputDir, runId, runAttempt }) {
       patchEntry?.sha256?.toLowerCase() !== patchSha || summary.integration.sha256?.toLowerCase() !== patchSha ||
       `integration/${patchEntry?.path}` !== patchRel.replace(/\\/g, '/')) fail('POSTPROCESS_INPUT_INTEGRITY_FAILED');
 
-  const configPath = path.join(repo, '.squad', 'sandbox-postprocess.json');
-  let config = null;
-  if (fs.existsSync(configPath)) config = validateConfig(readJson(configPath));
-  const touched = config ? patchTouchedPaths(repo, manifest.baseline_sha, patchBytes) : [];
-  const selected = config ? selectSteps(config, touched) : [];
+  const fullConfig = loadConfig(repo);
+  const config = validateConfig(fullConfig);
+  const touched = config.steps.length ? patchTouchedPaths(repo, manifest.baseline_sha, patchBytes) : [];
+  const selected = selectSteps(config, touched);
   fs.rmSync(outputDir, { recursive: true, force: true });
   fs.cpSync(artifactDir, outputDir, { recursive: true, dereference: false });
   let finalBytes = patchBytes;
@@ -149,9 +104,10 @@ function runPostprocess({ artifactDir, repo, outputDir, runId, runAttempt }) {
     git(repo, ['apply', '--index', '--binary', '--whitespace=nowarn', patchFile]);
     for (const step of selected) {
       const before = snapshot(repo);
-      const result = spawnSync(step.run[0], step.run.slice(1), { cwd: repo, stdio: 'inherit', shell: false, timeout: step.timeout_ms || DEFAULT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 });
+      const executable = step.run[0] === 'node' ? process.execPath : step.run[0];
+      const result = spawnSync(executable, step.run.slice(1), { cwd: repo, stdio: 'inherit', shell: false, timeout: step.timeout_ms || DEFAULT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 });
       if (result.error || result.status !== 0) fail(`POSTPROCESS_STEP_FAILED ${step.name}${result.error?.code === 'ETIMEDOUT' ? '_TIMEOUT' : ''}`);
-      const violations = findScopeViolations(before, snapshot(repo), step);
+      const violations = findScopeViolations(before, snapshot(repo), step, repo);
       if (violations.length) fail(`POSTPROCESS_SCOPE_VIOLATION ${step.name}: ${violations.join(', ')}`);
     }
     git(repo, ['add', '--all']);
@@ -187,9 +143,8 @@ function main() {
   if (command === 'validate') {
     const args = parseArgs(argv);
     const repo = path.resolve(args.repo || process.cwd());
-    const configPath = path.join(repo, '.squad', 'sandbox-postprocess.json');
-    const config = fs.existsSync(configPath) ? validateConfig(readJson(configPath)) : { version: 1, tools: {}, steps: [] };
-    for (const key of ['terraform', 'terraform_docs']) { const line = `${key}=${config.tools[key] || ''}\n`; if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, line); else process.stdout.write(line); }
+    const config = validateConfig(loadConfig(repo));
+    if (!process.env.GITHUB_OUTPUT) process.stdout.write(`tools=${Object.keys(config.tools).length}\n`);
     return;
   }
   if (command !== 'run') fail('POSTPROCESS_COMMAND_INVALID');

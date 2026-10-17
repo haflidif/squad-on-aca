@@ -19,7 +19,7 @@ function decision() {
   return { reason: 'Tests depend on the implementation.', members: [
     { member: 'test-checker', objective: 'Test actual infrastructure.', owned_paths: ['scripts/fixture.test.cjs'], depends_on: ['test-builder'] },
     { member: 'test-writer', objective: 'Document the example.', owned_paths: ['README.md'] },
-    { member: 'test-builder', objective: 'Implement infrastructure.', owned_paths: ['examples/terraform/main.tf'] }
+    { member: 'test-builder', objective: 'Implement infrastructure.', owned_paths: ['infra/config.json'] }
   ] };
 }
 function planFor(value = decision()) {
@@ -63,11 +63,11 @@ function mockDispatch(calls, { failStage = 0, cleanupStage = 0, missingStage = 0
     fs.mkdirSync(invocation.outDir, { recursive: true });
     git(invocation.repoPath, ['clone', '--quiet', '--no-hardlinks', '--no-checkout', invocation.repoPath, workspace]);
     git(workspace, ['checkout', '--quiet', '--detach', plan.baseline_sha]);
-    if (number === 2) assert.equal(fs.readFileSync(path.join(workspace, 'examples', 'terraform', 'main.tf'), 'utf8'), 'resource "test" "example" {}\n');
+    if (number === 2) assert.equal(fs.readFileSync(path.join(workspace, 'infra', 'config.json'), 'utf8'), '{\"enabled\":true}\n');
     const contents = {
-      'examples/terraform/main.tf': 'resource "test" "example" {}\n',
+      'infra/config.json': '{\"enabled\":true}\n',
       'README.md': '# Example documentation\n',
-      'scripts/fixture.test.cjs': 'const fs=require("node:fs");require("node:assert/strict").equal(fs.readFileSync("examples/terraform/main.tf","utf8"),\'resource "test" "example" {}\\n\');\n'
+      'scripts/fixture.test.cjs': 'const fs=require("node:fs");require("node:assert/strict").equal(fs.readFileSync("infra/config.json","utf8"),\'{\\"enabled\\":true}\\n\');\n'
     };
     const taskSummaries = [];
     for (const task of plan.tasks) {
@@ -139,9 +139,9 @@ test('dependency metadata does not relax disjoint ownership', () => {
   const value = decision(); value.members[0].owned_paths = value.members[2].owned_paths;
   assert.throws(() => validateRoutingDecision(value, roster), { code: 'DECISION_SCOPES_OVERLAP' });
 });
-test('Lead executable validation includes dependency rules and Tester guidance', () => scratch(directory => {
+test('Lead executable validation includes generic dependency rules', () => scratch(directory => {
   const plan = buildLeadPlan({ ...options, title: 'Fixture', body: 'Fixture' });
-  assert.match(plan.tasks[0].objective, /Set Tester depends_on/);
+  assert.match(plan.tasks[0].objective, /depends_on/);
   json(path.join(directory, 'routing', 'decision.json'), decision());
   const check = plan.integration.check_commands[0].argv;
   exec(check[0], check.slice(1), directory);
@@ -208,7 +208,7 @@ test('single-stage execution keeps original run identity and checks', () => scra
   assert.equal(runStages(config, mockDispatch(calls)).status, 'succeeded');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].plan.run_id, plan.run_id);
-  assert.equal(calls[0].plan.integration.check_commands.length, 2);
+  assert.equal(calls[0].plan.integration.check_commands.length, 1);
 }));
 test('report preserves stage numbers and identifies the failed member stage', () => scratch(directory => {
   const route = { reason: 'Fixture routing.', members: decision().members.map(entry => ({ logical_member_id: entry.member, resolved_persistent_name: 'Test Member', role: 'Fixture', objective: entry.objective, owned_paths: entry.owned_paths, stage: entry.depends_on ? 2 : 1 })) };
