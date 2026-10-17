@@ -190,6 +190,11 @@ Bootstrap hooks create the trigger and lifecycle labels. Squad and the publisher
 
 ## Troubleshooting
 
+Integration checks run in a Git-free copy of the integrated tree. The dispatcher passes the validated changed paths as data, including paths from previous member stages. Checks never discover a parent repository or scan unrelated runner files. Patch application and scope checks still run in the integration worktree before this isolated check. This host-side change does not require a persona image rebuild.
+
+`verify-generic-changes` returns `INTEGRATION_CHECK_FAILED` with a safe reason in the dispatcher summary. Reasons include `DENIED_PATH:<path>`, `ESCAPES_REPO:<path>`, `SYMLINK_ESCAPE:<path>`, `SECRET_PATTERN:<path>`, `FILE_INSPECT_FAILED:<path>`, and `CHECK_CONTEXT_INVALID`. No file content is reported. For `CHECK_CONTEXT_INVALID`, update the dispatcher and plan generator together so the check receives its changed-path context.
+
+
 | Code or symptom | Meaning and next step |
 |---|---|
 | `NO_CHANGES` | The combined member patches are empty. A revise run reports this on the existing PR and skips postprocess and publication. Check whether the requested change already exists or needs a more specific objective. |

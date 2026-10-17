@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { validateRoutingDecision, buildMemberPlan, buildLeadPlan } = require('./issue-plan.cjs');
+const { buildIntegrationDispatch } = require('../dispatcher/integrate');
 const { groupStages, runStages } = require('./issue-stages.cjs');
 const { renderComment, summarizeStored, summarizeStage } = require('./issue-report.cjs');
 const { validateContract } = require('../contracts/aca-sandbox/v1/tools/validate');
@@ -85,8 +86,13 @@ function mockDispatch(calls, { failStage = 0, cleanupStage = 0, missingStage = 0
     git(workspace, ['reset', '--hard', '--quiet', plan.baseline_sha]);
     for (const task of plan.tasks) git(workspace, ['apply', '--index', path.join(invocation.outDir, 'tasks', task.task_id, 'change.patch')]);
     const checks = [];
-    for (const check of plan.integration.check_commands) {
-      exec(check.argv[0], check.argv.slice(1), workspace);
+    const checkRoot = path.join(invocation.outDir, 'check-copy');
+    fs.mkdirSync(checkRoot);
+    git(workspace, ['--work-tree=' + checkRoot, 'checkout-index', '-a', '-f']);
+    assert.equal(fs.existsSync(path.join(checkRoot, '.git')), false);
+    const checkEnvelope = buildIntegrationDispatch(plan, plan.tasks.map(task => ({ task, sha256: hash('fixture'), changedPaths: task.owned_paths })));
+    for (const check of checkEnvelope.check_commands) {
+      exec(check.argv[0], check.argv.slice(1), checkRoot);
       checks.push({ name: check.name, status: 'passed' });
     }
     const bytes = git(workspace, ['diff', '--cached', '--binary', '--full-index']);
@@ -157,6 +163,7 @@ test('stages run once, stage 2 sees stage 1, final checks run once, final patch 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].plan.integration.check_commands.length, 0);
   assert.deepEqual(calls[1].plan.integration.check_commands.map(check => check.name), config.plan.integration.check_commands.map(check => check.name));
+  assert.deepEqual(JSON.parse(calls[1].plan.integration.check_commands[0].argv[3]).sort(), ['README.md', 'infra/config.json']);
   assert.equal(calls[1].plan.tasks.length, 1);
   assert.notEqual(calls[1].plan.baseline_sha, config.plan.baseline_sha);
   assert.deepEqual(calls[1].plan.tasks[0].dependencies, []);
@@ -167,7 +174,8 @@ test('stages run once, stage 2 sees stage 1, final checks run once, final patch 
   assert.equal(hash(fs.readFileSync(patch)), result.integration.sha256);
   assert.equal(validateIntegrationArtifacts(path.join(config.outDir, 'dispatcher-summary.json'), result).baselineSha, config.plan.baseline_sha);
   git(config.repoPath, ['apply', '--index', patch]);
-  for (const check of config.plan.integration.check_commands) exec(check.argv[0], check.argv.slice(1), config.repoPath);
+  const finalEnvelope = buildIntegrationDispatch(config.plan, config.plan.tasks.map(task => ({ task, sha256: hash('fixture'), changedPaths: task.owned_paths })));
+  for (const check of finalEnvelope.check_commands) exec(check.argv[0], check.argv.slice(1), config.repoPath);
   assert.equal(git(config.repoPath, ['rev-parse', 'HEAD']).trim(), config.plan.baseline_sha);
   assert.equal(fs.existsSync(path.join(config.outDir, '.stage-work')), false);
   const credits = JSON.parse(fs.readFileSync(path.join(config.outDir, 'stage-results.json')));

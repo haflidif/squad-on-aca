@@ -90,6 +90,16 @@ function parseRawDiffText(text) {
 const STATUS = { SUCCEEDED: 'succeeded', FAILED: 'failed', SKIPPED: 'skipped' };
 const MAX_ARTIFACT_SIZE_BYTES = 10 * 1024 * 1024;
 
+function safeCheckFailure(results) {
+  const failed = results.find(result => result.name === 'verify-generic-changes' && result.status === 'failed');
+  if (!failed) return '';
+  try {
+    const detail = JSON.parse(failed.stderr);
+    if (detail.code === 'INTEGRATION_CHECK_FAILED' && typeof detail.reason === 'string' &&
+        /^(?:(?:DENIED_PATH|ESCAPES_REPO|SYMLINK_ESCAPE|SECRET_PATTERN|FILE_INSPECT_FAILED):[^\x00-\x1f\x7f]{1,240}|CHECK_CONTEXT_INVALID|CHECK_FAILED)$/u.test(detail.reason)) return ` ${detail.reason}`;
+  } catch { /* Unstructured check output must not become a summary message. */ }
+  return '';
+}
 function integrationSummaryBase() {
   return {
     status: 'not_run',
@@ -162,7 +172,14 @@ function buildIntegrationDispatch(plan, patchInfos) {
       };
     })
   };
-  if (plan.integration?.check_commands) envelope.check_commands = plan.integration.check_commands;
+  if (plan.integration?.check_commands) envelope.check_commands = plan.integration.check_commands.map(command => {
+    if (command.name !== 'verify-generic-changes') return command;
+    // Checks run in a Git-free tree. Pass trusted patch paths, including earlier stages, as data.
+    const previous = command.argv[3] ? JSON.parse(command.argv[3]) : [];
+    if (!Array.isArray(previous) || previous.some(file => typeof file !== 'string')) throw new Error('CHECK_CONTEXT_INVALID');
+    const paths = [...new Set([...previous, ...patchInfos.flatMap(info => info.changedPaths)])];
+    return { ...command, argv: [...command.argv.slice(0, 3), JSON.stringify(paths)] };
+  });
   return envelope;
 }
 async function collectIntegrationArtifacts({ client, handle, outDir, integrationDir, plan, personaUnionPaths, token }) {
@@ -415,7 +432,7 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
     summary.check_results = collected.integrationResult.check_results || [];
     if (collected.integrationResult.status !== 'succeeded') {
       summary.failed_task_id = collected.integrationResult.failed_task_id || '';
-      throw new Error(collected.integrationResult.error?.message || 'integration failed');
+      throw new Error((collected.integrationResult.error?.message || 'integration failed') + safeCheckFailure(summary.check_results));
     }
     stage = 'patch-verification';
     await verifyIntegratedPatchContent({ bundlePath, baselineSha: plan.baseline_sha, patchPath: collected.patchPath, patchInfos, workDir: path.join(outDir, '.dispatcher-work'), config });
@@ -447,4 +464,4 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
   return summary;
 }
 
-module.exports = { runIntegrationPhase, buildIntegrationDispatch, integrationSummaryBase };
+module.exports = { safeCheckFailure, runIntegrationPhase, buildIntegrationDispatch, integrationSummaryBase };

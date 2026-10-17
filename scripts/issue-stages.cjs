@@ -95,6 +95,11 @@ function runStages(options, dispatch = defaultDispatch) {
       const stagePlan = { ...plan, run_id: stages.length === 1 ? plan.run_id : `${plan.run_id}-stage-${number}`, baseline_sha: baseline,
         tasks: tasks.map(task => ({ ...task, baseline_sha: baseline, dependencies: [] })),
         integration: { ...plan.integration, check_commands: index === stages.length - 1 ? plan.integration.check_commands : [] } };
+      if (index) {
+        const previousPaths = git(repo, ['diff', '--name-only', '-z', '--no-renames', plan.baseline_sha, baseline]).split('\0').filter(Boolean);
+        stagePlan.integration.check_commands = stagePlan.integration.check_commands.map(check => check.name === 'verify-generic-changes'
+          ? { ...check, argv: [...check.argv.slice(0, 3), JSON.stringify(previousPaths)] } : check);
+      }
       const planPath = path.join(out, `stage-${number}-plan.json`);
       write(planPath, stagePlan);
       progress.reserved_ai_credits += perMember * tasks.length;

@@ -73,7 +73,8 @@ for (const patches of [
   assert.deepEqual(envelope.tasks.map(task => task.task_id), [invocation.plan.tasks[kept].task_id]);
   assert.deepEqual(envelope.tasks[0].dependencies, []);
   assert.equal(validateContract('integration-dispatch.schema.json', envelope, invocation.plan).valid, true);
-  assert.deepEqual(envelope.check_commands, invocation.plan.integration.check_commands);
+  assert.deepEqual(envelope.check_commands[0].argv.slice(0, 3), invocation.plan.integration.check_commands[0].argv);
+  assert.deepEqual(JSON.parse(envelope.check_commands[0].argv[3]), [`docs/member-${kept}.md`]);
   const sentPatches = [...uploads].filter(([name]) => name.endsWith('.patch'));
   assert.equal(sentPatches.length, 1);
   assert.equal(sentPatches[0][1].toString(), patches[kept]);
@@ -90,3 +91,21 @@ test('empty patches are hash-verified before the no-sandbox shortcut', () => fix
   assert.equal(result.status, 'failed');
   assert.match(result.reason, /sha256 mismatch/);
 }));
+
+
+test('generic check context combines earlier and current changed paths without changing other commands', () => {
+  const { buildIntegrationDispatch, safeCheckFailure } = require('../integrate');
+  const owner = member('test-builder');
+  const task = { task_id: 'fixture', owner, dependencies: [], owned_paths: ['docs/**'] };
+  const plan = { tasks: [task], integration: { check_commands: [
+    { name: 'verify-generic-changes', argv: ['node', '-e', 'fixture', JSON.stringify(['src/first.txt'])] },
+    { name: 'other', argv: ['node', '-e', 'other'] }
+  ] } };
+  const result = buildIntegrationDispatch(plan, [{ task, sha256: hash('fixture'), changedPaths: ['docs/second.txt'] }]);
+  assert.deepEqual(JSON.parse(result.check_commands[0].argv[3]), ['src/first.txt', 'docs/second.txt']);
+  assert.deepEqual(result.check_commands[1], plan.integration.check_commands[1]);
+  const failure = reason => [{ name: 'verify-generic-changes', status: 'failed', stderr: JSON.stringify({ code: 'INTEGRATION_CHECK_FAILED', reason }) }];
+  assert.equal(safeCheckFailure(failure('SECRET_PATTERN:docs/second.txt')), ' SECRET_PATTERN:docs/second.txt');
+  assert.equal(safeCheckFailure(failure('arbitrary output')), '');
+  assert.equal(safeCheckFailure(failure('DENIED_PATH:bad\noutput')), '');
+});

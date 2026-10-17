@@ -442,3 +442,46 @@ for (const mode of ['empty', 'mixed', 'invalid']) test(`integration handles ${mo
     assert.equal(fs.statSync(path.join(outputDir, 'patches', 'integrated.patch')).size === 0, mode === 'empty');
   }
 });
+
+
+test('two stages run generated generic checks in a Git-free copy against both stages', { skip: !bash && 'Git Bash is not available' }, () => {
+  const { buildMemberPlan } = require('../../../scripts/issue-plan.cjs');
+  const { buildIntegrationDispatch } = require('../../../dispatcher/integrate');
+  const first = runIntegration('generic-stage-one', ({ repo, baseline, inputDir, ownerA }) => {
+    const patch = path.join(inputDir, 'patches', 'first.patch');
+    patchFor(repo, baseline, 'alpha/first.txt', 'stage one result\n', patch);
+    return { tasks: [{ task_id: 'first', owner: ownerA, dependencies: [], owned_paths: ['alpha/**'], patch_ref: { path: 'patches/first.patch', sha256: sha256(patch) } }] };
+  });
+  assert.equal(first.result.status, 0, first.result.stderr);
+  const firstPatch = path.join(first.outputDir, 'patches', 'integrated.patch');
+  const second = runIntegration('generic-stage-two', ({ repo, baseline, inputDir, ownerA, ownerB }) => {
+    const lead = { ...member('test-lead'), role: 'Lead' };
+    const builder = { ...ownerA, role: 'Implementation' }, writer = { ...ownerB, role: 'Documentation' };
+    const plan = buildMemberPlan({ repository: 'test-owner/test-repo', issueNumber: 7, runId: '123', attempt: '1',
+      roster: { members: [lead, builder, writer], lead }, selections: [
+        { member: builder, objective: 'Write the first file.', owned_paths: ['alpha/**'] },
+        { member: writer, objective: 'Write a different file.', owned_paths: ['beta/**'], depends_on: [builder.logical_member_id] }
+      ] });
+    assert.equal(fs.readFileSync(path.join(repo, 'alpha', 'first.txt'), 'utf8'), 'stage one result\n');
+    const patch = path.join(inputDir, 'patches', 'second.patch');
+    patchFor(repo, baseline, 'beta/second.txt', 'stage two result\n', patch);
+    plan.tasks = [plan.tasks[1]];
+    plan.tasks[0].dependencies = [];
+    plan.integration.check_commands[0].argv.push(JSON.stringify(['alpha/first.txt']));
+    const dispatch = buildIntegrationDispatch(plan, [{ task: plan.tasks[0], sha256: sha256(patch), changedPaths: ['beta/second.txt'] }]);
+    const check = dispatch.check_commands[0];
+    assert.deepEqual(JSON.parse(check.argv[3]), ['alpha/first.txt', 'beta/second.txt']);
+    return { tasks: [{ ...dispatch.tasks[0], patch_ref: { path: 'patches/second.patch', sha256: sha256(patch) } }], checks: dispatch.check_commands };
+  }, { repoPatch(repo, baseline) {
+    git(['apply', '--index', firstPatch], repo);
+    const tree = git(['write-tree'], repo);
+    const snapshot = run('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', 'commit-tree', tree, '-p', baseline], { cwd: repo, input: 'Stage one snapshot\n' });
+    git(['reset', '--hard', snapshot], repo);
+    return snapshot;
+  } });
+  assert.equal(second.result.status, 0, second.result.stderr);
+  assertValid(second.outputDir);
+  const result = readResult(second.outputDir);
+  assert.equal(result.check_results[0].name, 'verify-generic-changes');
+  assert.equal(result.check_results[0].status, 'succeeded');
+});

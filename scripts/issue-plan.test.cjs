@@ -281,3 +281,23 @@ test('report shows the routed member when the stored route has no schema field',
   assert.match(body, /routing reason: README-only documentation clarification fits the Docs member/);
   assert.doesNotMatch(body, /unavailable/);
 });
+
+
+test('generic check reports safe path reasons in a Git-free tree', () => scratch(dir => {
+  const plan = makePlan('member');
+  const check = plan.integration.check_commands[0];
+  const invoke = paths => spawnSync(process.execPath, [...check.argv.slice(1), JSON.stringify(paths)], { cwd: dir, encoding: 'utf8' });
+  fs.mkdirSync(path.join(dir, 'tests'));
+  fs.writeFileSync(path.join(dir, 'tests', 'safe.txt'), 'safe content');
+  assert.equal(invoke(['tests/safe.txt', 'tests/deleted.txt']).status, 0);
+  assert.equal(invoke(['.squad/config.json']).stderr.trim(), JSON.stringify({ code: 'INTEGRATION_CHECK_FAILED', reason: 'DENIED_PATH:.squad/config.json' }));
+  assert.match(invoke(['../outside']).stderr, /DENIED_PATH/);
+  const secret = 'ghp_' + 'x'.repeat(30);
+  fs.writeFileSync(path.join(dir, 'tests', 'unsafe.txt'), secret);
+  const failed = invoke(['tests/unsafe.txt']);
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, /SECRET_PATTERN:tests\/unsafe.txt/);
+  assert.ok(!failed.stderr.includes(secret));
+  const missing = spawnSync(process.execPath, check.argv.slice(1), { cwd: dir, encoding: 'utf8' });
+  assert.match(missing.stderr, /CHECK_CONTEXT_INVALID/);
+}));

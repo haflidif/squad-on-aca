@@ -154,7 +154,7 @@ function makeCheck(checkBody) {
   return [
     "const fs=require('node:fs');const path=require('node:path');",
     `const check=(${checkBody});`,
-    'try{if(!check()){throw new Error("check failed")}}catch(error){console.error(JSON.stringify({code:"INTEGRATION_CHECK_FAILED"}));process.exit(1)}'
+    'try{if(!check()){throw new Error("check failed")}}catch(error){console.error(JSON.stringify({code:"INTEGRATION_CHECK_FAILED",reason:typeof error.safeReason==="string"?error.safeReason:"CHECK_FAILED"}));process.exit(1)}'
   ].join('');
 }
 
@@ -197,30 +197,31 @@ function buildLeadPlan({ repository, issueNumber, title, body, runId, attempt, r
 function verifyGenericFiles({ root = process.cwd(), isDeniedPath }) {
   const fs = require('node:fs');
   const path = require('node:path');
-  const { spawnSync } = require('node:child_process');
-  const run = (args) => {
-    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', shell: false, maxBuffer: 4 * 1024 * 1024 });
-    if (result.error || result.status !== 0) throw new Error('Unable to inspect integrated changes');
-    return result.stdout.split(/\r?\n/u).filter(Boolean);
+  const reject = (code, file) => {
+    const error = new Error(code);
+    error.safeReason = code + (file ? `:${file.replace(/[\x00-\x1f\x7f]/gu, '?').slice(0, 240)}` : '');
+    throw error;
   };
-  const files = new Set([...run(['diff', '--name-only', '--no-renames', 'HEAD']), ...run(['ls-files', '--others', '--exclude-standard'])]);
+  let files;
+  try { files = JSON.parse(process.argv[1]); } catch { reject('CHECK_CONTEXT_INVALID'); }
+  if (!Array.isArray(files) || files.some(file => typeof file !== 'string')) reject('CHECK_CONTEXT_INVALID');
   for (const file of files) {
-    if (!file || typeof isDeniedPath !== 'function' || isDeniedPath(file, root)) throw new Error('Changed path is denied');
+    if (!file || typeof isDeniedPath !== 'function' || isDeniedPath(file, root)) reject('DENIED_PATH', file);
     const absolute = path.resolve(root, file);
     const relative = path.relative(root, absolute);
-    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Changed path escapes repository');
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) reject('ESCAPES_REPO', file);
     let current = root;
     for (const part of file.split('/')) {
       current = path.join(current, part);
-      let stat; try { stat = fs.lstatSync(current); } catch { break; }
+      let stat; try { stat = fs.lstatSync(current); } catch (error) { if (error.code === 'ENOENT') break; reject('FILE_INSPECT_FAILED', file); }
       if (stat.isSymbolicLink()) {
-        const target = fs.realpathSync(current);
+        let target; try { target = fs.realpathSync(current); } catch { reject('FILE_INSPECT_FAILED', file); }
         const escaped = path.relative(root, target);
-        if (escaped.startsWith('..') || path.isAbsolute(escaped)) throw new Error('Changed symlink escapes repository');
+        if (escaped.startsWith('..') || path.isAbsolute(escaped)) reject('SYMLINK_ESCAPE', file);
       }
     }
-    let content; try { content = fs.readFileSync(absolute, 'utf8'); } catch { continue; }
-    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(content) || /(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|(?:client_secret|password|access[_-]?key|api[_-]?key)\s*[:=]\s*["'][^"']{12,}["'])/iu.test(content)) throw new Error('Possible secret material in changed file');
+    let content; try { content = fs.readFileSync(absolute, 'utf8'); } catch (error) { if (error.code === 'ENOENT') continue; reject('FILE_INSPECT_FAILED', file); }
+    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(content) || /(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|(?:client_secret|password|access[_-]?key|api[_-]?key)\s*[:=]\s*["'][^"']{12,}["'])/iu.test(content)) reject('SECRET_PATTERN', file);
   }
   return true;
 }

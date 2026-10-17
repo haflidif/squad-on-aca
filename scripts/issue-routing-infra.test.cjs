@@ -38,8 +38,8 @@ function initRepo(dir) {
   git(['init', '--quiet']); git(['config', 'user.name', 'Generic Test']); git(['config', 'user.email', 'generic@example.invalid']);
   git(['commit', '--quiet', '--allow-empty', '-m', 'baseline']);
 }
-function check(dir, plan) {
-  return spawnSync(process.execPath, command(plan).argv.slice(1), { cwd: dir, encoding: 'utf8' });
+function check(dir, plan, files) {
+  return spawnSync(process.execPath, [...command(plan).argv.slice(1), JSON.stringify(files)], { cwd: dir, encoding: 'utf8' });
 }
 
 test('member kinds are generic hints and default scopes are repository-wide', () => {
@@ -94,7 +94,7 @@ test('generic integration check allows ordinary code and documentation paths', (
   initRepo(dir);
   write(dir, 'src/main.js', 'module.exports = true;\n');
   write(dir, 'docs/guide.md', '# Guide\n');
-  const result = check(dir, plan);
+  const result = check(dir, plan, ['src/main.js', 'docs/guide.md']);
   assert.equal(result.status, 0, result.stderr);
 }));
 
@@ -102,8 +102,9 @@ test('generic integration check denies protected engine paths and escaping symli
   const plan = planFor(decision(['**']));
   initRepo(dir);
   write(dir, '.github/workflows/ci.yml', 'name: unsafe\n');
-  let result = check(dir, plan);
+  let result = check(dir, plan, ['.github/workflows/ci.yml']);
   assert.equal(result.status, 1);
+  assert.match(result.stderr, /DENIED_PATH:.github/);
   fs.rmSync(path.join(dir, '.github'), { recursive: true, force: true });
   const outside = path.join(path.dirname(dir), `.generic-flow-outside-${crypto.randomUUID()}`);
   fs.mkdirSync(outside);
@@ -111,19 +112,20 @@ test('generic integration check denies protected engine paths and escaping symli
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   try { fs.symlinkSync(outside, path.join(dir, 'src', 'linked'), 'junction'); }
   catch (error) { fs.rmSync(outside, { recursive: true, force: true }); if (error.code === 'EPERM') { t.skip('Directory symlinks require Windows privileges'); return; } throw error; }
-  result = check(dir, plan);
+  result = check(dir, plan, ['src/linked/secret.txt']);
   fs.rmSync(outside, { recursive: true, force: true });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /INTEGRATION_CHECK_FAILED/);
+  assert.match(result.stderr, /SYMLINK_ESCAPE:src/);
 }));
 
 test('generic integration check catches likely secret material without echoing it', () => scratch(dir => {
   const plan = planFor(decision(['**']));
   initRepo(dir);
   write(dir, 'src/config.js', 'const client_secret = "synthetic-not-a-secret";\n');
-  const result = check(dir, plan);
+  const result = check(dir, plan, ['src/config.js']);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /INTEGRATION_CHECK_FAILED/);
+  assert.match(result.stderr, /SECRET_PATTERN:src/);
   assert.doesNotMatch(result.stderr, /synthetic-not-a-secret/);
 }));
 
