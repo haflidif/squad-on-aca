@@ -105,7 +105,7 @@ function route({ summaryFile, eventFile, outDir, env, repoRoot }) {
   fs.writeFileSync(path.join(outDir, 'route-result.json'), `${JSON.stringify({
     schema: 1,
     member: { logical_member_id: member.logical_member_id, resolved_persistent_name: member.resolved_persistent_name },
-    members: selections.map(selection => ({ logical_member_id: selection.member.logical_member_id, resolved_persistent_name: selection.member.resolved_persistent_name, role: selection.member.role, objective: selection.objective, owned_paths: selection.owned_paths })),
+    members: selections.map(selection => ({ logical_member_id: selection.member.logical_member_id, resolved_persistent_name: selection.member.resolved_persistent_name, role: selection.member.role, objective: selection.objective, owned_paths: selection.owned_paths, stage: selection.depends_on?.length ? 2 : 1 })),
     reason: decision.reason
   }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   fs.writeFileSync(path.join(outDir, 'member-plan.json'), `${JSON.stringify(plan, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });

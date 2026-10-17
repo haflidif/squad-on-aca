@@ -44,11 +44,13 @@ function summarizeStage(summaryFile, diagnosticsDir) {
   let diagnostics = null;
   try { summary = summaryBytes ? JSON.parse(summaryBytes.toString('utf8')) : null; } catch { summary = null; }
   try { diagnostics = diagnosticsBytes ? JSON.parse(diagnosticsBytes.toString('utf8')) : null; } catch { diagnostics = null; }
+  const stageResults = summaryFile ? readJson(path.join(path.dirname(summaryFile), 'stage-results.json')) : null;
+  const failedStage = (Array.isArray(stageResults?.stages) ? stageResults.stages : []).find(stage => stage?.status === 'failed');
   const entries = Array.isArray(diagnostics?.entries) ? diagnostics.entries : [];
   return {
     status: diagnostics?.overall_status === 'succeeded' || diagnostics?.overall_status === 'failed' ? diagnostics.overall_status : 'unknown',
     code: pick(diagnostics?.code, CODE),
-    stage: pick(diagnostics?.stage, STAGE),
+    stage: failedStage && [1, 2].includes(failedStage.stage) ? `member-stage-${failedStage.stage}` : pick(diagnostics?.stage, STAGE),
     entries: entries
       .filter(entry => ENTRY_KINDS.has(entry?.kind) && ENTRY_STATUSES.has(entry?.status) && pick(entry?.id, ENTRY_ID))
       .map(entry => ({ kind: entry.kind, id: entry.id, status: entry.status })),
@@ -73,10 +75,10 @@ function validateRouteBody(route) {
     const members = [];
     for (const member of route.members) {
       if (!pick(member?.logical_member_id, MEMBER_ID) || !pick(member?.resolved_persistent_name, MEMBER_NAME) ||
-          !pick(member?.objective, SAFE_REASON) || typeof member?.role !== 'string' || !/^[A-Za-z0-9 &.,;:()/_+-]{1,160}$/.test(member.role) ||
+          !pick(member?.objective, SAFE_REASON) || (member.stage !== undefined && ![1, 2].includes(member.stage)) || typeof member?.role !== 'string' || !/^[A-Za-z0-9 &.,;:()/_+-]{1,160}$/.test(member.role) ||
           !Array.isArray(member?.owned_paths) || !member.owned_paths.every(scope => typeof scope === 'string' && /^[A-Za-z0-9_.*/-]{1,200}$/.test(scope))) return null;
       members.push({ logical_member_id: member.logical_member_id, resolved_persistent_name: member.resolved_persistent_name,
-        role: member.role, objective: member.objective, owned_paths: member.owned_paths });
+        role: member.role, objective: member.objective, owned_paths: member.owned_paths, stage: member.stage ?? 1 });
     }
     if (new Set(members.map(member => member.logical_member_id)).size !== members.length) return null;
     return { members, member: { logical_member_id: members[0].logical_member_id, resolved_persistent_name: members[0].resolved_persistent_name }, reason: route.reason };
@@ -169,7 +171,7 @@ function renderComment(result, jobs = {}) {
     lines.push(`Status: \`${overall}\``, '');
     if (result.route) {
       for (const member of result.route.members || [result.route.member]) {
-        lines.push(`- routed member: \`${member.logical_member_id}\` (${member.resolved_persistent_name})${member.role ? `, ${member.role}` : ''}${member.objective ? `: ${member.objective}` : ''}`);
+        lines.push(`- routed member: \`${member.logical_member_id}\` (${member.resolved_persistent_name}), stage ${member.stage ?? 1}${member.role ? `, ${member.role}` : ''}${member.objective ? `: ${member.objective}` : ''}`);
       }
       lines.push(`- routing reason: ${result.route.reason}`);
     } else {
@@ -235,6 +237,24 @@ function copyMemberIntegrationArtifacts(summaryFile, summary, destination) {
   return { patchPath: targetPatch, manifestPath: targetManifest };
 }
 
+function writeStageDiagnostics(source, destination, stages) {
+  const safe = { stages: (Array.isArray(stages.stages) ? stages.stages : [])
+    .filter(stage => stage && [1, 2].includes(stage.stage) && ['succeeded', 'failed'].includes(stage.status))
+    .map(stage => ({ stage: stage.stage, status: stage.status })) };
+  fs.writeFileSync(path.join(destination, 'stage-results.json'), JSON.stringify(safe, null, 2) + '\n');
+  const root = path.join(source, 'diagnostic-patches');
+  if (!fs.existsSync(root)) return;
+  function copy(directory, target) {
+    fs.mkdirSync(target, { recursive: true });
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory() && /^stage-[12]$/.test(entry.name)) copy(file, path.join(target, entry.name));
+      else if (entry.isFile() && /^[A-Za-z0-9._:-]+\.patch$/.test(entry.name)) fs.copyFileSync(file, path.join(target, entry.name));
+    }
+  }
+  copy(root, path.join(destination, 'diagnostic-patches'));
+}
+
 function main(argv, env) {
   const [command, ...rest] = argv;
   const args = {};
@@ -264,6 +284,9 @@ function main(argv, env) {
     try { summary = summaryBytes ? JSON.parse(summaryBytes.toString('utf8')) : null; } catch { summary = null; }
     if (summaryBytes) fs.writeFileSync(path.join(args.out, 'dispatcher-summary.json'), summaryBytes, { mode: 0o600, flag: 'wx' });
     copyDiagnostics(args.diagnostics, args.out, 'diagnostics');
+    const stageRoot = path.dirname(args.summary || '.');
+    const stages = readJson(path.join(stageRoot, 'stage-results.json'));
+    if (stages) writeStageDiagnostics(stageRoot, args.out, stages);
     if (args['include-patch'] !== undefined && summary?.integration?.status === 'succeeded') {
       copyMemberIntegrationArtifacts(args.summary, summary, args.out);
     }

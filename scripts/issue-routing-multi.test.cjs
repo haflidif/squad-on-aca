@@ -332,7 +332,7 @@ test('report creates member labels and adds failed state on publication failure'
   const root = path.resolve(__dirname, '..');
   const { loadRoster, supportedKind } = require('./issue-plan.cjs');
   const actual = loadRoster(root);
-  const selected = actual.members.filter(member => member !== actual.lead && supportedKind(member)).map(member => ({ ...member, objective: 'Execute bounded work.', owned_paths: supportedKind(member) === 'documentation' ? ['README.md'] : supportedKind(member) === 'testing' ? ['dispatcher/test/**'] : supportedKind(member) === 'infrastructure' ? ['infra/terraform/**'] : ['agents/sandbox/**'] }));
+  const selected = actual.members.filter(member => member !== actual.lead && supportedKind(member)).map(member => ({ ...member, objective: 'Execute bounded work.', owned_paths: supportedKind(member) === 'documentation' ? ['README.md'] : supportedKind(member) === 'testing' ? ['dispatcher/test/**'] : supportedKind(member) === 'infrastructure' ? ['examples/terraform/**'] : ['agents/sandbox/**'] }));
   const result = { status: 'succeeded', route: { reason: 'Execute bounded work.', members: selected }, stages: { lead: { status: 'succeeded' }, member: { status: 'succeeded' } } };
   fs.writeFileSync(path.join(dir, 'issue-result.json'), JSON.stringify(result));
   const calls = [];

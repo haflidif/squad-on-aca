@@ -34,7 +34,7 @@ function decisionPatch(member, reason = 'Implement the requested product change.
   else {
     const selected = ROSTER.members.find(candidate => candidate.logical_member_id === member);
     const kind = supportedKind(selected);
-    const scope = kind === 'testing' ? 'dispatcher/test/**' : kind === 'infrastructure' ? 'infra/terraform/**' : 'agents/sandbox/**';
+    const scope = kind === 'testing' ? 'dispatcher/test/**' : kind === 'infrastructure' ? 'examples/terraform/**' : 'agents/sandbox/**';
     decision = { reason, members: [{ member, objective: 'Complete the bounded issue objective.', owned_paths: [scope] }] };
   }
   const content = JSON.stringify(decision, null, 2).split('\n');
@@ -146,4 +146,37 @@ test('route emits one two-task member plan and preserves both routed objectives'
   assert.equal(plan.tasks.length, 2);
   assert.deepEqual(routed.members.map(member => member.objective), decision.members.map(member => member.objective));
   assert.deepEqual(plan.tasks.map(task => task.owned_paths), decision.members.map(member => member.owned_paths));
+}));
+
+
+test('route persists a three-member plan with infrastructure code ownership', () => scratch(dir => {
+  const kinds = ['infrastructure', 'testing', 'implementation'];
+  const scopes = [['examples/terraform/main.tf'], ['scripts/example.test.cjs'], ['agents/sandbox/**']];
+  const decision = { reason: 'Independent infrastructure tests and implementation.', members: kinds.map((kind, index) => {
+    const member = ROSTER.members.find(candidate => supportedKind(candidate) === kind);
+    assert.ok(member);
+    return { member: member.logical_member_id, objective: 'Execute bounded work.', owned_paths: scopes[index] };
+  }) };
+  const files = makeFixture(dir, decisionPatch(decision));
+  const result = route({ ...files, env: ENV, repoRoot: ROOT });
+  assert.deepEqual(result.members, decision.members.map(member => member.member));
+  const plan = JSON.parse(fs.readFileSync(path.join(files.outDir, 'member-plan.json'), 'utf8'));
+  assert.equal(plan.tasks.length, 3);
+  assert.deepEqual(plan.tasks.map(task => task.owned_paths), scopes);
+  assert.ok(plan.integration.check_commands.some(check => check.name === 'verify-infra-files'));
+}));
+
+test('route persists dependency task IDs and stages without relying on member names', () => scratch(dir => {
+  const builder = ROSTER.members.find(member => supportedKind(member) === 'infrastructure');
+  const tester = ROSTER.members.find(member => supportedKind(member) === 'testing');
+  const decision = { reason: 'Tests need implementation files.', members: [
+    { member: tester.logical_member_id, objective: 'Test actual files.', owned_paths: ['scripts/example.test.cjs'], depends_on: [builder.logical_member_id] },
+    { member: builder.logical_member_id, objective: 'Implement example.', owned_paths: ['examples/terraform/main.tf'] }
+  ] };
+  const files = makeFixture(dir, decisionPatch(decision));
+  route({ ...files, env: ENV, repoRoot: ROOT });
+  const plan = JSON.parse(fs.readFileSync(path.join(files.outDir, 'member-plan.json')));
+  const routed = JSON.parse(fs.readFileSync(path.join(files.outDir, 'route-result.json')));
+  assert.deepEqual(plan.tasks[0].dependencies, [{ task_id: plan.tasks[1].task_id }]);
+  assert.deepEqual(routed.members.map(member => member.stage), [2, 1]);
 }));

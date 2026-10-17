@@ -8,9 +8,19 @@ node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client 
 
 ## Opt-in issue flow
 
-The legacy ACA Job workflow remains the default. The separate `squad-sandbox-issue.yml` workflow runs only for issues labeled `sandbox-run` when `SQUAD_ISSUE_FLOW_ENABLED` is `true`; `SQUAD_ISSUE_OPT_IN_NUMBER` can further restrict the allowed issue. A repository collaborator with write access must apply the label. The workflow runs a Lead routing stage and up to three scoped member stages, integrates their changes, then publishes the validated result as a draft pull request.
+The legacy ACA Job workflow remains the default. The separate `squad-sandbox-issue.yml` workflow runs only for issues labeled `sandbox-run` when `SQUAD_ISSUE_FLOW_ENABLED` is `true`; `SQUAD_ISSUE_OPT_IN_NUMBER` can further restrict the allowed issue. A repository collaborator with write access must apply the label. The workflow runs a Lead routing stage and one to three scoped members in at most two dependency-ordered stages, integrates their changes, then publishes the validated result as a draft pull request.
 
 Set `SQUAD_ISSUE_FLOW_ENABLED` as a repository variable to enable dispatch. Set `SQUAD_ISSUE_OPT_IN_NUMBER` as a `squad-sandbox-issue` environment variable to restrict it to one issue, and configure the ACA settings in that environment. In `squad-publish`, set `SQUAD_GITHUB_APP_ID` and `SQUAD_GITHUB_APP_INSTALLATION_ID` as variables and `SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` as a secret. The flow uses `sandbox:*` lifecycle labels and `squad:<member>` routing labels; it does not run unless explicitly enabled.
+
+### Member ownership and stages
+
+Routing decisions may include `depends_on: ["<member id>"]` per member. Independent members run in stage 1; members depending only on independent members run in stage 2. Self-dependencies, unknown or duplicate dependencies, cycles, three-stage graphs, and overlapping owned paths are rejected. Stage 2 starts from the combined stage-1 patch, so a dependent tester can read the implementation. Final integration checks run once against the combined result. Publication uses one patch against the original baseline and credits every contributing member.
+
+Infrastructure roles (including Infra and Terraform) may own only `examples/terraform/**` or concrete `.tf` and `.md` files beneath `examples/terraform/`; they cannot own production `infra/**`, workflow, dispatcher, scripts, or team files. Testing and documentation role detection takes precedence, so Terraform Validation & Module Tests remains testing, and Module Documentation & Examples remains documentation. Existing implementation, testing, and documentation scopes are unchanged. The example directory need not exist before routing.
+
+The Node-only `verify-infra-files` integration check requires selected files to exist, be regular and non-empty, have balanced Terraform braces, and contain no obvious hardcoded secret assignments. It rejects symlinks and is not a substitute for `terraform validate` or deployment validation.
+
+`issue-stages.cjs` reserves AI credits per member against one aggregate budget (the workflow allows 30 per member, 90 total). The issue report shows each member's stage. Member artifacts retain patch-only diagnostics, including member patches, per-stage combined patches, and the final combined patch, even when integration fails. Failed stages prevent dependent execution and publication. Existing opt-in gates, protected environments, and permissions remain unchanged.
 
 ## Local Windows operator path
 

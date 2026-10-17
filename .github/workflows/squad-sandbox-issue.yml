@@ -1,6 +1,6 @@
 name: Squad sandbox issue flow
 
-# Labeling an issue sandbox-run dispatches a Lead routing sandbox followed by up to three sequential member sandboxes.
+# Labeling an issue sandbox-run dispatches Lead routing then up to two dependency-ordered member stages.
 # The issue title and body are untrusted and are read only by scripts/issue-plan.cjs.
 
 on:
@@ -189,7 +189,7 @@ jobs:
     outputs:
       supported_members: ${{ steps.route.outputs.supported_members }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     environment: squad-sandbox-issue
     permissions:
       contents: read
@@ -220,7 +220,7 @@ jobs:
             const plan = JSON.parse(fs.readFileSync(".squad-issue/member-plan.json", "utf8"));
             const { loadRoster, validateRoutingDecision } = require("./scripts/issue-plan.cjs");
             const roster = loadRoster(process.cwd());
-            validateRoutingDecision({reason: "Validate workflow member plan.", members: plan.tasks.map(task => ({member: task.owner.logical_member_id, objective: "Execute validated task.", owned_paths: task.owned_paths}))}, roster);
+            validateRoutingDecision({reason: "Validate workflow member plan.", members: plan.tasks.map(task => ({member: task.owner.logical_member_id, objective: "Execute validated task.", owned_paths: task.owned_paths, depends_on: (task.dependencies || []).map(dep => plan.tasks.find(candidate => candidate.task_id === dep.task_id)?.owner.logical_member_id)}))}, roster);
             for (const task of plan.tasks) {
               const member = roster.members.find(member => member.logical_member_id === task.owner.logical_member_id);
               if (task.owner.resolved_persistent_name !== member.resolved_persistent_name || task.owner.charter_ref !== member.charter_ref) process.exit(1);
@@ -289,17 +289,14 @@ jobs:
           SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
-          node dispatcher/cli.js
+          node scripts/issue-stages.cjs
           --plan "$RUNNER_TEMP/validated-squad-plan.json"
           --repo "$GITHUB_WORKSPACE"
           --out "$RUNNER_TEMP/squad-member-out"
           --repo-full-name "$SQUAD_REPOSITORY"
           --issue-number "$SQUAD_ISSUE_NUMBER"
-          --client aca
-          --auth-mode actions
           --max-ai-credits 30
-          --concurrency 1
-          --timeout-ms 300000
+          --total-ai-credits 90
       - name: Sanitize member dispatcher diagnostics even on failure
         if: always()
         env:
