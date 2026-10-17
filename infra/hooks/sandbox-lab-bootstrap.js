@@ -2,16 +2,20 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
-const REPO = 'AzureViking/squad-on-aca-sandbox-lab';
-const ENVIRONMENT = 'squad-sandbox-dispatch';
-const SUBSCRIPTION = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e';
 
 function usage() {
-  return 'Usage: node infra/hooks/sandbox-lab-bootstrap.js --outputs <terraform-output.json> --repo AzureViking/squad-on-aca-sandbox-lab --environment   squad-sandbox-dispatch [--apply] [--allow-self-review]';
+  return 'Usage: node infra/hooks/sandbox-lab-bootstrap.js --outputs <terraform-output.json> --repo <owner/repo> --environment <name> [--apply] [--allow-self-review]';
 }
 
 function parseArguments(args) {
-  const options = {};
+  // Local lab values belong in the ignored infra/hooks/sandbox-lab.local.json, never in tracked defaults.
+  const configPath = process.env.SANDBOX_LAB_CONFIG || require('node:path').join(__dirname, 'sandbox-lab.local.json');
+  let local = {};
+  if (fs.existsSync(configPath)) local = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const options = {
+    repo: process.env.SANDBOX_LAB_REPO || local.repo,
+    environment: process.env.SANDBOX_LAB_ENVIRONMENT || local.environment
+  };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--apply') options.apply = true;
     else if (args[i] === '--allow-self-review') options.allowSelfReview = true;
@@ -19,7 +23,7 @@ function parseArguments(args) {
       options[args[i].slice(2)] = args[++i];
     } else throw new Error(usage());
   }
-  if (!options.outputs || options.repo !== REPO || options.environment !== ENVIRONMENT) throw new Error(usage());
+  if (!options.outputs || !/^[^/\s]+\/[^/\s]+$/.test(options.repo || '') || !/^[A-Za-z0-9_-]+$/.test(options.environment || '')) throw new Error(usage());
   return options;
 }
 
@@ -29,13 +33,10 @@ function readVariables(outputPath) {
     if (typeof outputs[key]?.value !== 'string' || !outputs[key].value) throw new Error(`Missing Terraform output ${key}.`);
     return outputs[key].value;
   };
-  if (required('subscription_id') !== SUBSCRIPTION) throw new Error('Terraform outputs do not match approved subscription.');
-  if (required('resource_group_name') !== 'rg-squad-aca-sandbox-lab') throw new Error('Terraform outputs do not match approved lab resource group.');
-  if (required('sandbox_group_name') !== 'sbg-squad-aca-sandbox-lab') throw new Error('Terraform outputs do not match approved Sandbox Group.');
-  if (!/^[-0-9a-f]{36}$/i.test(required('dispatcher_client_id')) ||
-      !/^[-0-9a-f]{36}$/i.test(required('dispatcher_tenant_id')) ||
-      !/^[-0-9a-f]{36}$/i.test(required('image_pull_client_id'))) {
-    throw new Error('Terraform outputs must include valid dispatcher client, tenant, and image-pull client IDs.');
+  const subscription = required('subscription_id');
+  const guidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+  for (const key of ['subscription_id', 'dispatcher_client_id', 'dispatcher_tenant_id', 'image_pull_client_id']) {
+    if (!guidPattern.test(required(key))) throw new Error(`Terraform output ${key} must be a GUID.`);
   }
   return {
     SQUAD_SANDBOX_GROUP_NAME: required('sandbox_group_name'),
@@ -43,7 +44,7 @@ function readVariables(outputPath) {
     SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: required('image_pull_client_id'),
     SQUAD_SANDBOX_AZURE_CLIENT_ID: required('dispatcher_client_id'),
     SQUAD_SANDBOX_AZURE_TENANT_ID: required('dispatcher_tenant_id'),
-    SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: SUBSCRIPTION
+    SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: subscription
   };
 }
 
@@ -90,13 +91,13 @@ function verifyEnvironment(environment, policies, manual, { allowSelfReview = fa
       !Array.isArray(list) || list.length !== policies.total_count ||
       !isObject(policy) || !Number.isInteger(policy.id) || policy.id <= 0 ||
       policy.name !== 'main' || policy.type !== 'branch') {
-    throw new Error(`Environment must permit only the lab main branch. ${manual}`);
+    throw new Error(`Environment must permit only the main branch. ${manual}`);
   }
 }
 
 function run(options) {
   const vars = readVariables(options.outputs);
-  const manual = `Manually create ${REPO} as a private repo and protect environment ${ENVIRONMENT} with required reviewers, no self-approval and main-only deployment branches before setting variables.`;
+  const manual = `Manually create ${options.repo} as a private repo and protect environment ${options.environment} with required reviewers, no self-approval and main-only deployment branches before setting variables.`;
   if (!options.apply) {
     console.log(`DRY RUN: ${manual}`);
     console.log(`Would set only protected environment variables: ${Object.keys(vars).join(', ')}.`);
@@ -105,8 +106,8 @@ function run(options) {
   let environment;
   let policies;
   try {
-    environment = JSON.parse(runGhp(['api', `repos/${REPO}/environments/${ENVIRONMENT}`]));
-    policies = JSON.parse(runGhp(['api', `repos/${REPO}/environments/${ENVIRONMENT}/deployment-branch-policies`]));
+    environment = JSON.parse(runGhp(['api', `repos/${options.repo}/environments/${options.environment}`]));
+    policies = JSON.parse(runGhp(['api', `repos/${options.repo}/environments/${options.environment}/deployment-branch-policies`]));
   } catch (error) {
     throw new Error(`Cannot verify the existing GitHub environment through ghp: ${error.message}. ${manual}`);
   }
@@ -115,7 +116,7 @@ function run(options) {
     console.warn('WARNING: self-review is allowed by explicit --allow-self-review (single-maintainer test tenant only).');
   }
   for (const [name, value] of Object.entries(vars)) {
-    runGhp(['variable', 'set', name, '--repo', REPO, '--env', ENVIRONMENT, '--body', value]);
+    runGhp(['variable', 'set', name, '--repo', options.repo, '--env', options.environment, '--body', value]);
   }
   console.log(`Set ${Object.keys(vars).length} non-secret dispatch environment variables; image digest, CLI path, credentials and publisher configuration remain manual.`);
 }

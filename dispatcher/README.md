@@ -22,94 +22,15 @@ The Node-only `verify-infra-files` integration check requires selected files to 
 
 `issue-stages.cjs` reserves AI credits per member against one aggregate budget (the workflow allows 30 per member, 90 total). The issue report shows each member's stage. Member artifacts retain patch-only diagnostics, including member patches, per-stage combined patches, and the final combined patch, even when integration fails. Failed stages prevent dependent execution and publication. Existing opt-in gates, protected environments, and permissions remain unchanged.
 
-## Local Windows operator path
+## Before live dispatch
 
-> Local operation is the selected first execution host. No persistent GitHub
-> runner, paid VM, runner registration, or OIDC trust change is required.
-> **Image released, full live flow not proven:** the corrected credit-bounded
-> image is published and digest-verified. See the worker's release receipt below.
-> Do not use the old probe or pre-credit-limit digest as the corrected release.
-
-From this checkout in PowerShell 7.3 or newer, run the durable read-only helper:
-
-```powershell
-.\infra\hooks\sandbox-lab-local.ps1 -PreflightOnly
-```
-
-This intentionally exits with an explicit missing-image/plan/approval blocker.
-It checks installed Node 22+, Azure CLI and the absolute installed
-`%USERPROFILE%\.aca\bin\aca.exe` at `1.0.0-preview.4`. It uses only the existing
-isolated `%USERPROFILE%\.squad-sandbox-lab\azcfg` Azure context (override with
-`-AzureConfigDir` if needed), requires its default account to be enabled in
-subscription `e69b8a95-fe38-42da-b5e6-e3e0a833cf9e` and tenant
-`49ff7219-653a-4644-8540-71d16dbf9c16`, and reads only the approved lab
-group, pull identity, sandbox inventory and disk inventory in `swedencentral`.
-It never logs in, sets an account, obtains an explicit access token, retrieves
-registry/GitHub credentials, creates or deletes resources, or writes a
-materialized plan or output directory. Azure CLI may maintain its own isolated
-cache when making authenticated reads; the default Azure configuration stays
-untouched. Missing or expired isolated login fails closed rather than repairing it.
-
-The helper sets configuration and gates only in the current process, strips
-inherited credentials/service-identity selectors from tool children, and restores
-every changed environment variable on success or error (including absence).
-It never reads `.env` or secret files, changes git configuration, or selects
-publication. **Preflight does not check a Copilot token or prove image contents,
-token entitlement, RBAC sufficiency for writes, or the full live dispatcher flow.**
-
-### First real task prerequisites
-
-1. Select the corrected immutable credit-bounded runner image. The scoped
-   `.azure\image-release-scope` AZCLI validation/publication plan validates image
-   publication only, not the broader deployment. The released digest is recorded
-   in `agents\sandbox\README.md`; use that receipt rather than a mutable tag or
-   the pre-credit-limit image. The known old `cea1d310…` probe image is rejected
-   by this helper.
-2. Use a reviewed **lab repository checkout**, not this personal repository.
-   Its `origin` must identify `AzureViking/squad-on-aca-sandbox-lab` without
-   credentials. Place a schema-valid single-persona plan inside that checkout,
-   with the actual checked-out baseline SHA (no `$CHECKED_OUT_SHA` template),
-   roster-derived owner, bounded owned paths, and exact selected lab repo/issue
-   binding. Dirty working-tree edits are not included in the baseline bundle;
-   ensure the reviewed lab baseline contains the intended implementation.
-3. Obtain explicit approval for the bounded real task and remaining unverified
-   client behavior. The wrapper requires `-AllowUnverifiedClient`, concurrency
-   exactly `1`, timeout `1000`–`300000` ms, an empty sandbox inventory, and a new
-   output directory. A host timeout does not cancel remote execution; inspect
-   exact-ID cleanup in the dispatcher summary and retain a disk if cleanup fails.
-4. Supply a licensed fine-grained `github_pat_` credential as caller-process
-   `SQUAD_COPILOT_TOKEN` immediately before the real command, using your secure
-   process-only credential mechanism. Do not paste it in command arguments,
-   transcripts, plans or files. No real token was acquired or used during this
-   preparation. The existing dispatcher consumes it once and uses its protected
-   transient host/tmpfs transport; the wrapper restores caller environment,
-   so remove the caller token yourself after the operation.
-
-After prerequisites 1–3, the exact **configuration preflight** command shape is:
-
-```powershell
-.\infra\hooks\sandbox-lab-local.ps1 -PreflightOnly `
-  -RepoPath 'C:\path\to\reviewed-lab-checkout' `
-  -PlanPath 'plans\reviewed-task.json' `
-  -Repository 'AzureViking/squad-on-aca-sandbox-lab' -IssueNumber '<real-issue-number>' `
-  -ImageRef 'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:<approved-new-64-hex-digest>' `
-  -Concurrency 1 -TimeoutMs 300000 -AllowUnverifiedClient
-```
-
-After separate real-task approval and credential supply, use the same command
-**without `-PreflightOnly`** and add `-OutDir 'C:\path\to\new-run-output'`.
-The helper calls the existing `dispatcher\cli.js dispatch --client aca`, then
-integration; it does not install a stub, register a runner, or call the publisher.
-Review `dispatcher-summary.json`, integration artifacts and cleanup failures.
-Do not delete the shared disk or blindly repeat a failed operation.
+The lower-level ACA client requires a Sandbox Group, a trusted dispatcher identity, a registry pull identity, and an immutable persona image reference. Verify these resources and the target repository's protected environment and OIDC subject before enabling live dispatch. The bootstrap's optional Terraform resources are deliberately disabled by default and do not yet configure the Sandbox Group's image-pull identity. See [the Sandbox issue flow guide](../docs/sandbox-issue-flow.md) for target-repository setup and rollout gates.
 
 ## Direct dispatcher entrypoint
 
 The default client is `fake`. It creates local sandbox directories under the output directory and executes the real `agents/sandbox/runner/persona-run.sh` with bash. The live client is opt-in only:
 
-For the approved Windows lab, prefer the guarded helper above. Direct live CLI
-use is a lower-level entrypoint and also needs the isolated Azure context,
-reviewed image/plan and explicit unverified-client approval.
+Direct live CLI use is a lower-level entrypoint. It requires a reviewed plan, an authenticated Azure context, a verified image, and explicit approval of any remaining unverified client behavior.
 
 ```powershell
 $env:SQUAD_ENABLE_ACA_SANDBOX = '1'
@@ -117,10 +38,10 @@ $env:SQUAD_SANDBOX_GROUP_NAME = '<sandbox-group-name>'
 $env:SQUAD_SANDBOX_RESOURCE_GROUP_NAME = '<resource-group>'
 $env:SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID = '<subscription-id>'
 $env:SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID = '<ACR-pull-UAMI-client-id>'
-$env:SQUAD_SANDBOX_REGION = 'swedencentral'
+$env:SQUAD_SANDBOX_REGION = '<configured-region>'
 $env:SQUAD_ACA_BIN = '<absolute-pinned-aca-path>'
-$env:SQUAD_SANDBOX_IMAGE_REF = 'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:<64-hex-digest>'
-node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client aca --repo-full-name owner/repository --issue-number 42
+$env:SQUAD_SANDBOX_IMAGE_REF = 'registry.example/persona-sandbox@sha256:<64-hex-digest>'
+node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client aca --repo-full-name owner/repository --issue-number <issue-number>
 ```
 
 ## Flow
@@ -182,17 +103,16 @@ The dispatcher redacts the injected Copilot token and common GitHub token prefix
 
 `SQUAD_ACA_BIN` can point the live client at a specific ACA CLI executable. This is mainly for pinned installations and tests that place a stub executable ahead of the real CLI.
 
-`SQUAD_SANDBOX_IMAGE_REF` must be an immutable sha256 digest beneath
-`crsquadacaa6b49feb.azurecr.io/squad/`; mutable tags are rejected.
+`SQUAD_SANDBOX_IMAGE_REF` must be a registry-qualified OCI image reference pinned by a sha256 digest; mutable tags and credentials are rejected.
 The live adapter requests a managed disk image with the regional ACA Sandboxes
-v2 API at `management.swedencentral.azuredevcompute.io`. Every ACA CLI command
+v2 API at `management.<configured-region>.azuredevcompute.io`. Every ACA CLI command
 (sandbox create, exec, `fs cp`, delete, and disk-image delete) explicitly passes
-`--region swedencentral --subscription <SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID>`
+`--region <SQUAD_SANDBOX_REGION> --subscription <SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID>`
 `--resource-group <SQUAD_SANDBOX_RESOURCE_GROUP_NAME>` before the command, so no
 ambient CLI context is used. The subscription must be a UUID and the resource
 group and sandbox group names are validated at client start. CLI failures report
 the exit code plus at most 400 characters of CLI output, with bearer tokens,
-JWTs, GitHub tokens, and signature or secret query values redacted. `SQUAD_SANDBOX_REGION` defaults to `swedencentral`;
+JWTs, GitHub tokens, and signature or secret query values redacted. `SQUAD_SANDBOX_REGION` is required and must match the Sandbox Group region;
 other regions are rejected because endpoint selection is fixed. It obtains an Azure
 access token through the existing Azure CLI login for audience
 `https://management.azuredevcompute.io`, submits `source.kind=registry`,
@@ -231,23 +151,23 @@ CI on Linux should set `SQUAD_REQUIRE_PROC_ARGV_TEST=1` when running `agents/san
 ## Live ACA verification checklist
 
 Verified in a credential-free probe against ACA CLI `1.0.0-preview.4`, group
-`sbg-squad-aca-sandbox-lab`, region `swedencentral`:
+`<sandbox-group-name>`, region `<configured-region>`:
 
 - `sandbox create --group ... --disk-id <uuid> --cpu 1000m --memory 2048Mi --label ...` creates a sandbox. There is no `--name`; output is plain text even when JSON output is requested. The progress line `Creating sandbox <uuid>...` is written to stderr and `Created sandbox: <uuid>` to stdout (confirmed with a raw `-o table` capture). The adapter requires exactly one matching line on each stream with the same UUID, rejects any extra, blank, or reordered line, and uses only the generated UUID as the handle. If the output cannot be verified, the error states that a sandbox may exist and disk-image deletion stays blocked until it is checked and removed manually.
 - `sandbox exec --group ... --id <uuid> -c <command>` runs a command string. Stdin is not forwarded. Argument vectors are converted to POSIX single-quoted command strings.
 - Native `sandbox fs cp` transferred a harmless local file to `<sandbox-id>:<remote-path>` and back with matching SHA256. The live adapter uses this API, not base64 over exec.
 - `sandbox delete --group ... --id <uuid> --yes` cleaned up the temporary sandbox; a follow-up list was empty.
-- Live-verified on 2026-10-01 through the adapter itself, with every command pinned to region, subscription and resource group: `create` returned sandbox `20074df2-6048-4444-8796-94e2802fcde5`; `execWithEnvironment` confirmed `/dev/shm` is tmpfs, copied the env JSON into a private tmpfs directory, the bootstrap consumed it through shell redirection and returned the expected path, and cleanup of the staging file and directory completed; the adapter then deleted the sandbox and `sandbox list` returned `[]`. Only non-secret values were sent (`/tmp/aca-probe-source`, `/tmp/aca-probe-output`); no Copilot or other credential was used. The shared disk image was left intact.
+- Live-verified on 2026-10-01 through the adapter itself, with every command pinned to region, subscription and resource group: `create` returned sandbox `<resource-id>`; `execWithEnvironment` confirmed `/dev/shm` is tmpfs, copied the env JSON into a private tmpfs directory, the bootstrap consumed it through shell redirection and returned the expected path, and cleanup of the staging file and directory completed; the adapter then deleted the sandbox and `sandbox list` returned `[]`. Only non-secret values were sent (`/tmp/aca-probe-source`, `/tmp/aca-probe-output`); no Copilot or other credential was used. The shared disk image was left intact.
 - Live-verified on 2026-10-09 (15:07:15–15:08:38 UTC), under explicit approval
   for exactly one disposable disk and sandbox: the adapter's v2 disk-image
   client pulled the immutable image
-  `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:cea1d310e7109c18d24ae57de153565c722284382c89d0bc1b441840f59e2875`
+  `<registry>/<image-path>/persona-sandbox@sha256:<approved-64-character-digest>`
   through the existing pull identity. It created disk
-  `9ba335ea-3d20-4723-9492-86195aea1d71` (name
-  `squad-8db2bece-9ec4-4e23-aa24-bf4f2f499e3e`) and sandbox
-  `9fa8f3cd-4ede-4463-b8e6-a770b06d94c0` with `1000m` CPU, `2048Mi`
+  `<resource-id>` (name
+  `squad-<resource-id>`) and sandbox
+  `<resource-id>` with `1000m` CPU, `2048Mi`
   memory and label
-  `lifecycle_probe=lifecycle-c84b701b-0be4-44b1-8c73-22004c48e71e`.
+  `lifecycle_probe=lifecycle-<resource-id>`.
   `execWithEnvironment` delivered only harmless `FAKE_LIFECYCLE_MARKER`
   and `SQUAD_OUTPUT_DIR` strings to the fixed bootstrap. The existing host
   process runner's 5-second timeout returned `timedOut=true`, exit code `124`,
@@ -257,13 +177,13 @@ Verified in a credential-free probe against ACA CLI `1.0.0-preview.4`, group
   with matching process argv; after a further 13-second wait, the delayed
   marker existed and that process had exited. **The local CLI timeout did
   not cancel remote execution.** Both inspections confirmed the exact
-  `/dev/shm/squad-runner-4f3a5b30-0f4f-49ef-9b91-2c49246b4c58`
+  `/dev/shm/squad-runner-<resource-id>`
   directory and its `environment.json` were absent despite the timeout.
   Host staging was also empty and removed. In `finally`, the adapter
   deleted the exact sandbox, then successfully deleted the exact disposable
   disk through `sandboxgroup disk delete --wait-timeout 180`. Final
   inventory contained no sandboxes and only shared disk
-  `63561979-2a62-4cb9-bb0e-fdf96a8adad4`, still `Ready`.
+  `<resource-id>`, still `Ready`.
 
 Treat `timedOut=true` as a failed host wait, not proof of remote cancellation.
 The dispatcher's `finally` sandbox deletion is the resource teardown boundary;
@@ -341,9 +261,9 @@ executable path. Configure these environment variables:
 | `SQUAD_SANDBOX_AZURE_TENANT_ID` | Azure tenant |
 | `SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID` | Azure subscription |
 | `SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID` | Client ID of the UAMI granted ACR pull |
-| `SQUAD_SANDBOX_REGION` | ACA region; must be `swedencentral` for the configured data plane |
+| `SQUAD_SANDBOX_REGION` | ACA region; must match the Sandbox Group region |
 | `SQUAD_ACA_BIN` | Absolute path to the pre-installed ACA CLI |
-| `SQUAD_SANDBOX_IMAGE_REF` | Approved tag or sha256 digest OCI reference in the existing ACR |
+| `SQUAD_SANDBOX_IMAGE_REF` | Immutable OCI image reference pinned by a SHA-256 digest |
 | `SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT` | Must equal `1` for an explicitly acknowledged manual probe |
 
 Store `SQUAD_COPILOT_TOKEN` as a protected environment secret. It must be a
@@ -382,47 +302,9 @@ dispatcher flow remain unverified. The controlled-probe gate is
 not proof of compatibility. Do not enable unattended or label-driven Sandbox
 dispatch until the live checklist passes. Publication remains disabled.
 
-### Lab readiness checkpoint (2026-10-12)
+### Deployment readiness
 
-- Verified both dedicated managed identity client IDs and tenant through the
-  isolated lab Azure CLI context. The Sandbox Group reports `Succeeded` in
-  `swedencentral`. Added and read back only the missing protected environment
-  variables `SQUAD_SANDBOX_RESOURCE_GROUP_NAME`,
-  `SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID`, and `SQUAD_SANDBOX_REGION`.
-- Kept the required reviewer, main-only branch policy, admin-bypass prohibition,
-  and previously approved sole-maintainer self-review exception unchanged.
-  Repository and dispatch-environment secret-name lists are empty.
-- **OIDC remains blocked:** GitHub subject-template metadata reports an immutable,
-  lowercase repository prefix. The existing dispatcher federated credential
-  trusts the legacy name-only `repo:AzureViking/...` subject. Review and align the
-  exact subject under separate authorization; no token exchange or trust change
-  occurred. Also review the preflight's exact-case lab repository comparisons.
-- The repository runner API returns zero registered runners. Organization runner
-  access returns HTTP 403, so organization runner availability is **unknown**.
-  Existing WSL supports offline Docker checks, but its profile-free tool lookup
-  finds no native Node or ACA executable. It is not a configured dedicated
-  dispatcher host or a registered GitHub runner.
-- The corrected image builds locally, but artifact-only release validation still
-  blocks ACR publication. Do not bind the old digest to the fixed runner.
-  Lab `main` still lacks that runner fix. No image reference, CLI path,
-  unverified-client opt-in, credential, or publication configuration was added.
-- Focused lab-helper and workflow-preflight tests pass **28/28** in an isolated,
-  network-disabled Linux container using a non-root user and an LF-normalized
-  source copy. Native Windows preflight testing passes 17, fails the offline
-  integration check, and skips one unavailable symlink check. This is offline
-  evidence, not a live dispatcher result.
-
-At that checkpoint, the next step was to resolve the image-release gate and approve a credential-free image/lifecycle
-probe. Before a real task, separately choose a trusted execution host, resolve
-OIDC subject compatibility, provide an entitled protected Copilot credential,
-and approve the issue-bound task, runtime and cost ceiling. Do not silently
-register WSL as a runner. Publication stays disabled.
-
-The 2026-10-13 scoped image release supersedes the image blocker in this
-historical checkpoint. It adds the validated default **30 soft AI-credit**
-per-persona bound and publishes a new immutable image, without executing live AI,
-changing OIDC/RBAC, enabling GitHub publication, or claiming full live-flow proof.
-
+Sandbox Group capabilities, image-pull identity configuration, OIDC trust, and live dispatch must be verified for each target repository and Azure environment before enabling issue dispatch. The optional Sandbox Terraform resources create a Group placeholder and dispatcher identity, but do not yet configure the Group's image-pull identity or image reference. Keep `SQUAD_ISSUE_FLOW_ENABLED` false until those target-specific prerequisites and the workflow checks are complete. The legacy ACA Job path remains the default.
 
 ## Integration phase
 
@@ -490,7 +372,7 @@ node dispatcher\cli.js publish `
   --repo . `
   --plan plan.json `
   --repo-full-name owner/repo `
-  --issue-number 42 `
+  --issue-number <issue-number> `
   --issue-title "Issue title"
 ```
 
@@ -502,7 +384,7 @@ Publication is idempotent by execution ID. The branch name is deterministic from
 
 GitHub creates pull requests by branch name, not by a caller-supplied commit SHA. After PR creation, the publisher compares the returned PR `head.sha` with the commit it just published. A mismatch records a failed publish receipt and stops before label or comment updates. This detects, but does not prevent, the residual race where the branch changes between the create-only push and pull request creation.
 
-The commit is created with git plumbing and no worktree checkout. The publisher reads the baseline tree into a temporary index, applies the integrated patch with `git apply --cached`, repeats the independent delta policy, writes the tree, and runs `git commit-tree`. Hooks, global config, system config, filters, LFS smudge, and worktree-updating git commands are disabled. Commit identity mirrors the ACA Job path: `squad-aca-bot[bot] <3362344+squad-aca-bot[bot]@users.noreply.github.com>`.
+The commit is created with git plumbing and no worktree checkout. The publisher reads the baseline tree into a temporary index, applies the integrated patch with `git apply --cached`, repeats the independent delta policy, writes the tree, and runs `git commit-tree`. Hooks, global config, system config, filters, LFS smudge, and worktree-updating git commands are disabled. Commit identity mirrors the ACA Job path: `configured GitHub App bot identity`.
 
 Push and fetch never use the checkout's remote configuration. They use the explicit repository URL, defaulting to `https://github.com/<owner>/<repo>.git`. The token extra header is scoped to that exact URL with `http.https://github.com/<owner>/<repo>.git.extraheader`, not to all of `github.com`. Remote git children disable redirects, disable credential helpers, disable system and global config, use a fresh empty global config file under a private per-run directory, use a fresh isolated home directory, disable terminal prompts, and point hooks at a fresh empty real directory with mode `0700`. Stale `.publish-work` hook paths and symlinked hook directories are not reused, and the per-run directory is removed after publish exits. Push uses one create-only refspec guarded by an empty `--force-with-lease=refs/heads/<branch>:` expectation, so an existing branch cannot be overwritten. If the remote branch exists with mismatched verified content, the publisher fails. The installation token is kept in memory only. The publisher deletes private key path and token environment variables after reading them, strips credential-like variables from every child process, and passes the token only through scoped git config environment variables so it never appears in argv.
 

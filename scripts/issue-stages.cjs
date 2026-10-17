@@ -122,8 +122,8 @@ function runStages(options, dispatch = defaultDispatch) {
         firstPatch = patch;
         fs.mkdirSync(work, { recursive: true });
         command('git', ['clone', '--quiet', '--no-hardlinks', '--no-checkout', path.resolve(options.repoPath), repo]);
-        git(repo, ['checkout', '--quiet', '--detach', plan.baseline_sha]);
-        git(repo, ['apply', '--index', '--whitespace=nowarn', firstPatch]);
+        git(repo, ['read-tree', plan.baseline_sha]);
+        if (fs.statSync(firstPatch).size > 0) git(repo, ['apply', '--cached', '--whitespace=nowarn', firstPatch]);
         const tree = git(repo, ['write-tree']).trim();
         // An unreferenced runtime snapshot in the isolated clone; never commit to the user's checkout.
         baseline = git(repo, ['-c', 'user.name=Stage snapshot', '-c', 'user.email=stage@invalid', 'commit-tree', tree, '-p', plan.baseline_sha], 'Member stage 1 snapshot\n').trim();
@@ -131,7 +131,7 @@ function runStages(options, dispatch = defaultDispatch) {
       if (index === stages.length - 1) {
         let bytes = fs.readFileSync(patch);
         if (firstPatch) {
-          git(repo, ['apply', '--index', '--whitespace=nowarn', patch]);
+          if (bytes.length > 0) git(repo, ['apply', '--cached', '--whitespace=nowarn', patch]);
           bytes = Buffer.from(git(repo, ['diff', '--cached', '--binary', '--full-index', '--no-renames', '--no-ext-diff', '--no-textconv', plan.baseline_sha]));
         }
         const relative = 'integration/patches/combined.patch';
@@ -144,6 +144,13 @@ function runStages(options, dispatch = defaultDispatch) {
         summary.integration.integrated_patch_path = relative;
         summary.integration.sha256 = hash(bytes);
         summary.status = 'succeeded';
+        if (bytes.length === 0) {
+          summary.integration.reason = 'NO_CHANGES';
+          if (!options.revise) {
+            summary.status = 'failed';
+            summary.integration.status = 'failed';
+          }
+        }
       }
       write(path.join(out, 'stage-results.json'), progress);
     }
@@ -182,7 +189,9 @@ if (require.main === module) {
       args[key] = process.argv[++i];
     }
     if (args.totalAiCredits !== undefined) args.totalAiCredits = Number(args.totalAiCredits);
-    process.exitCode = runStages(args).status === 'succeeded' ? 0 : 1;
+    const summary = runStages({ ...args, revise: process.env.SQUAD_REVISE_VALIDATED === 'true' });
+    if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `no_changes=${summary.status === 'succeeded' && summary.integration.reason === 'NO_CHANGES'}\n`);
+    process.exitCode = summary.status === 'succeeded' ? 0 : 1;
   } catch { console.error('ISSUE_MEMBER_STAGES_FAILED'); process.exitCode = 1; }
 }
 module.exports = { groupStages, runStages };

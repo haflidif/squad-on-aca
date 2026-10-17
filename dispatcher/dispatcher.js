@@ -355,11 +355,6 @@ async function runDispatcher(options) {
       throw new Error('Live dispatch repository does not match the workflow repository.');
     }
     assertIssueBinding(plan, options.repoFullName, issueNumber(options.issueNumber), true);
-    if (options.repoFullName === 'AzureViking/squad-on-aca-sandbox-lab') {
-      if (process.env.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID !== 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e') {
-        throw new Error('Lab dispatch requires the approved subscription.');
-      }
-    }
   }
 
   const authMode = options.authMode || options.copilotAuthMode || process.env.SQUAD_COPILOT_AUTH_MODE || 'pat';
@@ -465,6 +460,7 @@ async function runDispatcher(options) {
     schema_version: 'aca-sandbox/v1',
     message_type: 'dispatcher.summary',
     run_id: plan.run_id,
+    baseline_sha: plan.baseline_sha,
     status: executionStatus,
     started_at: startedAt,
     ended_at: new Date().toISOString(),

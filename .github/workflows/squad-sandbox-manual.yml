@@ -201,6 +201,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_AZURE_CLIENT_ID }}
@@ -222,9 +223,16 @@ jobs:
           subscription-id: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
       - name: Log in to Azure Container Registry for baseline container
         if: ${{ inputs.enable_copilot_baseline }}
+        env:
+          SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
         run: |
           set -euo pipefail
-          az acr login --name crsquadacaa6b49feb
+          registry_host="${SQUAD_SANDBOX_IMAGE_REF%%/*}"
+          registry_name="${registry_host%%.*}"
+          test -n "$registry_name"
+          if [[ "$registry_host" == *.azurecr.io ]]; then
+            az acr login --name "$registry_name"
+          fi
       - name: Minimal Copilot Actions-runner baseline
         if: ${{ inputs.enable_copilot_baseline }}
         env:
@@ -246,6 +254,7 @@ jobs:
           SQUAD_COPILOT_TOKEN: ${{ github.token }}
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
@@ -353,6 +362,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_AZURE_CLIENT_ID }}
@@ -379,6 +389,7 @@ jobs:
           SQUAD_COPILOT_TOKEN: ${{ secrets.SQUAD_COPILOT_TOKEN }}
           SQUAD_COPILOT_AUTH_MODE: ${{ inputs.copilot_auth_mode }}
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
@@ -429,7 +440,7 @@ jobs:
 
   publish-live:
     needs: [preflight, dispatch-live]
-    if: ${{ inputs.execution_mode == 'live' && inputs.enable_sandbox_live && inputs.enable_publish_live && needs.dispatch-live.result == 'success' && github.repository != 'AzureViking/squad-on-aca-sandbox-lab' }}
+    if: ${{ inputs.execution_mode == 'live' && inputs.enable_sandbox_live && inputs.enable_publish_live && needs.dispatch-live.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: squad-publish

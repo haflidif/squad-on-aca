@@ -252,14 +252,21 @@ if (-not $TargetRepos) {
             function Set-GhVar {
                 param([string]$VarName, [string]$VarValue, [string]$Repo)
                 if (-not $VarValue) {
-                    Write-Host "    Skipping $VarName — value is empty" -ForegroundColor Yellow
+                    Write-Host "    Skipping $VarName - value is empty" -ForegroundColor Yellow
                     return
                 }
                 try {
                     gh variable set $VarName --body $VarValue --repo $Repo 2>&1 | Out-Null
                     Write-Host "    ✓ $VarName" -ForegroundColor Green
                 } catch {
-                    Write-Host "    ✗ Failed to set ${VarName} — check repo permissions" -ForegroundColor Red
+                    Write-Host "    ✗ Failed to set ${VarName} - check repo permissions" -ForegroundColor Red
+                }
+            }
+            function Set-GhLabel {
+                param([string]$Name, [string]$Color, [string]$Description, [string]$Repo)
+                gh label create $Name --repo $Repo --color $Color --description $Description --force 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "    Failed to create label $Name; check repo permissions" -ForegroundColor Yellow
                 }
             }
 
@@ -270,6 +277,14 @@ if (-not $TargetRepos) {
                 Set-GhVar "SQUAD_AZURE_SUBSCRIPTION_ID" $AzureSubscriptionId  $repo
                 Set-GhVar "SQUAD_STORAGE_ACCOUNT"       $StorageAccountName   $repo
                 Set-GhVar "SQUAD_QUEUE_NAME"            $QueueName            $repo
+                Set-GhVar "SQUAD_ISSUE_FLOW_ENABLED"   "false"              $repo
+                Set-GhVar "SQUAD_ISSUE_OPT_IN_NUMBER" "0"                  $repo
+                Set-GhLabel "sandbox-run" "1D76DB" "Opt in to the ACA Sandbox issue workflow" $repo
+                Set-GhLabel "sandbox:processing" "FBCA04" "Sandbox work is being dispatched" $repo
+                Set-GhLabel "sandbox:queued" "0052CC" "Sandbox draft PR is ready for review" $repo
+                Set-GhLabel "sandbox:revising" "5319E7" "Sandbox PR revision is in progress" $repo
+                Set-GhLabel "sandbox:ready" "0E8A16" "Sandbox run completed successfully" $repo
+                Set-GhLabel "sandbox:failed" "B60205" "Sandbox run failed" $repo
                 Write-Host ""
             }
         }

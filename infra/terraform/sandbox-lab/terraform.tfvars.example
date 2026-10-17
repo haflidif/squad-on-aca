@@ -1,3 +1,10 @@
-subscription_id = "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"
-# grant_group_acr_pull  = true # Registry-wide AcrPull for the image-pull UAMI; only with approval.
-# operator_principal_id = "00000000-0000-0000-0000-000000000000" # Group-scoped Data Owner for operator probes.
+subscription_id          = "00000000-0000-0000-0000-000000000000"
+resource_group_name      = "<sandbox-resource-group>"
+location                 = "<azure-region>"
+acr_name                 = "<acr-name>"
+acr_resource_group_name  = "<acr-resource-group>"
+sandbox_group_name       = "<sandbox-group-name>"
+repository_full_name     = "<owner>/<repository>"
+# grant_group_acr_pull   = true # Registry-wide AcrPull for the image-pull UAMI; only with approval.
+# operator_principal_id  = "00000000-0000-0000-0000-000000000000" # Optional group-scoped operator role.
+environment_name         = "<github-environment>"

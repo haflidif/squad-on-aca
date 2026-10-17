@@ -1,6 +1,6 @@
 # Isolated ACA Sandbox lab
 
-These roots are **not** the legacy `infra/terraform/` root. `sandbox-lab-state`
+These roots are **not** the legacy `infra/terraform/` root. The `.example` input files use placeholders; this checkout uses ignored `terraform.tfvars` and `backend.hcl` files containing machine-specific lab values. The local runner and bootstrap helper can also read `infra/hooks/sandbox-lab.local.json` (ignored by Git), or accept explicit parameters/environment variables. Never copy that local config into a public report or commit it. `sandbox-lab-state`
 owns only the approved RG, a storage account, a private blob container and an
 optional blob data role assignment. Initialize its local backend with
 `terraform -chdir=infra/terraform/sandbox-lab-state init
@@ -42,10 +42,10 @@ terraform -chdir=infra/terraform/sandbox-lab validate
 
 Once outputs exist, produce an output JSON privately with `terraform output
 -json` in the lab root. Both `infra/hooks/sandbox-lab-bootstrap.sh --outputs
-<file> --repo AzureViking/squad-on-aca-sandbox-lab --environment
-squad-sandbox-dispatch` and `infra/hooks/sandbox-lab-bootstrap.ps1 -Outputs
-<file> -Repository AzureViking/squad-on-aca-sandbox-lab -Environment
-squad-sandbox-dispatch` default to dry-run. Only explicit `--apply` / `-Apply`
+<file> --repo example-owner/sandbox-lab-test --environment
+sandbox-dispatch-test` and `infra/hooks/sandbox-lab-bootstrap.ps1 -Outputs
+<file> -Repository example-owner/sandbox-lab-test -Environment
+sandbox-dispatch-test` default to dry-run. Only explicit `--apply` / `-Apply`
 can set the six non-secret dispatch environment variables through `ghp`,
 including the Sandbox Group resource group and image-pull UAMI client ID.
 The helper checks the existing protected environment first and refuses unless

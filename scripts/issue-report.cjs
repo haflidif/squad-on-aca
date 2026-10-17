@@ -54,6 +54,7 @@ function summarizeStage(summaryFile, diagnosticsDir) {
     entries: entries
       .filter(entry => ENTRY_KINDS.has(entry?.kind) && ENTRY_STATUSES.has(entry?.status) && pick(entry?.id, ENTRY_ID))
       .map(entry => ({ kind: entry.kind, id: entry.id, status: entry.status })),
+    no_changes: summary?.status === 'succeeded' && summary?.integration?.status === 'succeeded' && summary?.integration?.reason === 'NO_CHANGES' && summary?.integration?.sha256 === sha256(Buffer.alloc(0)),
     integration_status: ENTRY_STATUSES.has(summary?.integration?.status) ? summary.integration.status : null,
     failed_task_id: pick(summary?.integration?.failed_task_id, ENTRY_ID),
     hashes: {
@@ -140,6 +141,7 @@ function summarizeStored(result) {
     entries: (Array.isArray(value?.entries) ? value.entries : [])
       .filter(entry => ENTRY_KINDS.has(entry?.kind) && ENTRY_STATUSES.has(entry?.status) && pick(entry?.id, ENTRY_ID))
       .map(entry => ({ kind: entry.kind, id: entry.id, status: entry.status })),
+    no_changes: value?.no_changes === true && value?.status === 'succeeded' && value?.integration_status === 'succeeded' && value?.hashes?.integration_patch_sha256 === sha256(Buffer.alloc(0)),
     integration_status: ENTRY_STATUSES.has(value?.integration_status) ? value.integration_status : null,
     failed_task_id: pick(value?.failed_task_id, ENTRY_ID),
     hashes: {
@@ -158,16 +160,27 @@ function summarizeStored(result) {
   };
 }
 
+function isNoChangeRevise(result, jobs = {}) {
+  return jobs.revise === true && result?.status === 'succeeded' && result?.stages?.member?.no_changes === true
+    && jobs.lead === 'success' && jobs.member === 'success'
+    && jobs.postprocess === 'skipped' && jobs.publish === 'skipped';
+}
+
 function renderComment(result, jobs = {}) {
+  if (isNoChangeRevise(result, jobs)) {
+    const members = result.route?.members || (result.route?.member ? [result.route.member] : []);
+    return `### Squad sandbox revise\n\nThe revise made no changes. Members that ran: ${members.map(member => member.logical_member_id).join(', ') || 'unavailable'}. No changes were published.\n`;
+  }
   const gate = JOB_RESULTS.has(jobs.gate) ? jobs.gate : 'unknown';
   const leadJob = JOB_RESULTS.has(jobs.lead) ? jobs.lead : 'unknown';
   const memberJob = JOB_RESULTS.has(jobs.member) ? jobs.member : 'unknown';
+  const postprocessJob = JOB_RESULTS.has(jobs.postprocess) ? jobs.postprocess : 'unknown';
   const publishJob = JOB_RESULTS.has(jobs.publish) ? jobs.publish : 'unknown';
   const lines = ['### Squad sandbox run', ''];
   if (!result) {
     lines.push('Status: `no result` (the staged dispatch produced no sanitized result).', '', `- gate job: \`${gate}\``, `- lead dispatch job: \`${leadJob}\``, `- member dispatch job: \`${memberJob}\``);
   } else {
-    const overall = [leadJob, memberJob, publishJob].some(status => ['failure', 'cancelled', 'skipped'].includes(status)) ? 'failed' : result.status;
+    const overall = [leadJob, memberJob, postprocessJob, publishJob].some(status => ['failure', 'cancelled', 'skipped'].includes(status)) ? 'failed' : result.status;
     lines.push(`Status: \`${overall}\``, '');
     if (result.route) {
       for (const member of result.route.members || [result.route.member]) {
@@ -192,7 +205,7 @@ function renderComment(result, jobs = {}) {
     lines.push(`- gate job: \`${gate}\``, `- lead dispatch job: \`${leadJob}\``, `- member dispatch job: \`${memberJob}\``);
     if (result.run_url) lines.push('', `Run: ${result.run_url}`);
   }
-  lines.push('', `- publish job: \`${publishJob}\``);
+  lines.push('', `- postprocess job: \`${postprocessJob}\``, `- publish job: \`${publishJob}\``);
   return `${lines.join('\n')}\n`;
 }
 
@@ -313,4 +326,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { renderComment, summarize, summarizeStage, summarizeStored, validateRoute };
+module.exports = { isNoChangeRevise, renderComment, summarize, summarizeStage, summarizeStored, validateRoute };

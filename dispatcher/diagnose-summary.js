@@ -7,9 +7,12 @@ const MAX_LOG_BYTES = 64 * 1024;
 const MAX_PRINTED_LOG_LINES = 60;
 const MAX_PRINTED_LINE_CHARS = 300;
 const MAX_COPIED_FILE_BYTES = 128 * 1024;
+
 const MIN_EXACT_TOKEN_LENGTH = 8;
 
 const CLASSIFIERS = [
+  [/\bNO_CHANGES\b/, 'NO_CHANGES'],
+  [/check command .* failed/i, 'INTEGRATION_CHECK_FAILED'],
   [/credential material detected/i, 'CREDENTIAL_LEAK_DETECTED'],
   [/timed out/i, 'RUNNER_TIMEOUT'],
   [/sandbox baseline clone failed/i, 'BASELINE_CLONE_FAILED'],
@@ -29,6 +32,7 @@ const CLASSIFIERS = [
 const STAGE_FALLBACKS = [
   [/disk image/i, 'disk-image'],
   [/sandbox baseline clone/i, 'baseline-clone'],
+  [/check command .* failed/i, 'integration-check'],
   [/sandbox delete/i, 'cleanup'],
   [/timed out/i, 'runner-exec'],
   [/validation failed|artifact|sha256/i, 'artifact-collection']

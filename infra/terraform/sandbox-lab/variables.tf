@@ -1,50 +1,30 @@
 variable "subscription_id" {
-  type = string
+  type        = string
+  description = "Azure subscription GUID used for this deployment."
   validation {
-    condition     = var.subscription_id == "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"
-    error_message = "Use the approved sandbox lab subscription."
+    condition     = can(regex("^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$", var.subscription_id))
+    error_message = "subscription_id must be a GUID."
   }
 }
 
 variable "resource_group_name" {
-  type    = string
-  default = "rg-squad-aca-sandbox-lab"
-  validation {
-    condition     = var.resource_group_name == "rg-squad-aca-sandbox-lab"
-    error_message = "Use the approved lab resource group."
-  }
+  type = string
 }
 
 variable "location" {
-  type    = string
-  default = "swedencentral"
-  validation {
-    condition     = var.location == "swedencentral"
-    error_message = "Use the approved lab location."
-  }
+  type = string
 }
 
 variable "acr_name" {
-  type    = string
-  default = "crsquadacaa6b49feb"
-  validation {
-    condition     = var.acr_name == "crsquadacaa6b49feb"
-    error_message = "Only the approved existing ACR is in scope."
-  }
+  type = string
 }
 
 variable "acr_resource_group_name" {
-  type    = string
-  default = "rg-squad-aca-dev-a6b49feb"
-  validation {
-    condition     = var.acr_resource_group_name == "rg-squad-aca-dev-a6b49feb"
-    error_message = "Only the approved existing ACR resource group is in scope."
-  }
+  type = string
 }
 
 variable "sandbox_group_name" {
-  type    = string
-  default = "sbg-squad-aca-sandbox-lab"
+  type = string
 }
 
 variable "dispatcher_identity_name" {
@@ -76,4 +56,22 @@ variable "operator_principal_id" {
 variable "tags" {
   type    = map(string)
   default = {}
+}
+
+variable "repository_full_name" {
+  type        = string
+  description = "Owner/repository that receives the Sandbox environment OIDC credential."
+  validation {
+    condition     = can(regex("^[^/]+/[^/]+$", var.repository_full_name))
+    error_message = "repository_full_name must use owner/repository format."
+  }
+}
+
+variable "environment_name" {
+  type        = string
+  description = "GitHub environment name used by the Sandbox workflow OIDC subject."
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]+$", var.environment_name))
+    error_message = "environment_name may contain letters, numbers, hyphens and underscores."
+  }
 }

@@ -6,8 +6,15 @@ name: Squad sandbox issue flow
 on:
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
 
 permissions: {}
+
+env:
+  SQUAD_ISSUE_FLOW_OPT_IN: '1'
+  SQUAD_ISSUE_FLOW_ENABLED: ${{ vars.SQUAD_ISSUE_FLOW_ENABLED }}
+  SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
 
 concurrency:
   group: squad-sandbox-issue-${{ github.repository }}
@@ -15,11 +22,17 @@ concurrency:
 
 jobs:
   gate:
-    if: ${{ github.event.label.name == 'sandbox-run' && github.ref == 'refs/heads/main' && vars.SQUAD_ISSUE_FLOW_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && vars.SQUAD_ISSUE_FLOW_ENABLED == 'true' && ((github.event_name == 'issues' && github.event.label.name == 'sandbox-run') || (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/squad revise ') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))) }}
+    outputs:
+      issue_number: ${{ steps.request.outputs.issue_number }}
+      revise: ${{ steps.request.outputs.revise }}
+      already_published: ${{ steps.request.outputs.already_published }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,6 +42,7 @@ jobs:
         with:
           node-version: 22.14.0
       - name: Require write access for the user who applied the label
+        if: github.event_name == 'issues'
         env:
           GH_TOKEN: ${{ github.token }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
@@ -40,11 +54,50 @@ jobs:
             admin|maintain|write) echo "GATE_SENDER_OK role=$ROLE" ;;
             *) echo "GATE_REJECTED SENDER_PERMISSION"; exit 1 ;;
           esac
-      - name: Validate the issue event
-        run: node scripts/issue-plan.cjs --event "$GITHUB_EVENT_PATH" --validate-only
+      - name: Recover the original captured head on a rerun
+        if: github.event_name == 'issue_comment' && github.run_attempt != 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: squad-issue-request-${{ github.run_id }}-1
+          path: .squad-issue/
+      - name: Validate and capture the trusted issue or revise request
+        id: request
+        uses: actions/github-script@v7
+        env:
+          SQUAD_ISSUE_FLOW_ENABLED: ${{ vars.SQUAD_ISSUE_FLOW_ENABLED }}
+          SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
+        with:
+          script: |
+            await require('./scripts/issue-revise.cjs').prepare({ github, context, root: process.cwd() });
+      - name: Reject stale main or unsupported PR changes before ACA dispatch
+        if: steps.request.outputs.revise == 'true'
+        env:
+          SQUAD_FETCH_TOKEN: ${{ github.token }}
+          SQUAD_ISSUE_NUMBER: ${{ steps.request.outputs.issue_number }}
+        run: node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+      - uses: actions/upload-artifact@v4
+        if: steps.request.outputs.already_published != 'true'
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
+          include-hidden-files: true
+          retention-days: 1
+      - name: Mark revision in progress
+        if: steps.request.outputs.revise == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const request = JSON.parse(fs.readFileSync('.squad-issue/revise.json', 'utf8'));
+            await require('./scripts/issue-revise.cjs').transitionLabels(github, context.repo, [request.issue_number, request.pr_number], false, true);
 
   dispatch-lead:
+    env:
+      SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+      SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: gate
+    if: needs.gate.outputs.already_published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: squad-sandbox-issue
@@ -61,6 +114,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
+      - name: Download gate-owned request
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
       - name: Export Lead diagnostic paths
         run: |
           echo "SUMMARY_FILE=$RUNNER_TEMP/squad-lead-out/dispatcher-summary.json" >> "$GITHUB_ENV"
@@ -81,7 +139,7 @@ jobs:
       - name: Build Lead routing plan from the issue payload
         env:
           SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
-        run: node scripts/issue-plan.cjs --stage lead --event "$GITHUB_EVENT_PATH" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
+        run: node scripts/issue-plan.cjs --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
       - name: Validate Lead plan and live prerequisites before Azure authentication
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -89,12 +147,13 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           SQUAD_PLAN_PATH: .squad-issue/lead-plan.json
           SQUAD_REPOSITORY: ${{ github.repository }}
-          SQUAD_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_ISSUE_FLOW_OPT_IN: '1'
           SQUAD_EXECUTION_MODE: live
           SQUAD_ENABLE_SANDBOX_LIVE: 'true'
           SQUAD_ENABLE_PUBLISH_LIVE: 'false'
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_AZURE_CLIENT_ID }}
@@ -117,11 +176,12 @@ jobs:
       - name: Run Lead ACA Sandbox dispatch and integration
         env:
           SQUAD_REPOSITORY: ${{ github.repository }}
-          SQUAD_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_ISSUE_FLOW_OPT_IN: '1'
           SQUAD_COPILOT_TOKEN: ${{ github.token }}
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
@@ -141,7 +201,7 @@ jobs:
           --concurrency 1
           --timeout-ms 300000
       - name: Route to the selected member from the Lead integrated patch
-        run: node scripts/issue-route.cjs --summary "$SUMMARY_FILE" --event "$GITHUB_EVENT_PATH" --out "$RUNNER_TEMP/squad-route"
+        run: node scripts/issue-route.cjs --summary "$SUMMARY_FILE" --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$RUNNER_TEMP/squad-route"
       - name: Sanitize Lead dispatcher diagnostics even on failure
         if: always()
         env:
@@ -184,10 +244,14 @@ jobs:
           retention-days: 1
 
   dispatch-member:
-    needs: dispatch-lead
+    env:
+      SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+      SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
+    needs: [gate, dispatch-lead]
     if: ${{ needs.dispatch-lead.result == 'success' }}
     outputs:
       supported_members: ${{ steps.route.outputs.supported_members }}
+      no_changes: ${{ steps.members.outputs.no_changes }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment: squad-sandbox-issue
@@ -204,11 +268,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
+      - name: Download gate-owned request
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
       - name: Download Lead route artifact
         uses: actions/download-artifact@v4
         with:
           name: squad-issue-lead-${{ github.run_id }}
           path: ${{ runner.temp }}/squad-issue-lead
+      - name: Fetch captured PR objects without checking out PR code
+        if: needs.gate.outputs.revise == 'true'
+        env:
+          SQUAD_FETCH_TOKEN: ${{ github.token }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          SQUAD_REVISE_POSTPROCESS: 'false'
+        run: |
+          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
       - name: Stage routed member plan for preflight
         id: route
         run: |
@@ -249,12 +327,13 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           SQUAD_PLAN_PATH: .squad-issue/member-plan.json
           SQUAD_REPOSITORY: ${{ github.repository }}
-          SQUAD_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_ISSUE_FLOW_OPT_IN: '1'
           SQUAD_EXECUTION_MODE: live
           SQUAD_ENABLE_SANDBOX_LIVE: 'true'
           SQUAD_ENABLE_PUBLISH_LIVE: 'false'
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_AZURE_CLIENT_ID }}
@@ -275,13 +354,15 @@ jobs:
           tenant-id: ${{ vars.SQUAD_SANDBOX_AZURE_TENANT_ID }}
           subscription-id: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
       - name: Run member ACA Sandbox dispatch and integration
+        id: members
         env:
           SQUAD_REPOSITORY: ${{ github.repository }}
-          SQUAD_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_ISSUE_FLOW_OPT_IN: '1'
           SQUAD_COPILOT_TOKEN: ${{ github.token }}
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_SANDBOX_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_GROUP_NAME }}
+          SQUAD_SANDBOX_REGION: ${{ vars.SQUAD_SANDBOX_REGION }}
           SQUAD_SANDBOX_RESOURCE_GROUP_NAME: ${{ vars.SQUAD_SANDBOX_RESOURCE_GROUP_NAME }}
           SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: ${{ vars.SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID }}
           SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: ${{ vars.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID }}
@@ -336,9 +417,102 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-  publish:
+  postprocess:
+    env:
+      SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+      SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: [gate, dispatch-member]
-    if: ${{ needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' }}
+    if: ${{ needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+      - name: Download gate-owned request
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
+      - name: Fetch captured PR objects without checking out PR code
+        if: needs.gate.outputs.revise == 'true'
+        env:
+          SQUAD_FETCH_TOKEN: ${{ github.token }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          SQUAD_REVISE_POSTPROCESS: 'true'
+        run: |
+          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
+      - name: Download combined member patch
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-member-${{ github.run_id }}
+          path: ${{ runner.temp }}/squad-postprocess-input
+      - name: Exclude gate data from the formatter worktree
+        run: echo ".squad-issue/" >> .git/info/exclude
+      - name: Validate trusted postprocess configuration
+        id: config
+        run: node scripts/issue-postprocess.cjs validate --repo "$GITHUB_WORKSPACE"
+      - name: Install pinned Terraform with release checksum verification
+        if: ${{ steps.config.outputs.terraform != '' }}
+        env:
+          VERSION: ${{ steps.config.outputs.terraform }}
+        run: |
+          set -euo pipefail
+          archive="terraform_${VERSION}_linux_amd64.zip"
+          base="https://releases.hashicorp.com/terraform/${VERSION}"
+          curl -fsSL "${base}/${archive}" -o "$RUNNER_TEMP/${archive}"
+          curl -fsSL "${base}/terraform_${VERSION}_SHA256SUMS" -o "$RUNNER_TEMP/terraform_SHA256SUMS"
+          grep "  ${archive}$" "$RUNNER_TEMP/terraform_SHA256SUMS" | (cd "$RUNNER_TEMP" && sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/terraform-bin"
+          unzip -q "$RUNNER_TEMP/${archive}" -d "$RUNNER_TEMP/terraform-bin"
+          echo "$RUNNER_TEMP/terraform-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/terraform-bin/terraform" version
+      - name: Install pinned terraform-docs with release checksum verification
+        if: ${{ steps.config.outputs.terraform_docs != '' }}
+        env:
+          VERSION: ${{ steps.config.outputs.terraform_docs }}
+        run: |
+          set -euo pipefail
+          archive="terraform-docs-v${VERSION}-linux-amd64.tar.gz"
+          base="https://github.com/terraform-docs/terraform-docs/releases/download/v${VERSION}"
+          curl -fsSL "${base}/${archive}" -o "$RUNNER_TEMP/${archive}"
+          curl -fsSL "${base}/terraform-docs-v${VERSION}_checksums.txt" -o "$RUNNER_TEMP/terraform-docs-checksums.txt"
+          grep "  ${archive}$" "$RUNNER_TEMP/terraform-docs-checksums.txt" | (cd "$RUNNER_TEMP" && sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/terraform-docs-bin"
+          tar -xzf "$RUNNER_TEMP/${archive}" -C "$RUNNER_TEMP/terraform-docs-bin" terraform-docs
+          chmod 755 "$RUNNER_TEMP/terraform-docs-bin/terraform-docs"
+          echo "$RUNNER_TEMP/terraform-docs-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/terraform-docs-bin/terraform-docs" --version
+      - name: Run scoped deterministic postprocess steps
+        run: >-
+          node scripts/issue-postprocess.cjs run
+          --artifact "$RUNNER_TEMP/squad-postprocess-input"
+          --repo "$GITHUB_WORKSPACE"
+          --output "$RUNNER_TEMP/squad-postprocess-output"
+          --run-id "$GITHUB_RUN_ID"
+          --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Upload postprocessed patch and run binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: squad-issue-postprocess-${{ github.run_id }}
+          path: ${{ runner.temp }}/squad-postprocess-output/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    env:
+      SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+      SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
+    needs: [gate, dispatch-member, postprocess]
+    if: ${{ needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.postprocess.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
     runs-on: ubuntu-latest
     environment: squad-publish
     permissions:
@@ -352,10 +526,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
+      - name: Download gate-owned request
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
+      - name: Fetch captured PR objects without checking out PR code
+        if: needs.gate.outputs.revise == 'true'
+        env:
+          SQUAD_FETCH_TOKEN: ${{ github.token }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          SQUAD_REVISE_POSTPROCESS: 'false'
+        run: |
+          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
       - name: Download member dispatch artifact
         uses: actions/download-artifact@v4
         with:
-          name: squad-issue-member-${{ github.run_id }}
+          name: squad-issue-postprocess-${{ github.run_id }}
           path: ${{ runner.temp }}/squad-dispatch-out
       - name: Stage routed member plan for publish validation
         run: |
@@ -370,7 +558,7 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
           SQUAD_PLAN_PATH: .squad-issue/member-plan.json
           SQUAD_REPOSITORY: ${{ github.repository }}
-          SQUAD_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_EXECUTION_MODE: live
           SQUAD_ENABLE_SANDBOX_LIVE: 'true'
           SQUAD_ENABLE_PUBLISH_LIVE: 'false'
@@ -396,7 +584,8 @@ jobs:
           GITHUB_APP_INSTALLATION_ID: ${{ vars.SQUAD_GITHUB_APP_INSTALLATION_ID }}
           SQUAD_GITHUB_APP_PRIVATE_KEY_PATH: ${{ runner.temp }}/squad-github-app.pem
           SQUAD_ENABLE_PUBLISH: '1'
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          SQUAD_POSTPROCESS_BINDING_REQUIRED: 'true'
         run: |
           set -euo pipefail
           trap 'rm -f -- "$SQUAD_GITHUB_APP_PRIVATE_KEY_PATH"' EXIT
@@ -410,13 +599,17 @@ jobs:
             --live
 
   report:
-    needs: [gate, dispatch-lead, dispatch-member, publish]
-    if: ${{ always() && needs.gate.result == 'success' }}
+    env:
+      SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+      SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
+    needs: [gate, dispatch-lead, dispatch-member, postprocess, publish]
+    if: ${{ always() && needs.gate.result == 'success' && needs.gate.outputs.already_published != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -425,6 +618,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
+      - name: Download gate-owned request
+        uses: actions/download-artifact@v4
+        with:
+          name: squad-issue-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .squad-issue/
       - name: Download Lead stage result
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -456,7 +654,11 @@ jobs:
           LEAD_RESULT: ${{ needs.dispatch-lead.result }}
           MEMBER_RESULT: ${{ needs.dispatch-member.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
+          POSTPROCESS_RESULT: ${{ needs.postprocess.result }}
         with:
           script: |
             const { postReport } = require('./scripts/issue-triage.cjs');
-            await postReport({ github, context, root: process.cwd(), reportDir: `${process.env.RUNNER_TEMP}/squad-issue-report`, jobs: { lead: process.env.LEAD_RESULT, member: process.env.MEMBER_RESULT, publish: process.env.PUBLISH_RESULT } });
+            const fs = require('node:fs');
+            const request = JSON.parse(fs.readFileSync('.squad-issue/event.json', 'utf8'));
+            const linkedContext = { repo: context.repo, issue: { number: request.issue.number } };
+            await postReport({ github, context: linkedContext, root: process.cwd(), reportDir: `${process.env.RUNNER_TEMP}/squad-issue-report`, jobs: { lead: process.env.LEAD_RESULT, member: process.env.MEMBER_RESULT, postprocess: process.env.POSTPROCESS_RESULT, publish: process.env.PUBLISH_RESULT } });

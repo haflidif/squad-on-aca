@@ -9,6 +9,7 @@
     "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
     "message_type": { "type": "string", "const": "dispatcher.summary" },
     "run_id": { "type": "string", "minLength": 1 },
+    "baseline_sha": { "type": "string", "pattern": "^[a-fA-F0-9]{40}$" },
     "status": { "type": "string", "enum": ["succeeded", "failed"] },
     "started_at": { "type": "string", "minLength": 1 },
     "ended_at": { "type": "string", "minLength": 1 },

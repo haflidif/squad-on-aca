@@ -126,8 +126,10 @@ mount only after Copilot exits, then collect artifacts with dispatcher-side exec
 The existing `agents/workflows/squad-queue.yml` is the legacy ACA Job template.
 It continues to emit provider-less messages, which always resolve to `aca-job`.
 The `aca-sandbox` entrypoint remains a loud rejection before queue acknowledgement.
-Do not add an issue-label trigger or route legacy messages to the Sandbox
-provider.
+The issue-driven Sandbox workflow is a separate opt-in path. It does not
+change the legacy queue message contract or route legacy messages to the
+Sandbox provider. See [Opt-in ACA Sandbox issue flow](sandbox-issue-flow.md) for
+its prerequisites and setup.
 
 Use `.github/workflows/squad-sandbox-manual.yml` only for deliberate manual
 testing. Its default is fake mode, which exercises dispatcher fan-out and
@@ -159,12 +161,13 @@ and written to a mode-600 temporary file only in the publisher job, after the
 dispatcher and integration summary passes, then deleted on exit. No App key or
 GitHub write token enters persona or integration execution.
 
-This path remains non-production-ready until a real Sandbox Group verifies ACA
-CLI create/exec flags and output, stdin forwarding or supported file transfer,
-sandbox deletion and timeout behavior, and ACR authentication. The explicit
-`SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1` setting permits only a manually approved
-probe. It does not mark those contracts verified and does not enable automatic
-label dispatch.
+The manual Sandbox workflow remains a controlled test path until a real
+Sandbox Group verifies ACA CLI create/exec flags and output, stdin forwarding or
+supported file transfer, sandbox deletion and timeout behavior, and ACR
+authentication. The explicit `SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1` setting
+permits only a manually approved probe. It does not mark those contracts
+verified. The separate issue flow remains disabled by default and requires its
+own repository opt-in and protected environments.
 
 ---
 

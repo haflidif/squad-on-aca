@@ -141,7 +141,7 @@ outside that directory.
 ### Credit-bounded image release (2026-10-13)
 
 - Immutable image:
-  `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:4b4a2c0ac696630e17a2ec06241aafa2b6ddb3ed57e7385d7d71a4dcfa84c23d`.
+  `<registry>/squad/persona-sandbox@sha256:<approved-64-character-digest>`.
 - Unique tag: `runner-creditcap-1-0-96-20261013T121607Z-03ce4f75324f`.
 - Dirty build-source manifest SHA-256:
   `03ce4f75324f0972427d47e4569cfd09e3477330b41eefad005cf2f80edac90f`.

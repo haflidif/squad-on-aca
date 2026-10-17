@@ -146,7 +146,7 @@ The Dockerfile references base images cached in ACR, but the **initial import** 
     --image base/debian:bookworm-20240701-slim
   ```
 - The `azd` post-provision hook imports these base images automatically.
-- When you build manually, pass `--build-arg BASE_ACR_HOST=<your-acr-login-server>/` to `az acr build` so the Dockerfile `FROM` lines resolve to your ACR instead of the default bootstrap ACR.
+- When you build manually, pass `--build-arg BASE_ACR_HOST=<your-acr-login-server>/` to `az acr build` because the Dockerfile requires a registry host for its `FROM` lines.
 - After import and the build-argument override, Docker Hub is never contacted.
 - Re-import when upgrading base image versions.
 

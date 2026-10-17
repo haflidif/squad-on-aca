@@ -12,13 +12,23 @@ param(
   [switch]$AllowUnverifiedClient,
   [string]$AzureConfigDir = (Join-Path $env:USERPROFILE '.squad-sandbox-lab\azcfg'),
   [string]$AcaBin = (Join-Path $env:USERPROFILE '.aca\bin\aca.exe'),
-  [string]$SubscriptionId = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e',
-  [string]$TenantId = '49ff7219-653a-4644-8540-71d16dbf9c16',
-  [string]$Region = 'swedencentral',
-  [string]$ResourceGroup = 'rg-squad-aca-sandbox-lab',
-  [string]$SandboxGroup = 'sbg-squad-aca-sandbox-lab',
-  [string]$ImagePullClientId = '44b56c1f-08c0-4223-9c9e-398cc9267fb6'
+  [string]$SubscriptionId = $env:SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID,
+  [string]$TenantId = $env:SQUAD_SANDBOX_AZURE_TENANT_ID,
+  [string]$Region = $env:SQUAD_SANDBOX_REGION,
+  [string]$ResourceGroup = $env:SQUAD_SANDBOX_RESOURCE_GROUP_NAME,
+  [string]$SandboxGroup = $env:SQUAD_SANDBOX_GROUP_NAME,
+  [string]$ImagePullClientId = $env:SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID,
+  [string]$ImagePullIdentityName = $env:SQUAD_SANDBOX_IMAGE_PULL_IDENTITY_NAME
 )
+
+# For local lab runs, omitted values can be loaded from the ignored infra/hooks/sandbox-lab.local.json file.
+$localConfigPath = Join-Path $PSScriptRoot 'sandbox-lab.local.json'
+if (Test-Path -LiteralPath $localConfigPath -PathType Leaf) {
+  $localConfig = Get-Content -LiteralPath $localConfigPath -Raw | ConvertFrom-Json
+  foreach ($name in @('SubscriptionId','TenantId','Region','ResourceGroup','SandboxGroup','ImagePullClientId','ImagePullIdentityName')) {
+    if (-not (Get-Variable -Name $name -ValueOnly) -and $localConfig.$name) { Set-Variable -Name $name -Value $localConfig.$name -Scope Script }
+  }
+}
 
 function Invoke-LabRead {
   param([string]$File, [string[]]$Arguments)
@@ -37,16 +47,11 @@ function Invoke-SandboxLabLocal {
   param([hashtable]$Options)
   $ErrorActionPreference = 'Stop'
   if ($PSVersionTable.PSVersion -lt [version]'7.3') { throw 'Use PowerShell 7.3 or newer for safe native JSON argument handling.' }
-  $expected = @{
-    SubscriptionId = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'
-    TenantId = '49ff7219-653a-4644-8540-71d16dbf9c16'
-    Region = 'swedencentral'
-    ResourceGroup = 'rg-squad-aca-sandbox-lab'
-    SandboxGroup = 'sbg-squad-aca-sandbox-lab'
-    ImagePullClientId = '44b56c1f-08c0-4223-9c9e-398cc9267fb6'
+  foreach ($key in @('SubscriptionId','TenantId','Region','ResourceGroup','SandboxGroup','ImagePullClientId','ImagePullIdentityName')) {
+    if (-not $Options[$key]) { throw "Missing required Sandbox configuration: $key. Supply a parameter, environment variable or ignored local config." }
   }
-  foreach ($key in $expected.Keys) {
-    if ($Options[$key] -cne $expected[$key]) { throw "Wrong approved local lab scope: $key." }
+  foreach ($key in @('SubscriptionId','TenantId','ImagePullClientId')) {
+    if ($Options[$key] -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw "$key must be a GUID." }
   }
   if ($Options.Concurrency -ne 1 -or $Options.TimeoutMs -lt 1000 -or $Options.TimeoutMs -gt 300000 -or
       [math]::Truncate($Options.TimeoutMs) -ne $Options.TimeoutMs) {
@@ -120,26 +125,26 @@ function Invoke-SandboxLabLocal {
       '--query', '{id:id,tenantId:tenantId,isDefault:isDefault,state:state}', '--output', 'json')) | ConvertFrom-Json
     if ($account.id -cne $Options.SubscriptionId -or $account.tenantId -cne $Options.TenantId -or
         $account.isDefault -ne $true -or $account.state -cne 'Enabled') {
-      throw 'Isolated account must be Enabled and default to the approved subscription and tenant. No account set or login attempted.'
+      throw 'Isolated account must be Enabled and default to the configured subscription and tenant. No account set or login attempted.'
     }
     $groupId = "/subscriptions/$($Options.SubscriptionId)/resourceGroups/$($Options.ResourceGroup)/providers/Microsoft.App/sandboxGroups/$($Options.SandboxGroup)"
     $group = (Invoke-LabRead $az @('resource', 'show', '--ids', $groupId, '--subscription', $Options.SubscriptionId,
       '--query', '{id:id,location:location,state:properties.provisioningState}', '--output', 'json')) | ConvertFrom-Json
     if ($group.id -ine $groupId -or $group.location -cne $Options.Region -or $group.state -cne 'Succeeded') {
-      throw 'Lab Sandbox Group scope, region or provisioning state does not match.'
+      throw 'Sandbox Group scope, region or provisioning state does not match the supplied configuration.'
     }
-    $pullId = "/subscriptions/$($Options.SubscriptionId)/resourceGroups/$($Options.ResourceGroup)/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-squad-aca-sandbox-acrpull"
+    $pullId = "/subscriptions/$($Options.SubscriptionId)/resourceGroups/$($Options.ResourceGroup)/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$($Options.ImagePullIdentityName)"
     $pull = (Invoke-LabRead $az @('identity', 'show', '--ids', $pullId, '--subscription', $Options.SubscriptionId,
       '--query', '{id:id,clientId:clientId,tenantId:tenantId}', '--output', 'json')) | ConvertFrom-Json
     if ($pull.id -ine $pullId -or $pull.clientId -cne $Options.ImagePullClientId -or $pull.tenantId -cne $Options.TenantId) {
-      throw 'Lab image-pull identity does not match the approved client and tenant.'
+      throw 'Image-pull identity does not match the configured client and tenant.'
     }
     $scope = @('--region', $Options.Region, '--subscription', $Options.SubscriptionId, '--resource-group', $Options.ResourceGroup)
     $sandboxes = (Invoke-LabRead $Options.AcaBin ($scope + @('sandbox', 'list', '--group', $Options.SandboxGroup, '-o', 'json'))) | ConvertFrom-Json
     $disks = (Invoke-LabRead $Options.AcaBin ($scope + @('sandboxgroup', 'disk', 'list', '--group', $Options.SandboxGroup, '-o', 'json'))) | ConvertFrom-Json
-    Write-Output "Read-only preflight: $version; Node $nodeVersion; approved isolated account/group/pull identity confirmed."
+    Write-Output "Read-only preflight: $version; Node $nodeVersion; configured isolated account/group/pull identity confirmed."
     Write-Output "Inventory: $(@($sandboxes).Count) sandboxes, $(@($disks).Count) disk images; no resources modified."
-    if (@($sandboxes).Count -ne 0) { throw 'Lab group is not empty. Review existing work; this helper never deletes shared resources.' }
+    if (@($sandboxes).Count -ne 0) { throw 'Sandbox Group is not empty. Review existing work; this helper never deletes shared resources.' }
     if (@($validation.blockers).Count -gt 0) { throw ("Not live-ready: " + ($validation.blockers -join ' ')) }
     if ($Options.PreflightOnly) {
       Write-Output 'Configuration and plan checks passed only. No licensed token, image contents or full live flow verified; no dispatch or publication.'

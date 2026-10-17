@@ -10,7 +10,7 @@ const { readJson, writeJson, sha256File, sha256Bytes, safeName, redact, contains
 const { hardenedGitArgs, hardenedVerificationEnv, verificationGitCommand } = require('./lib/hardened-git');
 
 const { memberLabelDefinitions } = require('../scripts/member-labels.cjs');
-const LIFECYCLE_LABELS = ['sandbox:processing', 'sandbox:queued', 'sandbox:revising', 'sandbox:failed'];
+const LIFECYCLE_LABELS = ['sandbox:processing', 'sandbox:queued', 'sandbox:revising', 'sandbox:failed', 'sandbox:ready'];
 const PUBLISH_ALLOWED_GIT = new Set(['rev-parse', 'fetch', 'merge-base', 'ls-remote', 'read-tree', 'apply', 'write-tree', 'commit-tree', 'push', 'diff', 'diff-tree', 'cat-file']);
 const TOKEN_PATTERN = /github_pat_[A-Za-z0-9_]+|gh[opsur]_[A-Za-z0-9_]+|ghp_[A-Za-z0-9_]+|ghs_[A-Za-z0-9_]+|gho_[A-Za-z0-9_]+/;
 const DEFAULT_GIT_HOST = 'github.com';
@@ -54,12 +54,12 @@ function slug(value, max = 32) {
 function outputDirForSummary(summaryPath) { return path.dirname(path.resolve(summaryPath)); }
 function integrationManifestPath(summaryPath) { return path.join(outputDirForSummary(summaryPath), 'integration', 'artifact-manifest.json'); }
 function integratedPatchPath(summaryPath, summary) { return path.join(outputDirForSummary(summaryPath), ...summary.integration.integrated_patch_path.split('/')); }
-function assertAllowedGit(args) {
+function assertAllowedGit(args, ctx = {}) {
   const command = verificationGitCommand(args);
   if (!PUBLISH_ALLOWED_GIT.has(command)) throw new Error(`publish git command is not allowed: ${command || args.join(' ')}`);
   if (command === 'apply' && !args.includes('--cached')) throw new Error('publish git apply must use --cached');
   if (command === 'read-tree' && args.some(arg => arg === '-u' || arg === '--reset' || arg === '-m')) throw new Error('publish git read-tree must not update a worktree or merge trees');
-  if (command === 'push' && args.some(arg => arg === '--force' || arg === '-f' || (String(arg).startsWith('--force') && !/^--force-with-lease=refs\/heads\/[^:]+:$/.test(String(arg))))) throw new Error('publish git push must not force');
+  if (command === 'push' && args.some(arg => arg === '--force' || arg === '-f' || (String(arg).startsWith('--force') && !/^--force-with-lease=refs\/heads\/[^:]+:$/.test(String(arg)) && arg !== ctx.reviseLease))) throw new Error('publish git push must not force');
 }
 function assertFreshPrivateDirectory(dir, label) {
   const stat = fs.lstatSync(dir);
@@ -97,7 +97,7 @@ function cleanupGitContext(ctx) {
   if (ctx?.runDir) fs.rmSync(ctx.runDir, { recursive: true, force: true });
 }
 function runGit(ctx, args, options = {}) {
-  assertAllowedGit(args);
+  assertAllowedGit(args, ctx);
   const gitArgs = hardenedGitArgs(ctx, args);
   const env = options.env || hardenedVerificationEnv(ctx, options.extraEnv || {});
   if (typeof ctx.onGitSpawn === 'function') ctx.onGitSpawn({ args: [...gitArgs], env: { ...env } });
@@ -547,7 +547,12 @@ class FakeGitHubClient {
     return this.request('GET', `/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=${perPage}&page=${page}`, undefined, this.token);
   }
 }
-function validateIntegrationArtifacts(summaryPath, summary) {
+function validatePostprocessBinding(binding, expected) {
+  if (!binding || binding.schema_version !== 1 || String(binding.run_id) !== String(expected.runId) || String(binding.run_attempt) !== String(expected.runAttempt) || binding.execution_id !== expected.executionId || String(binding.baseline_sha).toLowerCase() !== expected.baselineSha.toLowerCase() || String(binding.patch_sha256).toLowerCase() !== expected.patchSha.toLowerCase()) {
+    throw new Error('postprocess artifact binding does not match this workflow run and integrated patch');
+  }
+}
+function validateIntegrationArtifacts(summaryPath, summary, expectedPostprocessBinding = null) {
   const manifest = readJson(integrationManifestPath(summaryPath));
   const manifestValidation = validateContract('artifact-manifest.schema.json', manifest);
   if (!manifestValidation.valid) throw new Error(`integration artifact manifest is invalid: ${manifestValidation.errors.join('; ')}`);
@@ -566,6 +571,11 @@ function validateIntegrationArtifacts(summaryPath, summary) {
   }
   const baselineSha = manifest.baseline_sha;
   if (!baselineSha) throw new Error('baseline sha is required in the integration artifact manifest');
+  if (expectedPostprocessBinding) {
+    if (!expectedPostprocessBinding.runId || !expectedPostprocessBinding.runAttempt) throw new Error('postprocess workflow run identity is missing');
+    const binding = readJson(path.join(outputDirForSummary(summaryPath), 'postprocess-binding.json'));
+    validatePostprocessBinding(binding, { ...expectedPostprocessBinding, executionId: summary.run_id, baselineSha, patchSha });
+  }
   return { manifest, patchPath, patchSha, baselineSha };
 }
 
@@ -596,6 +606,7 @@ function readPemFromEnv() {
   return pem;
 }
 async function runPublish(options) {
+  if (!options.reviseContext && process.env.SQUAD_REVISE_CONTEXT) options = { ...options, reviseContext: process.env.SQUAD_REVISE_CONTEXT };
   const summaryPath = path.resolve(options.summaryPath || options.summary);
   const repoPath = path.resolve(options.repoPath || options.repo || process.cwd());
   const outPath = path.resolve(options.outPath || options.out || path.join(outputDirForSummary(summaryPath), 'publish-result.json'));
@@ -605,7 +616,7 @@ async function runPublish(options) {
   if (!validation.valid) throw new Error(`dispatcher summary is invalid: ${validation.errors.join('; ')}`);
   if (summary.status !== 'succeeded') throw new Error('dispatcher summary status must be succeeded');
   if (!summary.integration || summary.integration.status !== 'succeeded') throw new Error('dispatcher integration status must be succeeded');
-  const { manifest, patchPath, patchSha, baselineSha } = validateIntegrationArtifacts(summaryPath, summary);
+  const { manifest, patchPath, patchSha, baselineSha } = validateIntegrationArtifacts(summaryPath, summary, options.live && process.env.SQUAD_POSTPROCESS_BINDING_REQUIRED === 'true' ? { runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT } : null);
   if (options.baselineSha && options.baselineSha.toLowerCase() !== baselineSha.toLowerCase()) {
     throw new Error('--baseline-sha does not match the integration artifact manifest');
   }
@@ -638,7 +649,9 @@ async function runPublish(options) {
   const workDir = path.join(path.dirname(outPath), '.publish-work');
   const ctx = createGitContext(repoPath, workDir, { onGitSpawn: options.onGitSpawn, secretEnvKeys: ['SQUAD_GITHUB_APP_PRIVATE_KEY_PATH', 'GITHUB_APP_PRIVATE_KEY_PATH'] });
   try {
-    const branch = branchName({ issueNumber, executionId: summary.run_id, issueTitle });
+    const revise = options.reviseContext ? require('../scripts/issue-revise.cjs').readContext(options.reviseContext, repoFullName, issueNumber) : null;
+    if (revise && baselineSha !== revise.head_sha) throw new Error('REVISE_BASELINE_MISMATCH');
+    const branch = revise ? revise.branch : branchName({ issueNumber, executionId: summary.run_id, issueTitle });
     let client = options.githubClient;
     if (!client) client = options.live ? new RealGitHubClient({ appId: process.env.SQUAD_GITHUB_APP_ID || process.env.GITHUB_APP_ID, installationId: process.env.SQUAD_GITHUB_APP_INSTALLATION_ID || process.env.GITHUB_APP_INSTALLATION_ID, privateKeyPem: readPemFromEnv(), live: true }) : new FakeGitHubClient();
     const tokenResult = await client.createInstallationToken({ owner, repo, permissions: { contents: 'write', pull_requests: 'write', issues: 'write' } });
@@ -650,9 +663,38 @@ async function runPublish(options) {
     const rewriteEntries = localGitRewriteEntries(repoUrl, options.gitRewriteBaseUrl);
     const remoteEnv = authGitEnv(ctx, repoUrl, token, rewriteEntries);
     const targetBranch = options.targetBranch || summary.target_branch || await defaultBranch(ctx, repoUrl, remoteEnv);
-    await verifyRemoteBaseline(ctx, repoUrl, targetBranch, baselineSha, remoteEnv);
+    if (!revise) await verifyRemoteBaseline(ctx, repoUrl, targetBranch, baselineSha, remoteEnv);
+    else {
+      const main = await fetchRemoteBranch(ctx, repoUrl, targetBranch, remoteEnv);
+      try { await runGit(ctx, ['merge-base', '--is-ancestor', main.sha, baselineSha]); }
+      catch { throw new Error('REVISE_MAIN_NOT_INCLUDED: Merge current main into the PR branch, resolve conflicts, then post a new /squad revise comment.'); }
+      require('../scripts/issue-revise.cjs').validateBaseline(repoPath, revise);
+    }
     const commitInfo = await buildCommit(ctx, { baselineSha, patchPath, tasks: planTasks, executionId: summary.run_id, issueNumber, issueTitle, branch, commitDate: summary.ended_at || summary.started_at, identity });
     const existingPr = await client.findPullRequestByHead({ owner, repo, head: branch, state: 'all' });
+    if (revise) {
+      const { assertHeadUnchanged, ownedPull } = require('../scripts/issue-revise.cjs');
+      if (!existingPr || !ownedPull(existingPr, repoFullName) || existingPr.number !== revise.pr_number || existingPr.user.login !== identity.name) throw new Error('REVISE_PR_REJECTED');
+      const current = await remoteBranchCommit(ctx, repoUrl, branch, remoteEnv);
+      const action = assertHeadUnchanged(current, revise.head_sha, commitInfo.commit);
+      if (pullRequestHeadSha(existingPr) !== current) throw new Error('REVISE_BRANCH_HEAD_MOVED');
+      if (action === 'push') {
+        await runGit(ctx, ['merge-base', '--is-ancestor', current, commitInfo.commit]);
+        ctx.reviseLease = `--force-with-lease=refs/heads/${branch}:${revise.head_sha}`;
+        await runGit(ctx, ['push', ctx.reviseLease, repoUrl, `${commitInfo.commit}:refs/heads/${branch}`], { env: remoteEnv, token });
+      }
+      const marker = `<!-- squad-revise:${process.env.GITHUB_RUN_ID} -->`;
+      let found = false;
+      for (let page = 1; page <= MAX_GITHUB_COMMENT_PAGES; page++) {
+        const comments = await client.listIssueComments({ owner, repo, issueNumber: revise.pr_number, page, perPage: GITHUB_COMMENT_PAGE_SIZE });
+        if (comments.some(comment => comment.user?.login === identity.name && comment.body?.includes(marker))) { found = true; break; }
+        if (comments.length < GITHUB_COMMENT_PAGE_SIZE) break;
+      }
+      if (!found) await client.createIssueComment({ owner, repo, issueNumber: revise.pr_number, body: `${marker}\nRevision complete. Members: ${planTasks.map(task => task.owner.logical_member_id).join(', ')}. Files: ${commitInfo.delta.paths.slice().sort().join(', ')}.` });
+      const result = { schema_version: 'aca-sandbox/v1', message_type: 'publish.result', run_id: summary.run_id, status: 'succeeded', branch, commit_sha: commitInfo.commit, pr_number: revise.pr_number, pr_url: existingPr.html_url, idempotency: action === 'push' ? 'created' : 'existing' };
+      writeJson(outPath, result);
+      return { result, resultPath: outPath };
+    }
     if (existingPr) {
       if (existingPr.state && existingPr.state !== 'open') throw new Error(`publish branch ${branch} already has a ${existingPr.merged_at ? 'merged' : 'closed'} pull request; refusing to push or create another PR`);
       const current = await remoteBranchCommit(ctx, repoUrl, branch, remoteEnv);
@@ -701,4 +743,4 @@ async function runPublish(options) {
     cleanupGitContext(ctx);
   }
 }
-module.exports = { runPublish, labelPublication, authGitEnv, validateIntegrationArtifacts, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, branchName, prBody, readPemFromEnv, LIFECYCLE_LABELS, contributorTrailers, commitMessage, withTaskRoles };
+module.exports = { runPublish, labelPublication, authGitEnv, validateIntegrationArtifacts, validatePostprocessBinding, FakeGitHubClient, RealGitHubClient, sanitizeUntrusted, branchName, prBody, readPemFromEnv, LIFECYCLE_LABELS, contributorTrailers, commitMessage, withTaskRoles };

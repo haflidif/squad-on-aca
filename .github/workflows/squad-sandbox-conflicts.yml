@@ -1,0 +1,30 @@
+name: Squad sandbox conflict hint
+on:
+  push:
+    branches: [main]
+permissions: {}
+concurrency:
+  group: squad-sandbox-conflict-hints
+  cancel-in-progress: false
+jobs:
+  hint:
+    if: vars.SQUAD_ISSUE_FLOW_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts
+            contracts
+            dispatcher
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await require('./scripts/issue-revise.cjs').conflictHints({ github, context });

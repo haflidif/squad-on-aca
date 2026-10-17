@@ -414,3 +414,31 @@ test('integration runner is deterministic for identical inputs', { skip: !bash &
   assert.equal(sha256(path.join(first.outputDir, 'patches', 'integrated.patch')), sha256(path.join(second.outputDir, 'patches', 'integrated.patch')));
   assert.equal(fs.readFileSync(path.join(first.outputDir, 'patches', 'integrated.patch'), 'utf8'), fs.readFileSync(path.join(second.outputDir, 'patches', 'integrated.patch'), 'utf8'));
 });
+
+for (const mode of ['empty', 'mixed', 'invalid']) test(`integration handles ${mode} member patches strictly`, { skip: !bash && 'Git Bash is not available' }, () => {
+  const { result, outputDir } = runIntegration(`empty-${mode}`, ({ repo, baseline, inputDir, ownerA, ownerB }) => {
+    const patchA = path.join(inputDir, 'patches', 'task-alpha.patch');
+    fs.writeFileSync(patchA, mode === 'invalid' ? 'this is not a patch\n' : '');
+    const tasks = [{ task_id: 'task-alpha', owner: ownerA, dependencies: [], owned_paths: ['alpha'], patch_ref: { path: 'patches/task-alpha.patch', sha256: sha256(patchA) } }];
+    if (mode === 'mixed') {
+      const patchB = path.join(inputDir, 'patches', 'task-beta.patch');
+      patchFor(repo, baseline, 'beta/result.txt', 'changed\n', patchB);
+      tasks.push({ task_id: 'task-beta', owner: ownerB, dependencies: [{ task_id: 'task-alpha' }], owned_paths: ['beta'], patch_ref: { path: 'patches/task-beta.patch', sha256: sha256(patchB) } });
+    }
+    return { tasks, checks: [{ name: 'baseline-check', argv: ['node', '-e', 'require("node:assert/strict").equal(require("node:fs").readFileSync("alpha/base.txt", "utf8").trim(), "alpha baseline")'], timeout_ms: 10000 }] };
+  });
+  assertValid(outputDir);
+  const integration = readResult(outputDir);
+  if (mode === 'invalid') {
+    assert.notEqual(result.status, 0);
+    assert.equal(integration.status, 'failed');
+    assert.equal(integration.failed_task_id, 'task-alpha');
+    assert.equal(fs.existsSync(path.join(outputDir, 'patches', 'integrated.patch')), false);
+  } else {
+    assert.equal(result.status, 0, JSON.stringify(integration));
+    assert.equal(integration.status, 'succeeded');
+    assert.ok(integration.tasks.every(task => task.status === 'succeeded'));
+    assert.equal(integration.check_results[0].status, 'succeeded');
+    assert.equal(fs.statSync(path.join(outputDir, 'patches', 'integrated.patch')).size === 0, mode === 'empty');
+  }
+});

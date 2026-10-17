@@ -1,8 +1,14 @@
-const DEFAULT_ENDPOINT = 'https://management.swedencentral.azuredevcompute.io';
 const TOKEN_AUDIENCE = 'https://management.azuredevcompute.io';
 const API_VERSION = '2026-02-01-preview';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const { validateSandboxImageRef } = require('./sandbox-image');
+
+function endpointForRegion(region) {
+  if (typeof region !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(region)) {
+    throw new Error('SQUAD_SANDBOX_REGION must be a valid Azure region name.');
+  }
+  return `https://management.${region}.azuredevcompute.io`;
+}
 
 function validSegment(value, name) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9._-]{1,90}$/.test(value) || value === '.' || value === '..') {
@@ -53,10 +59,12 @@ async function fetchWithin(fetchImpl, url, options, timeoutMs) {
 async function createDiskImage(options) {
   const {
     imageUrl, managedIdentityClientId, subscriptionId, resourceGroup, groupName,
-    name, getToken, fetchImpl = globalThis.fetch, endpoint = DEFAULT_ENDPOINT,
+    name, getToken, region = process.env.SQUAD_SANDBOX_REGION, endpoint, fetchImpl = globalThis.fetch,
     timeoutMs = 180000, requestTimeoutMs = 30000, pollIntervalMs = 2000,
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
   } = options;
+  const expectedEndpoint = endpointForRegion(region);
+  const resolvedEndpoint = endpoint || expectedEndpoint;
   if (typeof fetchImpl !== 'function') throw new Error('Fetch is unavailable for ACA disk image creation.');
   if (typeof getToken !== 'function') throw new Error('Azure token provider is required for ACA disk image creation.');
   for (const [value, label] of [[subscriptionId, 'subscription ID'], [resourceGroup, 'resource group'], [groupName, 'sandbox group'], [name, 'disk image name']]) {
@@ -67,13 +75,13 @@ async function createDiskImage(options) {
     throw new Error('SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID must be a valid managed identity client ID.');
   }
   validateSandboxImageRef(imageUrl);
-  if (typeof endpoint !== 'string' || endpoint !== DEFAULT_ENDPOINT) throw new Error('ACA disk image endpoint is not approved.');
+  if (typeof resolvedEndpoint !== 'string' || resolvedEndpoint !== expectedEndpoint) throw new Error('ACA disk image endpoint is not approved for SQUAD_SANDBOX_REGION.');
 
   const token = await getToken(TOKEN_AUDIENCE);
   if (typeof token !== 'string' || token.length < 20 || /[\r\n]/.test(token)) {
     throw new Error('Azure token provider returned an invalid token.');
   }
-  const base = new URL(endpoint);
+  const base = new URL(resolvedEndpoint);
   const createUrl = new URL(`/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/sandboxGroups/${groupName}/diskimages/v2/async?api-version=${API_VERSION}`, base);
   let response;
   try {
@@ -140,4 +148,4 @@ async function createDiskImage(options) {
   throw new Error(`ACA disk image operation timed out after ${timeoutMs} ms.`);
 }
 
-module.exports = { createDiskImage, DEFAULT_ENDPOINT, TOKEN_AUDIENCE };
+module.exports = { createDiskImage, endpointForRegion, TOKEN_AUDIENCE };

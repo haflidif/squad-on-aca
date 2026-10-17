@@ -425,7 +425,7 @@ az acr build \
   .
 ```
 
-The `BASE_ACR_HOST` build argument overrides the Dockerfile default so the `FROM` lines use your ACR. Run the base-image import commands first so those images exist in your registry.
+The `BASE_ACR_HOST` build argument is required and points the `FROM` lines to your ACR. Run the base-image import commands first so those images exist in your registry. The manual `.github/workflows/acr-import-base.yml` workflow requires repository variables `SQUAD_ACR_NAME`, `SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, and `SQUAD_AZURE_SUBSCRIPTION_ID`; the three Azure values should match the OIDC identity configured for the repository.
 
 ### Option B: Build locally with Docker
 
@@ -562,6 +562,10 @@ body:
 ```
 
 ---
+
+## Optional: Enable the ACA Sandbox issue flow
+
+The ACA Sandbox issue workflow is a separate preview path. The ACA Job queue remains the default and stays unchanged. Complete the [ACA Sandbox issue flow setup](sandbox-issue-flow.md) before enabling it. That guide covers the Sandbox Group, GitHub App, protected environments, OIDC subject, repository variables, image digest, labels, postprocess configuration, revise flow, and rollback.
 
 ## Step 8: Test end-to-end
 

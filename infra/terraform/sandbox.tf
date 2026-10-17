@@ -38,3 +38,15 @@ resource "azurerm_role_assignment" "sandbox_dispatcher_data_owner" {
   role_definition_name = "Container Apps SandboxGroup Data Owner"
   principal_id         = azurerm_user_assigned_identity.sandbox_dispatcher[0].principal_id
 }
+
+
+# GitHub Actions OIDC for the opt-in issue workflow's protected environment.
+resource "azurerm_federated_identity_credential" "sandbox_issue_environment" {
+  for_each = var.enable_aca_sandbox ? toset(var.target_repos) : toset([])
+
+  name      = "gha-sandbox-issue-${replace(each.value, "/[^A-Za-z0-9-]/", "-")}"
+  parent_id = azurerm_user_assigned_identity.sandbox_dispatcher[0].id
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = "https://token.actions.githubusercontent.com"
+  subject   = "repo:${each.value}:environment:squad-sandbox-issue"
+}

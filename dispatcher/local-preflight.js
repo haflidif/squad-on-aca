@@ -18,21 +18,12 @@ function validateLocalInputs(options) {
   if (!options.imageRef) blockers.push('Missing approved corrected immutable ImageRef; the local build is not a released digest.');
   else {
     validateSandboxImageRef(options.imageRef);
-    if (!options.imageRef.startsWith('crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:')) {
-      throw new Error('Local operation requires the approved squad/persona-sandbox image repository.');
-    }
-    if (options.imageRef.endsWith('@sha256:cea1d310e7109c18d24ae57de153565c722284382c89d0bc1b441840f59e2875')) {
-      throw new Error('The old probe image predates the corrected runner and is not approved for a real task.');
-    }
   }
 
   let planPath;
   if (options.planPath || options.repository || options.issueNumber) {
     if (!options.planPath || !options.repository || !options.issueNumber) {
       throw new Error('PlanPath, Repository and IssueNumber must be supplied together.');
-    }
-    if (options.repository !== 'AzureViking/squad-on-aca-sandbox-lab') {
-      throw new Error('Local operation requires the approved lab repository.');
     }
     const root = path.resolve(options.repoRoot);
     const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
@@ -60,7 +51,7 @@ function validateLocalInputs(options) {
       `git@github.com:${options.repository}.git`
     ];
     if (origin.error || origin.status !== 0 || !allowedOrigins.includes(origin.stdout.trim())) {
-      throw new Error('Checkout origin must exactly identify the approved lab repository (no embedded credentials).');
+      throw new Error('Checkout origin must exactly identify the configured repository (no embedded credentials).');
     }
   } else {
     blockers.push('Missing reviewed lab checkout and repo/issue-bound single-persona plan.');

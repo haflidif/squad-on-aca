@@ -191,7 +191,7 @@ test('any required task failure blocks integration before creating a sandbox', a
 });
 
 test('publisher lifecycle namespace never collides with squad member labels', () => {
-  assert.deepEqual(LIFECYCLE_LABELS, ['sandbox:processing', 'sandbox:queued', 'sandbox:revising', 'sandbox:failed']);
+  assert.deepEqual(LIFECYCLE_LABELS, ['sandbox:processing', 'sandbox:queued', 'sandbox:revising', 'sandbox:failed', 'sandbox:ready']);
   assert.ok(LIFECYCLE_LABELS.every(label => !/^squad:/.test(label)));
 });
 
@@ -336,9 +336,10 @@ test('report creates member labels and adds failed state on publication failure'
   const result = { status: 'succeeded', route: { reason: 'Execute bounded work.', members: selected }, stages: { lead: { status: 'succeeded' }, member: { status: 'succeeded' } } };
   fs.writeFileSync(path.join(dir, 'issue-result.json'), JSON.stringify(result));
   const calls = [];
-  const github = { rest: { issues: {
+  const github = { paginate: async () => [], rest: { pulls: { list: 'pulls' }, issues: {
     getLabel: async () => { throw Object.assign(new Error('missing'), { status: 404 }); },
     createLabel: async request => calls.push(['create', request]),
+    removeLabel: async request => calls.push(['remove', request]),
     addLabels: async request => calls.push(['add', request]),
     createComment: async request => calls.push(['comment', request])
   } } };

@@ -21,6 +21,7 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const workRoot = path.join(__dirname, '.work');
 // Actions sets GITHUB_REPOSITORY; tests that need the workflow-repository check set it explicitly.
 delete process.env.GITHUB_REPOSITORY;
+process.env.SQUAD_SANDBOX_REGION = 'testregion';
 
 function resetDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -374,11 +375,11 @@ if (process.argv.includes('create')) process.stdout.write('{"ok":true}\\n');
     const client = new AcaCliSandboxClient({
       acaBin: process.execPath,
       acaBinArgs: [stub],
-      image: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+      image: `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
       group: 'test-group',
       resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6'
+      imagePullClientId: '22222222-2222-4222-8222-222222222222'
     });
     const sandboxId = 'cac12585-a69b-40e7-b0b7-a6a076fdce88';
     client.activeSandboxIds.add(sandboxId);
@@ -415,10 +416,10 @@ test('live disk-image contract submits registry source, polls operation, and val
     { status: 202, json: async () => ({ status: 'Running' }) },
     { status: 200, json: async () => ({ status: 'Succeeded', diskImage: { id: '63561979-2a62-4cb9-bb0e-fdf96a8adad4' } }) }
   ];
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const diskId = await createDiskImage({
     imageUrl: image,
-    managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+    managedIdentityClientId: '22222222-2222-4222-8222-222222222222',
     subscriptionId: '00000000-0000-4000-8000-000000000001',
     resourceGroup: 'sandbox-rg',
     groupName: 'sandbox-group',
@@ -436,28 +437,29 @@ test('live disk-image contract submits registry source, polls operation, and val
   });
   assert.equal(diskId, '63561979-2a62-4cb9-bb0e-fdf96a8adad4');
   assert.equal(requests.length, 3);
-  assert.match(requests[0].url, /^https:\/\/management\.swedencentral\.azuredevcompute\.io\/subscriptions\/00000000-0000-4000-8000-000000000001\/resourceGroups\/sandbox-rg\/sandboxGroups\/sandbox-group\/diskimages\/v2\/async\?api-version=2026-02-01-preview$/);
+  assert.match(requests[0].url, /^https:\/\/management\.testregion\.azuredevcompute\.io\/subscriptions\/00000000-0000-4000-8000-000000000001\/resourceGroups\/sandbox-rg\/sandboxGroups\/sandbox-group\/diskimages\/v2\/async\?api-version=2026-02-01-preview$/);
   assert.equal(requests[0].options.method, 'PUT');
   assert.deepEqual(JSON.parse(requests[0].options.body), {
     labels: { name: 'disk-probe' },
-    source: { kind: 'registry', imageUrl: image, managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6' }
+    source: { kind: 'registry', imageUrl: image, managedIdentityClientId: '22222222-2222-4222-8222-222222222222' }
   });
   assert.ok(requests[0].options.headers.authorization.startsWith('Bearer '));
   assert.equal(requests[0].options.headers.authorization, 'Bearer mocked-access-token-1234567890');
   assert.equal(requests[1].options.method, 'GET');
 });
 
-test('sandbox image references stay inside the approved ACR repository and contain no credentials', () => {
-  const digest = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+test('sandbox image references allow a configured registry but require a digest and no credentials', () => {
+  const digest = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   assert.equal(validateSandboxImageRef(digest), digest);
+  assert.equal(validateSandboxImageRef(`other.registry.example:5443/team/image@sha256:${'b'.repeat(64)}`), `other.registry.example:5443/team/image@sha256:${'b'.repeat(64)}`);
   for (const image of [
-    'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox:e5e721a',
-    'https://crsquadacaa6b49feb.azurecr.io/squad/image:tag',
-    'user:password@crsquadacaa6b49feb.azurecr.io/squad/image:tag',
-    'other.azurecr.io/squad/image:tag',
-    'crsquadacaa6b49feb.azurecr.io/other/image:tag',
-    'crsquadacaa6b49feb.azurecr.io/squad/../image:tag',
-    'crsquadacaa6b49feb.azurecr.io/squad/image:tag?query=1'
+    'registry.example/squad/persona-sandbox:e5e721a',
+    'https://registry.example/squad/image:tag',
+    'user:password@registry.example/squad/image:tag',
+    'other.registry.example/squad/image:tag',
+    'registry.example/other/image:tag',
+    'registry.example/squad/../image:tag',
+    'registry.example/squad/image:tag?query=1'
   ]) {
     assert.throws(() => validateSandboxImageRef(image), /immutable sha256 digest/);
   }
@@ -465,8 +467,8 @@ test('sandbox image references stay inside the approved ACR repository and conta
 
 test('disk-image polling fails closed on operation failures, malformed responses, unsafe URLs, and timeout', async t => {
   const base = {
-    imageUrl: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
-    managedIdentityClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+    imageUrl: `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+    managedIdentityClientId: '22222222-2222-4222-8222-222222222222',
     subscriptionId: '00000000-0000-4000-8000-000000000001',
     resourceGroup: 'sandbox-rg',
     groupName: 'sandbox-group',
@@ -591,7 +593,7 @@ test('sandbox UUID output parsing fails closed and POSIX command quoting preserv
 });
 
 test('ACA sandbox exec uses the actual ID and command-string CLI contract without stdin', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   try {
@@ -599,7 +601,7 @@ test('ACA sandbox exec uses the actual ID and command-string CLI contract withou
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ command, args, options });
         return { exitCode: 0, stdout: '', stderr: '' };
@@ -609,7 +611,7 @@ test('ACA sandbox exec uses the actual ID and command-string CLI contract withou
     client.activeSandboxIds.add(id);
     await client.exec({ id }, ['sh', '-lc', 'printf "%s" "$1"', 'sh', "a'b; echo not-injected"]);
     assert.deepEqual(calls[0].args, [
-      '--region', 'swedencentral', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
+      '--region', 'testregion', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
       'sandbox', 'exec', '--group', 'test-group',
       '--id', id, '-c', "'sh' '-lc' 'printf \"%s\" \"$1\"' 'sh' 'a'\\''b; echo not-injected'"
     ]);
@@ -624,7 +626,7 @@ test('ACA sandbox exec uses the actual ID and command-string CLI contract withou
 });
 
 test('ACA file transfer uses native fs cp in both directions and privately stages local files', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const sandboxId = 'cac12585-a69b-40e7-b0b7-a6a076fdce88';
@@ -635,7 +637,7 @@ test('ACA file transfer uses native fs cp in both directions and privately stage
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ args, options });
         const cp = args.indexOf('cp');
@@ -660,7 +662,7 @@ test('ACA file transfer uses native fs cp in both directions and privately stage
     const transfers = calls.filter(call => call.args.includes('cp'));
     assert.equal(transfers.length, 2);
     for (const call of transfers) {
-      assert.deepEqual(call.args.slice(0, 11), ['--region', 'swedencentral', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg', 'sandbox', 'fs', 'cp', '--group', 'test-group']);
+      assert.deepEqual(call.args.slice(0, 11), ['--region', 'testregion', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg', 'sandbox', 'fs', 'cp', '--group', 'test-group']);
     }
     assert.equal(transfers[0].args.at(-1), `${sandboxId}:/workspace/probe.bin`);
     assert.equal(transfers[1].args.at(-2), `${sandboxId}:/workspace/probe.bin`);
@@ -677,7 +679,7 @@ test('ACA file transfer uses native fs cp in both directions and privately stage
 });
 
 test('runner environment is staged privately on verified tmpfs and removed without entering argv, env, or stdin', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const sandboxId = 'cac12585-a69b-40e7-b0b7-a6a076fdce88';
@@ -688,7 +690,7 @@ test('runner environment is staged privately on verified tmpfs and removed witho
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ args, options });
         const cp = args.indexOf('cp');
@@ -730,7 +732,7 @@ test('runner environment is staged privately on verified tmpfs and removed witho
 });
 
 test('runner environment staging fails closed when tmpfs cannot be verified and still attempts cleanup', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const calls = [];
@@ -738,7 +740,7 @@ test('runner environment staging fails closed when tmpfs cannot be verified and 
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ args, options });
         const shell = args[args.indexOf('-c') + 1] || '';
@@ -762,7 +764,7 @@ test('runner environment staging fails closed when tmpfs cannot be verified and 
 });
 
 test('runner failure still triggers tmpfs cleanup and leaves the payload out of CLI arguments', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const calls = [];
@@ -771,7 +773,7 @@ test('runner failure still triggers tmpfs cleanup and leaves the payload out of 
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ args, options });
         const shell = args[args.indexOf('-c') + 1] || '';
@@ -797,7 +799,7 @@ test('runner failure still triggers tmpfs cleanup and leaves the payload out of 
 });
 
 test('remote env cleanup failure after a failed fs cp is surfaced with the primary failure and no secret data', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const calls = [];
@@ -806,7 +808,7 @@ test('remote env cleanup failure after a failed fs cp is surfaced with the prima
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args, options) => {
         calls.push({ args, options });
         if (args.includes('cp')) throw new Error(`transfer interrupted after partial write of ${token}`);
@@ -844,14 +846,14 @@ test('remote env cleanup failure after a failed fs cp is surfaced with the prima
 });
 
 test('remote env cleanup failure after a successful runner is still reported', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   try {
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       runProcess: async (command, args) => {
         const shell = args[args.indexOf('-c') + 1] || '';
         if (shell.startsWith('rm -f --')) return { exitCode: 1, stdout: '', stderr: '', timedOut: false };
@@ -910,7 +912,7 @@ test('Windows staging ACL failure is fatal before any secret file is uploaded', 
 });
 
 test('sandbox create parses the generated UUID and uses the real CLI create, exec, transfer, and delete APIs', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   try {
     process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
@@ -921,7 +923,7 @@ test('sandbox create parses the generated UUID and uses the real CLI create, exe
       group: 'test-group',
       resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       createDiskImage: async () => { diskCreates += 1; return '63561979-2a62-4cb9-bb0e-fdf96a8adad4'; },
       runProcess: async (command, args, options) => {
         createCalls.push({ command, args, options });
@@ -940,7 +942,7 @@ test('sandbox create parses the generated UUID and uses the real CLI create, exe
     assert.equal(handle.id, 'cac12585-a69b-40e7-b0b7-a6a076fdce88');
     assert.equal(handle.name, handle.id);
     assert.deepEqual(createCalls[0].args, [
-      '--region', 'swedencentral', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
+      '--region', 'testregion', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
       'sandbox', 'create', '--group', 'test-group',
       '--disk-id', '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
       '--cpu', '1000m', '--memory', '2048Mi', '--label', 'task_id=task-1',
@@ -950,13 +952,13 @@ test('sandbox create parses the generated UUID and uses the real CLI create, exe
     assert.equal(createCalls[0].args.includes('--disk'), false);
     await client.delete(handle);
     assert.deepEqual(createCalls[1].args, [
-      '--region', 'swedencentral', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
+      '--region', 'testregion', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
       'sandbox', 'delete',
       '--group', 'test-group', '--id', handle.id, '--yes'
     ]);
     await assert.rejects(client.create({
       name: 'wrong-image',
-      image: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'b'.repeat(64)}`
+      image: `registry.example/squad/persona-sandbox@sha256:${'b'.repeat(64)}`
     }), /does not match/);
   } finally {
     if (oldEnable === undefined) delete process.env.SQUAD_ENABLE_ACA_SANDBOX;
@@ -965,16 +967,16 @@ test('sandbox create parses the generated UUID and uses the real CLI create, exe
 });
 
 test('every ACA CLI command is pinned to subscription and resource group, and failures carry redacted diagnostics', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const base = {
-    image, group: 'sbg-squad-aca-sandbox-lab', resourceGroup: 'rg-squad-aca-sandbox-lab',
-    subscriptionId: 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e',
-    imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+    image, group: 'sandbox-group', resourceGroup: 'sandbox-rg',
+    subscriptionId: '00000000-0000-4000-8000-000000000001',
+    imagePullClientId: '22222222-2222-4222-8222-222222222222',
     createDiskImage: async () => '63561979-2a62-4cb9-bb0e-fdf96a8adad4'
   };
-  const pinned = ['--region', 'swedencentral', '--subscription', 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e', '--resource-group', 'rg-squad-aca-sandbox-lab'];
+  const pinned = ['--region', 'testregion', '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'sandbox-rg'];
   try {
     const calls = [];
     const id = 'cac12585-a69b-40e7-b0b7-a6a076fdce88';
@@ -1029,7 +1031,7 @@ test('every ACA CLI command is pinned to subscription and resource group, and fa
   }
 });
 test('sandbox create rejects reserved or malformed labels before any disk or CLI call', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   let diskCalls = 0;
@@ -1038,7 +1040,7 @@ test('sandbox create rejects reserved or malformed labels before any disk or CLI
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       createDiskImage: async () => { diskCalls += 1; return '63561979-2a62-4cb9-bb0e-fdf96a8adad4'; },
       runProcess: async (command, args) => { calls.push(args); return { exitCode: 1, stdout: '', stderr: '' }; }
     });
@@ -1060,7 +1062,7 @@ test('sandbox create rejects reserved or malformed labels before any disk or CLI
   }
 });
 test('malformed create output blocks disk deletion because sandbox creation is uncertain', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
   const calls = [];
@@ -1068,7 +1070,7 @@ test('malformed create output blocks disk deletion because sandbox creation is u
     const client = new AcaCliSandboxClient({
       image, group: 'test-group', resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       createDiskImage: async () => '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
       runProcess: async (command, args) => {
         calls.push(args);
@@ -1085,7 +1087,7 @@ test('malformed create output blocks disk deletion because sandbox creation is u
 });
 
 test('disk-image deletion targets only the returned UUID and waits for CLI completion', async () => {
-  const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+  const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
   const commands = [];
   const oldEnable = process.env.SQUAD_ENABLE_ACA_SANDBOX;
   process.env.SQUAD_ENABLE_ACA_SANDBOX = '1';
@@ -1095,7 +1097,7 @@ test('disk-image deletion targets only the returned UUID and waits for CLI compl
       group: 'test-group',
       resourceGroup: 'test-rg',
       subscriptionId: '00000000-0000-4000-8000-000000000001',
-      imagePullClientId: '44b56c1f-08c0-4223-9c9e-398cc9267fb6',
+      imagePullClientId: '22222222-2222-4222-8222-222222222222',
       createDiskImage: async () => '63561979-2a62-4cb9-bb0e-fdf96a8adad4',
       runProcess: async (command, args, options) => {
         commands.push({ command, args, options });
@@ -1113,7 +1115,7 @@ test('disk-image deletion targets only the returned UUID and waits for CLI compl
     const deleteCalls = commands.filter(call => call.args.includes('sandboxgroup') && call.args.includes('delete'));
     assert.equal(deleteCalls.length, 1);
     assert.deepEqual(deleteCalls[0].args, [
-      '--region', 'swedencentral',
+      '--region', 'testregion',
       '--subscription', '00000000-0000-4000-8000-000000000001', '--resource-group', 'test-rg',
       'sandboxgroup', 'disk', 'delete', '--group', 'test-group',
       '--id', '63561979-2a62-4cb9-bb0e-fdf96a8adad4',

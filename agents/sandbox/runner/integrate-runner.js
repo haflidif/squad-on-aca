@@ -538,6 +538,10 @@ async function main() {
       if (!fs.existsSync(patchFile)) return await failAndPublish(context, 'PATCH_NOT_FOUND', `Patch file not found for ${task.task_id}.`, task.task_id);
       const actualSha = sha256File(patchFile);
       if (actualSha !== task.patch_ref.sha256.toLowerCase()) return await failAndPublish(context, 'PATCH_SHA_MISMATCH', `Patch sha256 mismatch for ${task.task_id}.`, task.task_id);
+      if (fs.statSync(patchFile).size === 0) {
+        taskStatuses.set(task.task_id, 'succeeded');
+        continue;
+      }
       const applyPatchFile = normalizedPatchForGit(patchFile, workDir, task.task_id);
       let preliminaryPaths;
       try {

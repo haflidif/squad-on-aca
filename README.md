@@ -60,6 +60,8 @@ Enriched PR Body
 
 ✅ **Graceful Fallback** — If Copilot CLI fails, a work artifact is created and a PR is still opened so context isn't lost.
 
+🧪 **Opt-in ACA Sandbox issue flow** - A separate, disabled-by-default workflow supports staged multi-member work, scoped postprocess steps, and `/squad revise` on Sandbox PRs. The existing ACA Job workflow remains the default. See the [Sandbox issue flow guide](docs/sandbox-issue-flow.md).
+
 ---
 
 ## Quick Start
@@ -155,6 +157,7 @@ Contributions welcome! Areas for expansion:
 | [Adoption Guide](docs/adoption-guide.md) | Full step-by-step deployment guide with prerequisites |
 | [Architecture](docs/architecture.md) | Sequence diagrams, component diagrams, KEDA scaling model, RBAC map |
 | [Infrastructure](docs/infrastructure.md) | Terraform modules, key decisions, component details |
+| [ACA Sandbox issue flow](docs/sandbox-issue-flow.md) | Opt-in setup, multi-member stages, postprocess, revise, labels, and rollback |
 | [Customization](docs/customization.md) | Container image, entrypoint, new agent types, target repo setup |
 | [Limitations](docs/limitations.md) | Known limitations with mitigations |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and how to resolve them |

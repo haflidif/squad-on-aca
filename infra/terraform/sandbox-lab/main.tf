@@ -76,12 +76,12 @@ resource "azurerm_role_assignment" "dispatcher_data_owner" {
 }
 
 resource "azurerm_federated_identity_credential" "dispatch_environment" {
-  name                = "fic-squad-sandbox-dispatch"
+  name                = "fic-${var.environment_name}"
   resource_group_name = data.azurerm_resource_group.lab.name
   parent_id           = azurerm_user_assigned_identity.dispatcher.id
   audience            = ["api://AzureADTokenExchange"]
   issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:AzureViking/squad-on-aca-sandbox-lab:environment:squad-sandbox-dispatch"
+  subject             = "repo:${var.repository_full_name}:environment:${var.environment_name}"
 }
 
 resource "azurerm_role_assignment" "operator_data_owner" {

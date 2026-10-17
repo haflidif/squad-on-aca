@@ -4,6 +4,7 @@ const { spawnSync } = require('node:child_process');
 const { validateContract } = require('../contracts/aca-sandbox/v1/tools/validate');
 const { assertIssueBinding, issueNumber: parseIssueNumber } = require('./lib/issue-binding');
 const { validateSandboxImageRef } = require('./lib/sandbox-image');
+const { endpointForRegion } = require('./lib/aca-disk-image');
 const { validateCopilotAuth, COPILOT_AUTH_MODES } = require('./lib/auth');
 
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
@@ -95,6 +96,7 @@ function validateLiveSandboxConfig(env) {
     'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID',
     'SQUAD_ACA_BIN',
     'SQUAD_SANDBOX_IMAGE_REF',
+    'SQUAD_SANDBOX_REGION',
     'SQUAD_COPILOT_TOKEN'
   ];
   const missing = required.filter(name => typeof env[name] !== 'string' || env[name].trim() === '');
@@ -103,6 +105,7 @@ function validateLiveSandboxConfig(env) {
     throw new Error('SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID must be a valid managed identity client ID.');
   }
   validateSandboxImageRef(env.SQUAD_SANDBOX_IMAGE_REF);
+  endpointForRegion(env.SQUAD_SANDBOX_REGION);
   const authMode = env.SQUAD_COPILOT_AUTH_MODE || 'pat';
   validateCopilotAuth({
     token: env.SQUAD_COPILOT_TOKEN,
@@ -139,9 +142,6 @@ function validateInputs(env, options = {}) {
   if (repository !== requiredString(env.GITHUB_REPOSITORY, 'GITHUB_REPOSITORY')) {
     throw new Error('SQUAD_REPOSITORY must exactly match the checked-out GitHub repository.');
   }
-  if (repository === 'AzureViking/squad-on-aca-sandbox-lab' && env.GITHUB_REF !== 'refs/heads/main') {
-    throw new Error('The lab workflow must run from its reviewed main branch.');
-  }
 
   const issueNumber = parseIssueNumber(requiredString(env.SQUAD_ISSUE_NUMBER, 'SQUAD_ISSUE_NUMBER'));
   const mode = requiredString(env.SQUAD_EXECUTION_MODE, 'SQUAD_EXECUTION_MODE');
@@ -152,20 +152,23 @@ function validateInputs(env, options = {}) {
     throw new Error('Fake mode cannot enable live sandbox execution or publication.');
   }
   if (mode === 'live' && !liveSandbox) throw new Error('Live mode requires the separate sandbox live opt-in.');
-  if (mode === 'live' && repository === 'AzureViking/squad-on-aca-sandbox-lab' &&
-    env.SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID !== 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e') {
-    throw new Error('Lab live mode requires the approved Azure subscription.');
-  }
   if (livePublish && (mode !== 'live' || !liveSandbox)) {
     throw new Error('Live publication requires live sandbox dispatch and the separate publish opt-in.');
   }
-  if (repository === 'AzureViking/squad-on-aca-sandbox-lab' && livePublish) {
-    throw new Error('Lab publication is disabled pending separate approval.');
-  }
 
+  if (env.GITHUB_EVENT_NAME === 'issue_comment') {
+    require('../scripts/issue-revise.cjs').validateActionsRevise(env, repoRoot);
+  }
   const { plan, planPath } = readExecutionPlan(repoRoot, env.SQUAD_PLAN_PATH, actualHead);
-  if (plan.baseline_sha.toLowerCase() !== actualHead) {
-    throw new Error(`Plan baseline_sha ${plan.baseline_sha} does not match checked-out commit ${actualHead}.`);
+  let expectedBaseline = actualHead;
+  if (env.SQUAD_REVISE_CONTEXT) {
+    const { readContext, validateBaseline } = require('../scripts/issue-revise.cjs');
+    const context = readContext(env.SQUAD_REVISE_CONTEXT, repository, issueNumber);
+    validateBaseline(repoRoot, context);
+    expectedBaseline = context.head_sha;
+  }
+  if (plan.baseline_sha.toLowerCase() !== expectedBaseline) {
+    throw new Error(`Plan baseline_sha ${plan.baseline_sha} does not match validated baseline ${expectedBaseline}.`);
   }
   assertIssueBinding(plan, repository, issueNumber, mode === 'live');
   if (mode === 'live' && plan.run_id === 'run-offline-smoke-template') {
@@ -183,6 +186,9 @@ function assertPublishableSummary(summary, plan) {
     throw new Error('Integration must have succeeded before publication.');
   }
   if (summary.run_id !== plan.run_id) throw new Error('Dispatcher summary run_id does not match the validated plan.');
+  if (summary.baseline_sha !== undefined && summary.baseline_sha.toLowerCase() !== plan.baseline_sha.toLowerCase()) {
+    throw new Error('Dispatcher summary baseline_sha does not match the validated plan.');
+  }
   if (!summary.integration.integrated_patch_path) throw new Error('Dispatcher summary has no integrated patch path.');
   return summary;
 }

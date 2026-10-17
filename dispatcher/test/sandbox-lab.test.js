@@ -23,7 +23,7 @@ test('lab Terraform roots own only isolated state and dispatch resources', () =>
   assert.match(lab, /data "azurerm_container_registry" "images"/);
   assert.match(lab, /Microsoft.App\/sandboxGroups@2026-07-01/);
   assert.match(lab, /scope\s*=\s*azapi_resource.sandbox_group.id/);
-  assert.match(lab, /repo:AzureViking\/squad-on-aca-sandbox-lab:environment:squad-sandbox-dispatch/);
+  assert.match(lab, /subject\s*=\s*"repo:\$\{var\.repository_full_name\}:environment:\$\{var\.environment_name\}"/);
   assert.match(lab, /grant_group_acr_pull \? 1 : 0/);
   assert.match(lab, /principal_id\s*=\s*azurerm_user_assigned_identity\.image_pull\.principal_id/);
   assert.match(lab, /operator_principal_id == null \? 0 : 1/);
@@ -31,7 +31,7 @@ test('lab Terraform roots own only isolated state and dispatch resources', () =>
   assert.match(read('infra/terraform/sandbox-lab/variables.tf'), /variable "grant_group_acr_pull" \{[^}]*default\s*=\s*false/);
   assert.doesNotMatch(lab + state, /resource "(?:azurerm_container_registry|azurerm_container_app_job|azurerm_storage_queue|github_)/);
   assert.doesNotMatch(lab, /AcrPush|SecurityControl/);
-  assert.match(read('infra/terraform/sandbox-lab/backend.hcl.example'), /key\s*=\s*"sandbox-lab.tfstate"/);
+  assert.match(read('infra/terraform/sandbox-lab/backend.hcl.example'), /key\s*=\s*"<state-key>"/);
 });
 
 test('bootstrap helper dry run never calls ghp or emits secrets or legacy settings', t => {
@@ -40,31 +40,32 @@ test('bootstrap helper dry run never calls ghp or emits secrets or legacy settin
   const outputPath = path.join(dir, 'outputs.json');
   const value = v => ({ value: v });
   const outputs = {
-    subscription_id: value('e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'),
-    resource_group_name: value('rg-squad-aca-sandbox-lab'),
-    sandbox_group_name: value('sbg-squad-aca-sandbox-lab'),
+    subscription_id: value('00000000-0000-0000-0000-000000000000'),
+    resource_group_name: value('rg-sandbox-test'),
+    sandbox_group_name: value('sbg-sandbox-test'),
     image_pull_client_id: value('cccccccc-cccc-cccc-cccc-cccccccccccc'),
     dispatcher_client_id: value('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
     dispatcher_tenant_id: value('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
   };
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
-  const options = ['--outputs', outputPath, '--repo', 'AzureViking/squad-on-aca-sandbox-lab', '--environment', 'squad-sandbox-dispatch'];
+  const options = ['--outputs', outputPath, '--repo', 'example-owner/sandbox-lab-test', '--environment', 'sandbox-dispatch-test'];
   assert.deepEqual(readVariables(outputPath), {
-    SQUAD_SANDBOX_GROUP_NAME: 'sbg-squad-aca-sandbox-lab',
-    SQUAD_SANDBOX_RESOURCE_GROUP_NAME: 'rg-squad-aca-sandbox-lab',
+    SQUAD_SANDBOX_GROUP_NAME: 'sbg-sandbox-test',
+    SQUAD_SANDBOX_RESOURCE_GROUP_NAME: 'rg-sandbox-test',
     SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
     SQUAD_SANDBOX_AZURE_CLIENT_ID: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     SQUAD_SANDBOX_AZURE_TENANT_ID: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-    SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'
+    SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: '00000000-0000-0000-0000-000000000000'
   });
-  assert.throws(() => parseArguments([...options.slice(0, 2), '--repo', 'haflidif/squad-on-aca', ...options.slice(4)]), /Usage/);
+  assert.equal(parseArguments([...options.slice(0, 2), '--repo', 'other-owner/other-repo', ...options.slice(4)]).repo, 'other-owner/other-repo');
+  assert.throws(() => parseArguments([...options.slice(0, 2), '--repo', 'malformed', ...options.slice(4)]), /Usage/);
   outputs.subscription_id.value = 'other';
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
-  assert.throws(() => readVariables(outputPath), /approved subscription/);
-  outputs.subscription_id.value = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e';
+  assert.throws(() => readVariables(outputPath), /Terraform output subscription_id must be a GUID/);
+  outputs.subscription_id.value = '00000000-0000-0000-0000-000000000000';
   outputs.image_pull_client_id.value = 'not-a-client-id';
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
-  assert.throws(() => readVariables(outputPath), /image-pull client IDs/);
+  assert.throws(() => readVariables(outputPath), /Terraform output image_pull_client_id must be a GUID/);
   outputs.image_pull_client_id.value = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
   fs.writeFileSync(outputPath, JSON.stringify(outputs));
   const result = spawnSync(process.execPath, [path.join(root, 'infra/hooks/sandbox-lab-bootstrap.js'), ...options], {
@@ -77,12 +78,12 @@ test('bootstrap helper dry run never calls ghp or emits secrets or legacy settin
   assert.doesNotMatch(read('infra/hooks/sandbox-lab-bootstrap.js'), /spawnSync\('gh'/);
 });
 
-const LAB_REPO = 'AzureViking/squad-on-aca-sandbox-lab';
-const LAB_ENV = 'squad-sandbox-dispatch';
+const LAB_REPO = 'example-owner/sandbox-lab-test';
+const LAB_ENV = 'sandbox-dispatch-test';
 const labOutputs = () => ({
-  subscription_id: { value: 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e' },
-  resource_group_name: { value: 'rg-squad-aca-sandbox-lab' },
-  sandbox_group_name: { value: 'sbg-squad-aca-sandbox-lab' },
+  subscription_id: { value: '00000000-0000-0000-0000-000000000000' },
+  resource_group_name: { value: 'rg-sandbox-test' },
+  sandbox_group_name: { value: 'sbg-sandbox-test' },
   image_pull_client_id: { value: 'cccccccc-cccc-cccc-cccc-cccccccccccc' },
   dispatcher_client_id: { value: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
   dispatcher_tenant_id: { value: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' }
@@ -161,12 +162,12 @@ test('bootstrap apply accepts self-review protection on the required_reviewers r
   ]);
   const env = ['--repo', LAB_REPO, '--env', LAB_ENV];
   assert.deepEqual(variableSets, [
-    ['variable', 'set', 'SQUAD_SANDBOX_GROUP_NAME', ...env, '--body', 'sbg-squad-aca-sandbox-lab'],
-    ['variable', 'set', 'SQUAD_SANDBOX_RESOURCE_GROUP_NAME', ...env, '--body', 'rg-squad-aca-sandbox-lab'],
+    ['variable', 'set', 'SQUAD_SANDBOX_GROUP_NAME', ...env, '--body', 'sbg-sandbox-test'],
+    ['variable', 'set', 'SQUAD_SANDBOX_RESOURCE_GROUP_NAME', ...env, '--body', 'rg-sandbox-test'],
     ['variable', 'set', 'SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID', ...env, '--body', 'cccccccc-cccc-cccc-cccc-cccccccccccc'],
     ['variable', 'set', 'SQUAD_SANDBOX_AZURE_CLIENT_ID', ...env, '--body', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
     ['variable', 'set', 'SQUAD_SANDBOX_AZURE_TENANT_ID', ...env, '--body', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'],
-    ['variable', 'set', 'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID', ...env, '--body', 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e']
+    ['variable', 'set', 'SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID', ...env, '--body', '00000000-0000-0000-0000-000000000000']
   ]);
   assert.equal(calls.length, 8);
   assert.doesNotMatch(JSON.stringify(calls), /secret|SQUAD_STORAGE_ACCOUNT|SQUAD_QUEUE_NAME|SQUAD_AZURE_|PUBLISH/i);
@@ -220,9 +221,9 @@ test('bootstrap environment verification fails closed on malformed or ambiguous 
     assert.throws(() => verifyEnvironment(environment, mainOnlyPolicies(), manual), message);
   }
   assert.throws(() => verifyEnvironment(null, mainOnlyPolicies(), manual), /missing or malformed/);
-  assert.throws(() => verifyEnvironment(protectedEnvironment(), { total_count: 1, branch_policies: [{ id: 1, name: 'main', type: 'tag' }] }, manual), /only the lab main branch/);
-  assert.throws(() => verifyEnvironment(protectedEnvironment(), { total_count: 1, branch_policies: [null] }, manual), /only the lab main branch/);
-  assert.throws(() => verifyEnvironment(protectedEnvironment(), null, manual), /only the lab main branch/);
+  assert.throws(() => verifyEnvironment(protectedEnvironment(), { total_count: 1, branch_policies: [{ id: 1, name: 'main', type: 'tag' }] }, manual), /only the main branch/);
+  assert.throws(() => verifyEnvironment(protectedEnvironment(), { total_count: 1, branch_policies: [null] }, manual), /only the main branch/);
+  assert.throws(() => verifyEnvironment(protectedEnvironment(), null, manual), /only the main branch/);
 });
 
 test('bootstrap allows self-review only with explicit opt-in and still requires the reviewer rule', () => {
@@ -236,7 +237,7 @@ test('bootstrap allows self-review only with explicit opt-in and still requires 
   const noReviewers = protectedEnvironment();
   noReviewers.protection_rules[1].reviewers = [];
   assert.throws(() => verifyEnvironment(noReviewers, mainOnlyPolicies(), 'manual', { allowSelfReview: true }), /at least one valid reviewer/);
-  assert.equal(parseArguments(['--outputs', 'o.json', '--repo', 'AzureViking/squad-on-aca-sandbox-lab', '--environment', 'squad-sandbox-dispatch', '--allow-self-review']).allowSelfReview, true);
+  assert.equal(parseArguments(['--outputs', 'o.json', '--repo', 'example-owner/sandbox-lab-test', '--environment', 'sandbox-dispatch-test', '--allow-self-review']).allowSelfReview, true);
 });
 
 const policyIntegrityCases = () => {
@@ -267,7 +268,7 @@ const policyIntegrityCases = () => {
 test('bootstrap policy verification requires strict list response integrity', () => {
   assert.doesNotThrow(() => verifyEnvironment(protectedEnvironment(), mainOnlyPolicies(), 'manual'));
   for (const [label, policies] of policyIntegrityCases()) {
-    assert.throws(() => verifyEnvironment(protectedEnvironment(), policies, 'manual'), /only the lab main branch/, label);
+    assert.throws(() => verifyEnvironment(protectedEnvironment(), policies, 'manual'), /only the main branch/, label);
   }
 });
 
@@ -275,20 +276,22 @@ test('bootstrap apply refuses to set variables on malformed or partial branch po
   for (const [label, policies] of policyIntegrityCases()) {
     const { result, calls, variableSets } = runApplyWithStubGhp(t, protectedEnvironment(), policies);
     assert.equal(result.status, 1, `${label}: ${result.stdout}`);
-    assert.match(result.stderr, /only the lab main branch/, label);
+    assert.match(result.stderr, /only the main branch/, label);
     assert.equal(variableSets.length, 0, label);
     assert.equal(calls.length, 2, label);
   }
 });
 
-test('manual lab workflow gates, image wiring and legacy job isolation', () => {
+test('manual Sandbox workflow gates, image wiring and legacy job isolation', () => {
   const workflow = read('.github/workflows/squad-sandbox-manual.yml');
   const ci = read('.github/workflows/squad-ci.yml');
   assert.match(workflow, /SQUAD_SANDBOX_IMAGE_REF: \$\{\{ vars.SQUAD_SANDBOX_IMAGE_REF \}\}/);
   assert.match(workflow, /timeout-minutes: 30/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /ref: \$\{\{ github.sha \}\}/);
-  assert.match(workflow, /github.repository != 'AzureViking\/squad-on-aca-sandbox-lab'/);
+  assert.doesNotMatch(workflow, /github.repository != ['\"](?:example-owner\/squad-on-aca-sandbox-lab)['\"]/);
+  assert.match(workflow, /SQUAD_SANDBOX_REGION: \$\{\{ vars\.SQUAD_SANDBOX_REGION \}\}/);
+  assert.match(workflow, /registry_name=\"\$\{registry_host%%\.\*\}\"/);
   assert.match(ci, /for root in infra\/terraform\/sandbox-lab-state infra\/terraform\/sandbox-lab/);
   assert.match(read('dispatcher/dispatcher.js'), /image: config.image/);
   assert.match(read('dispatcher/integrate.js'), /image: config.image/);

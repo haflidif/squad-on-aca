@@ -79,7 +79,7 @@ test('validateCopilotAuth handles actions mode', () => {
   const validActions = 'opaque-workflow-token-1234567890';
   const workflowEnv = {
     GITHUB_ACTIONS: 'true',
-    GITHUB_REPOSITORY: 'haflidif/squad-on-aca',
+    GITHUB_REPOSITORY: 'test-owner/test-repo',
     GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main'
   };
@@ -120,11 +120,11 @@ test('validateCopilotAuth handles actions mode', () => {
   );
   assert.throws(
     () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_REF: 'refs/heads/feature' } }),
-    /workflow_dispatch or an opted-in issues event on the main branch/
+    /manual workflow_dispatch, opted-in issues event, or validated sandbox revise/
   );
   assert.throws(
     () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_EVENT_NAME: 'pull_request' } }),
-    /workflow_dispatch or an opted-in issues event/
+    /manual workflow_dispatch, opted-in issues event/
   );
   assert.throws(
     () => validateCopilotAuth({ token: validActions, authMode: 'actions', isLive: true, clientKind: 'aca', env: { ...workflowEnv, GITHUB_EVENT_NAME: 'issues' } }),
@@ -137,26 +137,23 @@ test('validateCopilotAuth handles actions mode', () => {
     clientKind: 'aca',
     env: { ...workflowEnv, GITHUB_EVENT_NAME: 'issues', SQUAD_ISSUE_FLOW_OPT_IN: '1' }
   }).valid, true);
-  assert.throws(
-    () => validateCopilotAuth({
-      token: validActions,
-      authMode: 'actions',
-      isLive: true,
-      clientKind: 'aca',
-      env: { ...workflowEnv, GITHUB_REPOSITORY: 'AzureViking/squad-on-aca-sandbox-lab' }
-    }),
-    /restricted to haflidif\/squad-on-aca/
-  );
+  assert.equal(validateCopilotAuth({
+    token: validActions,
+    authMode: 'actions',
+    isLive: true,
+    clientKind: 'aca',
+    env: { ...workflowEnv, GITHUB_REPOSITORY: 'another-owner/another-repo' }
+  }).valid, true);
 });
 
 test('OIDC subject construction for GitHub Actions enforces immutable IDs and environment', () => {
   // Entra OIDC federated identity credential requires immutable numeric IDs in GitHub Actions subjects:
   // repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:<env>
-  const owner = 'haflidif';
-  const ownerId = 26624010;
-  const repo = 'squad-on-aca-auth-lab';
-  const repoId = 1416495713;
-  const envName = 'squad-persona-proof-20261013';
+  const owner = 'test-owner';
+  const ownerId = 101;
+  const repo = 'test-repo';
+  const repoId = 202;
+  const envName = 'test-environment';
 
   function formatActionsOidcSubject({ owner, ownerId, repo, repoId, environment }) {
     if (!owner || !ownerId || !repo || !repoId || !environment) {
@@ -168,7 +165,7 @@ test('OIDC subject construction for GitHub Actions enforces immutable IDs and en
     return `repo:${owner}@${ownerId}/${repo}@${repoId}:environment:${environment}`;
   }
 
-  const expectedSubject = 'repo:haflidif@26624010/squad-on-aca-auth-lab@1416495713:environment:squad-persona-proof-20261013';
+  const expectedSubject = 'repo:test-owner@101/test-repo@202:environment:test-environment';
   const actualSubject = formatActionsOidcSubject({ owner, ownerId, repo, repoId, environment: envName });
   assert.equal(actualSubject, expectedSubject);
 
@@ -183,7 +180,7 @@ test('OIDC subject construction for GitHub Actions enforces immutable IDs and en
   );
   // Rejects non-numeric IDs
   assert.throws(
-    () => formatActionsOidcSubject({ owner, ownerId: '26624010', repo, repoId, environment: envName }),
+    () => formatActionsOidcSubject({ owner, ownerId: '40404', repo, repoId, environment: envName }),
     /must be numeric IDs/
   );
   // Validates case sensitivity and environment name match

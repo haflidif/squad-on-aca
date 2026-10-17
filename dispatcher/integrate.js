@@ -139,6 +139,9 @@ function topologicalTasks(tasks) {
 }
 function buildIntegrationDispatch(plan, patchInfos) {
   const byId = new Map(patchInfos.map(info => [info.task.task_id, info]));
+  const includedTasks = plan.tasks
+    .filter(task => byId.has(task.task_id))
+    .map(task => ({ ...task, dependencies: (task.dependencies || []).filter(dependency => byId.has(dependency.task_id)) }));
   const envelope = {
     schema_version: plan.schema_version,
     message_type: 'integration.dispatch',
@@ -147,7 +150,7 @@ function buildIntegrationDispatch(plan, patchInfos) {
     baseline_sha: plan.baseline_sha,
     roster: plan.roster,
     allow_3way: plan.integration?.allow_3way === 'true' ? 'true' : 'false',
-    tasks: topologicalTasks(plan.tasks).map(task => {
+    tasks: topologicalTasks(includedTasks).map(task => {
       const info = byId.get(task.task_id);
       return {
         task_id: task.task_id,
@@ -242,7 +245,9 @@ async function applyPatchToIndex(ctx, baselineSha, patchPath, indexName) {
   const indexFile = path.join(ctx.cwd, indexName);
   fs.rmSync(indexFile, { force: true });
   await hardenedGit(ctx, [`--git-dir=${ctx.repoDir}`, 'read-tree', `${baselineSha}^{tree}`], { env: { GIT_INDEX_FILE: indexFile } });
-  await hardenedGit(ctx, [`--git-dir=${ctx.repoDir}`, 'apply', '--cached', patchPath], { env: { GIT_INDEX_FILE: indexFile } });
+  if (fs.statSync(patchPath).size > 0) {
+    await hardenedGit(ctx, [`--git-dir=${ctx.repoDir}`, 'apply', '--cached', patchPath], { env: { GIT_INDEX_FILE: indexFile } });
+  }
   return indexFile;
 }
 async function indexEntry(ctx, indexFile, relPath) {
@@ -292,7 +297,8 @@ async function verifyIntegratedPatchContent({ bundlePath, baselineSha, patchPath
   const policyViolations = validateIntegratedDeltaPolicy(delta, patchInfos);
   if (policyViolations.length) throw new Error(`integrated patch violates dispatcher delta policy: ${policyViolations.join('; ')}`);
   for (const info of patchInfos) {
-    const personaPatchPath = patchPathWithTrailingNewline(info.patchPath, workDir, info.task.task_id);
+    const personaPatchPath = fs.statSync(info.patchPath).size === 0 ? info.patchPath
+      : patchPathWithTrailingNewline(info.patchPath, workDir, info.task.task_id);
     const personaIndex = await applyPatchToIndex(ctx, baselineSha, personaPatchPath, `${safeName(info.task.task_id)}.index`);
     for (const relPath of info.changedPaths) {
       const integratedEntry = await indexEntry(ctx, integratedIndex, relPath);
@@ -329,7 +335,31 @@ async function runIntegrationPhase({ plan, taskSummaries, outDir, client, bundle
   let stage = 'integration-prepare';
   try {
     summary.status = 'running';
-    const patchInfos = plan.tasks.map(task => patchArtifactForTask(outDir, taskSummaries.find(item => item.task_id === task.task_id), task));
+    const verifiedPatches = plan.tasks.map(task => {
+      try { return patchArtifactForTask(outDir, taskSummaries.find(item => item.task_id === task.task_id), task); }
+      catch (error) { summary.failed_task_id = task.task_id; throw error; }
+    });
+    const patchInfos = verifiedPatches.filter(info => fs.statSync(info.patchPath).size > 0);
+    if (!patchInfos.length) {
+      const integrationDir = path.join(outDir, 'integration');
+      fs.rmSync(integrationDir, { recursive: true, force: true });
+      fs.mkdirSync(path.join(integrationDir, 'patches'), { recursive: true });
+      const bytes = Buffer.alloc(0);
+      const relative = 'integration/patches/combined.patch';
+      fs.writeFileSync(path.join(outDir, relative), bytes);
+      const sha256 = sha256Bytes(bytes);
+      writeJson(path.join(integrationDir, 'artifact-manifest.json'), {
+        schema_version: plan.schema_version, run_id: plan.run_id, task_id: 'integration',
+        baseline_sha: plan.baseline_sha, roster: plan.roster, provider: plan.provider,
+        artifacts: [{ artifact_id: 'combined-patch', kind: 'patch', path: 'patches/combined.patch', sha256, size_bytes: 0, media_type: 'text/x-diff' }]
+      });
+      summary.status = STATUS.SUCCEEDED;
+      summary.reason = 'NO_CHANGES';
+      summary.integrated_patch_path = relative;
+      summary.sha256 = sha256;
+      log('integration skipped: all member patches are empty; sandbox checks were not run');
+      return summary;
+    }
     const personaUnionPaths = patchInfos.flatMap(info => info.changedPaths);
     const integrationRoot = path.join(outDir, '.dispatcher-work', 'integration-input');
     fs.rmSync(integrationRoot, { recursive: true, force: true });

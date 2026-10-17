@@ -6,9 +6,9 @@
 #
 # BASE_ACR_HOST: ACR login server with trailing slash, e.g. "myacr.azurecr.io/"
 # Pass at build time: az acr build --build-arg BASE_ACR_HOST=myacr.azurecr.io/ ...
-# Default falls back to the original bootstrap ACR (crsquadacaa6b49feb.azurecr.io/)
-# so the Dockerfile remains functional without specifying the arg.
-ARG BASE_ACR_HOST=crsquadacaa6b49feb.azurecr.io/
+# Default uses the public Docker Hub base images. Set this to your ACR login server
+# only when you have imported the pinned base images there.
+ARG BASE_ACR_HOST
 FROM ${BASE_ACR_HOST}base/golang:1.23.4-bookworm AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

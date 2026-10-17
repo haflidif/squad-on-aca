@@ -151,7 +151,7 @@ This is a non-goal for issue #9 (per spec) but should be scheduled as a follow-u
 
 #### FIX 2 — Dockerfile base-image ARG (remove fragile sed workaround)
 
-**What:** Parameterized `agents/base/Dockerfile` with a global `ARG BASE_ACR_HOST=crsquadacaa6b49feb.azurecr.io/` declared before the first `FROM`. Both `FROM` lines now use `${BASE_ACR_HOST}base/golang:...` and `${BASE_ACR_HOST}base/debian:...`. The old ACR is the default so the file remains functional without specifying the arg.
+**What:** Parameterized `agents/base/Dockerfile` with a global `ARG BASE_ACR_HOST=exampleacr.azurecr.io/` declared before the first `FROM`. Both `FROM` lines now use `${BASE_ACR_HOST}base/golang:...` and `${BASE_ACR_HOST}base/debian:...`. The old ACR is the default so the file remains functional without specifying the arg.
 
 Updated both postprovision hooks (`infra/hooks/postprovision.sh` and `infra/hooks/postprovision.ps1`):
 - Removed the sed / `-replace` patch logic and the `Dockerfile.azd-build` temp-file dance entirely.
@@ -226,7 +226,7 @@ The mapping is achieved via `infra.parameters.deployerPrincipalId: ${AZURE_PRINC
 
 ### 3. Dockerfile base-image workaround (noted for Chewie)
 
-**Problem:** `agents/base/Dockerfile` FROM lines hardcode `crsquadacaa6b49feb.azurecr.io` — the ACR from the existing Terraform deployment. A new azd-provisioned ACR has a different name (dynamically derived suffix).
+**Problem:** `agents/base/Dockerfile` FROM lines hardcode `exampleacr.azurecr.io` — the ACR from the existing Terraform deployment. A new azd-provisioned ACR has a different name (dynamically derived suffix).
 
 **Workaround implemented in postprovision hook:**
 1. Import `golang:1.23.4-bookworm` and `debian:bookworm-20240701-slim` from Docker Hub into the new ACR (idempotent, `--force`).

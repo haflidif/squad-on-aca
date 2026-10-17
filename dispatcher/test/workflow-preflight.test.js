@@ -108,8 +108,8 @@ test('CI replaces the placeholder with main-only checks and required Linux evide
   assert.match(ci, /terraform validate/);
   assert.match(ci, /docker build --pull[\s\S]*BUILD_BASE_IMAGE=docker\.io\/library\/golang:1\.23\.4-bookworm[\s\S]*RUNTIME_BASE_IMAGE=docker\.io\/library\/debian:bookworm-20240701-slim[\s\S]*--file agents\/sandbox\/Dockerfile[\s\S]* \./);
   const dockerfile = fs.readFileSync(path.join(repoRoot, 'agents', 'sandbox', 'Dockerfile'), 'utf8');
-  assert.match(dockerfile, /ARG BUILD_BASE_IMAGE=\$\{BASE_ACR_HOST\}base\/golang:/);
-  assert.match(dockerfile, /ARG RUNTIME_BASE_IMAGE=\$\{BASE_ACR_HOST\}base\/debian:/);
+  assert.match(dockerfile, /ARG BUILD_BASE_IMAGE=debian:bookworm-20240701-slim/);
+  assert.match(dockerfile, /ARG RUNTIME_BASE_IMAGE=debian:bookworm-20240701-slim/);
   assert.doesNotMatch(ci, /TODO|No build commands configured|branches:\s*\[(?:dev|insider|preview)/i);
   assert.match(ci, /permissions:\s*\n\s+contents:\s*read/);
   assert.match(ci, /fetch-depth:\s*0/);
@@ -372,7 +372,8 @@ test('live preflight rejects missing credentials and unverified ACA configuratio
     SQUAD_SANDBOX_AZURE_TENANT_ID: 'tenant-id',
     SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID: 'subscription-id',
     SQUAD_ACA_BIN: process.execPath,
-    SQUAD_SANDBOX_IMAGE_REF: `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+    SQUAD_SANDBOX_IMAGE_REF: `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`,
+    SQUAD_SANDBOX_REGION: 'testregion',
     SQUAD_COPILOT_TOKEN: 'github_pat_test'
   };
   assert.throws(() => validateLiveSandboxConfig(config), /SQUAD_ALLOW_UNVERIFIED_ACA_CLIENT=1/);

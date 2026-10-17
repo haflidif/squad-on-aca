@@ -4,10 +4,9 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const { buildSafeChildEnv } = require('../lib/util');
-const { createDiskImage, DEFAULT_ENDPOINT, TOKEN_AUDIENCE } = require('../lib/aca-disk-image');
+const { createDiskImage, endpointForRegion, TOKEN_AUDIENCE } = require('../lib/aca-disk-image');
 const { validateSandboxImageRef } = require('../lib/sandbox-image');
 
-const ACA_REGION = 'swedencentral';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isUuid(value) {
@@ -254,12 +253,9 @@ class AcaCliSandboxClient {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,89}$/.test(this.group)) throw new Error('SQUAD_SANDBOX_GROUP_NAME is not a valid sandbox group name.');
     this.acaBin = options.acaBin || process.env.SQUAD_ACA_BIN || process.env.ACA_BIN || 'aca';
     this.acaBinArgs = options.acaBinArgs || [];
-    this.region = options.region ?? process.env.SQUAD_SANDBOX_REGION ?? ACA_REGION;
-    if (this.region !== ACA_REGION) {
-      throw new Error(`Unsupported ACA Sandbox region "${this.region}"; only ${ACA_REGION} is supported by the configured data plane.`);
-    }
+    this.region = options.region ?? process.env.SQUAD_SANDBOX_REGION;
+    this.endpoint = options.endpoint || endpointForRegion(this.region);
     this.azBin = options.azBin || process.env.AZ_BIN || 'az';
-    this.endpoint = options.endpoint || DEFAULT_ENDPOINT;
     this.fetch = options.fetch || globalThis.fetch;
     this.runProcess = options.runProcess || runProcess;
     this.runHostProcess = options.runHostProcess || runProcess;
@@ -306,6 +302,7 @@ class AcaCliSandboxClient {
         groupName: this.group,
         name: diskName,
         endpoint: this.endpoint,
+        region: this.region,
         fetchImpl: this.fetch,
         getToken: this.getToken
       }).catch(error => {

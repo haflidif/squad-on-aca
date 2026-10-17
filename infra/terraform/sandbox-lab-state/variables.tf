@@ -1,28 +1,18 @@
 variable "subscription_id" {
   type        = string
-  description = "Approved lab subscription."
+  description = "Azure subscription GUID used for this deployment."
   validation {
-    condition     = var.subscription_id == "e69b8a95-fe38-42da-b5e6-e3e0a833cf9e"
-    error_message = "Use the approved sandbox lab subscription."
+    condition     = can(regex("^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$", var.subscription_id))
+    error_message = "subscription_id must be a GUID."
   }
 }
 
 variable "resource_group_name" {
-  type    = string
-  default = "rg-squad-aca-sandbox-lab"
-  validation {
-    condition     = var.resource_group_name == "rg-squad-aca-sandbox-lab"
-    error_message = "Use the approved lab resource group."
-  }
+  type = string
 }
 
 variable "location" {
-  type    = string
-  default = "swedencentral"
-  validation {
-    condition     = var.location == "swedencentral"
-    error_message = "Use the approved lab location."
-  }
+  type = string
 }
 
 variable "storage_account_name" {
@@ -39,8 +29,8 @@ variable "operator_ipv4_cidrs" {
   type        = list(string)
   description = "Explicit IPv4 public egress CIDRs permitted to reach the state endpoint."
   validation {
-    condition     = length(var.operator_ipv4_cidrs) > 0 && alltrue([for cidr in var.operator_ipv4_cidrs : can(cidrhost(cidr, 0)) && !strcontains(cidr, ":")])
-    error_message = "Provide at least one valid operator IPv4 CIDR."
+    condition     = (var.network_default_action == "Allow" || length(var.operator_ipv4_cidrs) > 0) && alltrue([for cidr in var.operator_ipv4_cidrs : can(cidrhost(cidr, 0)) && !strcontains(cidr, ":")])
+    error_message = "Provide valid operator IPv4 CIDRs when network_default_action is Deny."
   }
 }
 

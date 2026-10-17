@@ -15,6 +15,28 @@ variable "enable_aca_sandbox" {
   default     = false
 }
 
+variable "squad_issue_opt_in_number" {
+  description = "The one issue number allowed by the opt-in ACA Sandbox issue workflow. Use 0 to keep issue-level dispatch closed."
+  type        = string
+  default     = "0"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.squad_issue_opt_in_number))
+    error_message = "squad_issue_opt_in_number must contain only decimal digits."
+  }
+}
+
+variable "sandbox_image_ref" {
+  description = "Optional immutable persona image reference for target repository variables. Must include a SHA-256 digest."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.sandbox_image_ref == "" || can(regex("^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$", var.sandbox_image_ref))
+    error_message = "sandbox_image_ref must be empty or an image reference pinned by a 64-character SHA-256 digest."
+  }
+}
+
 variable "sandbox_group_location" {
   description = "Azure region for the ACA Sandbox Group. Null uses the main location."
   type        = string

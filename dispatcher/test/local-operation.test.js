@@ -7,7 +7,7 @@ const { validateLocalInputs } = require('../local-preflight');
 const { buildSafeChildEnv } = require('../lib/util');
 
 const root = path.resolve(__dirname, '..', '..');
-const image = `crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
+const image = `registry.example/squad/persona-sandbox@sha256:${'a'.repeat(64)}`;
 const base = () => ({ repoRoot: root, concurrency: 1, timeoutMs: 300000, preflightOnly: true });
 function work(t) {
   const parent = path.join(__dirname, '.work');
@@ -23,11 +23,11 @@ function makePlan(t, change = () => {}) {
   plan.run_id = 'run-test-local';
   plan.baseline_sha = head;
   plan.tasks[0].baseline_sha = head;
-  plan.issue = { repo: 'AzureViking/squad-on-aca-sandbox-lab', issue_number: 42 };
+  plan.issue = { repo: 'test-owner/test-repo', issue_number: 7 };
   change(plan);
   const planPath = path.join(dir, 'plan.json');
   fs.writeFileSync(planPath, JSON.stringify(plan));
-  return { ...base(), planPath, repository: plan.issue.repo, issueNumber: '42' };
+  return { ...base(), planPath, repository: plan.issue.repo, issueNumber: '7' };
 }
 
 test('no-image preflight reports blockers without creating output or using a token', t => {
@@ -48,8 +48,8 @@ test('local parameters fail closed for timeout, concurrency, tags and old image'
     assert.throws(() => validateLocalInputs({ ...base(), timeoutMs }), /timeout/);
   }
   assert.throws(() => validateLocalInputs({ ...base(), imageRef: 'image:latest' }), /immutable/);
-  assert.throws(() => validateLocalInputs({ ...base(), imageRef: image.replace('persona-sandbox', 'another-image') }), /approved squad\/persona-sandbox/);
-  assert.throws(() => validateLocalInputs({ ...base(), imageRef: 'crsquadacaa6b49feb.azurecr.io/squad/persona-sandbox@sha256:cea1d310e7109c18d24ae57de153565c722284382c89d0bc1b441840f59e2875' }), /old probe image/);
+  assert.doesNotThrow(() => validateLocalInputs({ ...base(), imageRef: image.replace('persona-sandbox', 'another-image') }));
+  assert.doesNotThrow(() => validateLocalInputs({ ...base(), imageRef: image.replace('a'.repeat(64), 'b'.repeat(64)) }));
   assert.throws(() => validateLocalInputs({ ...base(), repository: 'other/repo' }), /supplied together/);
 });
 
@@ -60,7 +60,7 @@ test('local plan validator rejects malformed schema, wrong issue, baseline and c
     plan.baseline_sha = '1'.repeat(40);
     plan.tasks[0].baseline_sha = plan.baseline_sha;
   })), /baseline must match/);
-  assert.throws(() => validateLocalInputs({ ...makePlan(t), repository: 'other/repo' }), /approved lab repository/);
+  assert.throws(() => validateLocalInputs({ ...makePlan(t), repository: 'other/repo' }), /Plan issue binding does not match/);
   assert.throws(() => validateLocalInputs(makePlan(t, plan => {
     plan.baseline_sha = '$CHECKED_OUT_SHA';
     plan.tasks[0].baseline_sha = '$CHECKED_OUT_SHA';
@@ -110,9 +110,9 @@ $ErrorActionPreference = 'Stop'
 $options = @{
   PreflightOnly = $true; RepoPath = ${quote(root)}; AzureConfigDir = ${quote(dir)}
   AcaBin = ${quote(harness)}; Concurrency = 1; TimeoutMs = 300000
-  SubscriptionId = 'e69b8a95-fe38-42da-b5e6-e3e0a833cf9e'; TenantId = '49ff7219-653a-4644-8540-71d16dbf9c16'
-  Region = 'swedencentral'; ResourceGroup = 'rg-squad-aca-sandbox-lab'; SandboxGroup = 'sbg-squad-aca-sandbox-lab'
-  ImagePullClientId = '44b56c1f-08c0-4223-9c9e-398cc9267fb6'
+  SubscriptionId = '00000000-0000-0000-0000-000000000000'; TenantId = '11111111-1111-4111-8111-111111111111'
+  Region = 'swedencentral'; ResourceGroup = 'rg-sandbox-test'; SandboxGroup = 'sbg-sandbox-test'
+  ImagePullClientId = '22222222-2222-4222-8222-222222222222'; ImagePullIdentityName = 'identity-test'
 }
 $env:AZURE_CONFIG_DIR = 'original-context'
 $env:SQUAD_ENABLE_PUBLISH = 'original-publish'
@@ -140,7 +140,7 @@ function Invoke-LabRead {
   if ($Arguments[0] -eq 'version') { return '{}' }
   if ($Arguments[0] -eq 'account') {
     if ($script:failure -eq 'account') { return '{"id":"wrong","tenantId":"wrong","isDefault":true,"state":"Enabled"}' }
-    return '{"id":"e69b8a95-fe38-42da-b5e6-e3e0a833cf9e","tenantId":"49ff7219-653a-4644-8540-71d16dbf9c16","isDefault":true,"state":"Enabled"}'
+    return '{"id":"00000000-0000-0000-0000-000000000000","tenantId":"11111111-1111-4111-8111-111111111111","isDefault":true,"state":"Enabled"}'
   }
   if ($Arguments[0] -eq 'resource') {
     $id = "/subscriptions/$($options.SubscriptionId)/resourceGroups/$($options.ResourceGroup)/providers/Microsoft.App/sandboxGroups/$($options.SandboxGroup)"
@@ -148,7 +148,7 @@ function Invoke-LabRead {
     return (@{id=$id;location=$region;state='Succeeded'} | ConvertTo-Json -Compress)
   }
   if ($Arguments[0] -eq 'identity') {
-    $id = "/subscriptions/$($options.SubscriptionId)/resourceGroups/$($options.ResourceGroup)/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-squad-aca-sandbox-acrpull"
+    $id = "/subscriptions/$($options.SubscriptionId)/resourceGroups/$($options.ResourceGroup)/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$($options.ImagePullIdentityName)"
     return (@{id=$id;clientId=$options.ImagePullClientId;tenantId=$options.TenantId} | ConvertTo-Json -Compress)
   }
   if ($Arguments[0] -eq '--region' -and $Arguments -contains 'list') {
@@ -175,14 +175,20 @@ foreach ($failure in @('account', 'region', 'blocked')) {
   Assert-Restored
 }
 $before = $script:calls.Count
-foreach ($name in @('SubscriptionId','TenantId','Region','ResourceGroup','SandboxGroup','ImagePullClientId')) {
+foreach ($name in @('SubscriptionId','TenantId','ImagePullClientId')) {
   $original = $options[$name]
-  $options[$name] = 'wrong'
-  try { Invoke-SandboxLabLocal $options; throw 'Scope accepted' } catch {
-    if ($_.Exception.Message -notlike '*Wrong approved local lab scope*') { throw }
+  $options[$name] = 'not-a-guid'
+  try { Invoke-SandboxLabLocal $options; throw 'Invalid GUID accepted' } catch {
+    if ($_.Exception.Message -notlike '*must be a GUID*') { throw }
   }
   $options[$name] = $original
 }
+$original = $options.Region
+$options.Region = ''
+try { Invoke-SandboxLabLocal $options; throw 'Missing config accepted' } catch {
+  if ($_.Exception.Message -notlike '*Missing required Sandbox configuration*') { throw }
+}
+$options.Region = $original
 foreach ($invalid in @(0, 999, 1000.5, 300001)) {
   $options.TimeoutMs = $invalid
   try { Invoke-SandboxLabLocal $options; throw 'Timeout accepted' } catch {
