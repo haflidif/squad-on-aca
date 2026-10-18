@@ -180,7 +180,7 @@ test('schema rejects invalid backend, unknown fields, invalid hashes and unsafe 
 }));
 test('release packaging includes runtime and IaC sources but excludes secrets and local state', () => {
   for (const file of ['install.sh', 'install.ps1', 'scripts/install.cjs', 'scripts/backend-router.cjs', 'dispatcher/cli.js', 'agents/base/Dockerfile', 'agents/sandbox/Dockerfile', 'infra/terraform/main.tf', 'infra/terraform/terraform.tfvars.example', 'infra/bicep/main.bicep', 'infra/hooks/postprovision.sh', 'azure.yaml', '.github/actions/sandbox-engine/run.cjs', '.github/workflows/squad-router.yml']) assert.equal(included(file), true, file);
-  for (const file of ['.squad/team.md', '.azure/config.json', 'infra/terraform/terraform.tfstate', 'infra/terraform/custom.tfvars', 'infra/terraform/custom.tfvars.json', 'infra/.env', 'dispatcher/app.pem', '.github/workflows/ci.yml']) assert.equal(included(file), false, file);
+  for (const file of ['.squad/team.md', '.azure/config.json', 'infra/terraform/terraform.tfstate', 'infra/terraform/project.tfstate.backup', 'infra/terraform/custom.tfvars', 'infra/terraform/custom.tfvars.json', 'infra/.env', 'dispatcher/app.pem', 'dispatcher/app.PEM', '.github/workflows/ci.yml']) assert.equal(included(file), false, file);
 });
 test('Node entry point previews a full SHA without writes', () => fixture(({ release, target }) => {
   const result = spawnSync(process.execPath, [path.join(release, 'scripts/install.cjs'), '--version', SHA, '--target', target, '--preview'], { encoding: 'utf8' });

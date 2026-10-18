@@ -7,8 +7,8 @@ const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE = 'haflidif/squad-on-aca';
-const MANIFEST = '.squad/installation.json';
-const RECEIPT_HASH = '.squad/installation.sha256';
+const MANIFEST = '.squad/aca-installation.json';
+const RECEIPT_HASH = '.squad/aca-installation.sha256';
 const WORKFLOWS = ['squad-router.yml', 'squad-queue.yml', 'squad-sandbox-issue.yml', 'squad-sandbox-conflicts.yml'];
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;

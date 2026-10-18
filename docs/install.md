@@ -49,8 +49,8 @@ Preview lists `ADD`, `CHANGE`, `KEEP`, and `CONFLICT` entries. It creates no dir
 | `.github/workflows/squad-sandbox-conflicts.yml` | Conflict hints, gated on the Sandbox backend variable. |
 | `.squad/execution.json` | Selected backend, an unconfigured platform binding, and `enabled: false`. |
 | `.squad/team.md` and `.squad/sandbox-flow.json` | Minimal scaffold, only when `.squad` is absent on first install. No fixed team, paths, tools, or application checks. |
-| `.squad/installation.json` | Versioned installation receipt with backend, release version, immutable action SHA, and SHA256 hashes of owned files. |
-| `.squad/installation.sha256` | Detects local edits to the receipt before a later install. This is an integrity check, not a signature. |
+| `.squad/aca-installation.json` | Versioned installation receipt with backend, release version, immutable action SHA, and SHA256 hashes of owned files. |
+| `.squad/aca-installation.sha256` | Detects local edits to the receipt before a later install. This is an integrity check, not a signature. |
 
 The installation receipt uses `contracts/backend/v1/schemas/installation.schema.json`. `platform_id` is optional before deployment. The installer does not invent a real Azure resource ID. The execution scaffold uses an explicit `unconfigured` placeholder so it cannot bind to a deployed platform.
 

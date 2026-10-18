@@ -1,6 +1,6 @@
 # Backend selector contract
 
-> The repository router implements admission and backend selection. Deployment packaging and installation remain separate slices.
+> The repository router implements admission and backend selection. Platform deployment and [no-fork repository installation](install.md) are separate operations.
 
 ## One selector, native names
 
@@ -25,9 +25,9 @@ Schemas and illustrative routing fixtures live in [`contracts/backend/v1`](../co
 | Jobs descriptor object `jobs` | Managed environment, Job and Storage account ARM IDs; queue name, Job identity client ID, Key Vault ARM ID, and immutable image reference. |
 | Sandbox descriptor object `sandbox` | Sandbox Group ARM ID, separate dispatcher and image-pull identity client IDs, and immutable image reference. |
 | `.squad/execution.json` | Platform ID plus optional `backend` (default `jobs`) and `enabled` (default `false`). This is trusted default-branch configuration, not issue input. |
-| `.squad/aca-installation.json` | Platform ID, installed release version, full action commit SHA, generated file paths and SHA-256 hashes. This receipt describes file ownership, not permission to activate execution. |
+| `.squad/aca-installation.json` | Installed release version, full action commit SHA, generated file paths and SHA-256 hashes. The installer records `backend`; the schema defaults older receipts to Jobs. Platform ID is optional before deployment. This receipt describes file ownership, not permission to activate execution. |
 
-Image references end in `@sha256:<64 lowercase hex characters>`. ARM IDs and identity client IDs are non-secret references, never exported secret values. Terraform state, tokens, App PEM, PATs, and secret values do not belong in descriptors or receipts. Installation file paths use repository-relative POSIX notation, even on Windows. The receipt does not hash itself. Future installers must reject duplicate paths, symlinks, unsafe platform-specific paths, and modified owned files before writing.
+Image references end in `@sha256:<64 lowercase hex characters>`. ARM IDs and identity client IDs are non-secret references, never exported secret values. Terraform state, tokens, App PEM, PATs, and secret values do not belong in descriptors or receipts. Installation file paths use repository-relative POSIX notation, even on Windows. The receipt does not hash itself; the installer writes a companion `.squad/aca-installation.sha256` to detect accidental receipt edits. The installer rejects duplicate paths and unsafe links, and skips unowned or modified files rather than overwriting them. See the [installation guide](install.md) for preview, strict conflict handling, and upgrades.
 
 An output adapter unwraps Terraform's output envelope or azd's output representation without changing the object fields. Until later slices implement these outputs, existing outputs stay unchanged. Existing Sandbox flow limits, dynamic roster resolution, ownership checks, credential boundaries, and stack-neutral checks stay separate and unchanged.
 
@@ -75,7 +75,7 @@ Do not silently reinterpret `enable_aca_sandbox=true` as Sandbox-only: it curren
 
 For a backend switch: provision the destination, export its descriptor, pause admission, drain queued/running work, disable old ingress, review the binding and workflow migration, then activate the new route. Keep the old platform while open PR revisions or receipts still need it. Retire resources only through an explicit reviewed operation. Do not migrate in-flight runs.
 
-Distribution starts with versioned GitHub Release archives, Terraform/azd sources, and `install.ps1`/`install.sh`. No clone or fork is required by the contract. Packaging and installers come in later slices; PowerShell module, npm, and winget distribution are deferred.
+Distribution starts with versioned GitHub Release archives, Terraform/azd sources, and `install.ps1`/`install.sh`. No clone or fork is required. The [local packaging command and no-fork installers](install.md) prepare reviewable target-owned callers without deploying or enabling execution. PowerShell module, npm, and winget distribution are deferred.
 
 ## Targeted validation
 

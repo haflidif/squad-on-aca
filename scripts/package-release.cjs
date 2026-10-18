@@ -12,7 +12,7 @@ function git(args, encoding = 'utf8') {
   return encoding ? result.stdout.trim() : result.stdout;
 }
 function included(file) {
-  if (/(?:^|\/)(?:\.env(?:\..*)?|terraform\.tfstate(?:\..*)?|[^/]*\.tfvars(?:\.json)?|[^/]*\.pem|[^/]*\.key)$/.test(file)) return false;
+  if (/(?:^|\/)(?:\.env(?:\..*)?|[^/]*\.tfstate(?:\..*)?|[^/]*\.tfvars(?:\.json)?|[^/]*\.pem|[^/]*\.key)$/i.test(file)) return false;
   return ['install.ps1', 'install.sh', 'azure.yaml', 'LICENSE', 'docs/install.md', 'docs/backend-contract.md', 'docs/adoption-guide.md'].includes(file)
     || WORKFLOWS.some(name => file === `.github/workflows/${name}`)
     || /^\.github\/actions\/sandbox-engine\//.test(file)
