@@ -1,3 +1,35 @@
+variable "execution_backend" {
+  description = "Execution backend for this deployment. Use a separate destination when switching an existing install."
+  type        = string
+  default     = "jobs"
+  nullable    = false
+
+  validation {
+    condition     = contains(["jobs", "sandbox"], var.execution_backend)
+    error_message = "execution_backend must be jobs or sandbox."
+  }
+}
+
+variable "release_version" {
+  description = "Installed platform release recorded in the descriptor."
+  type        = string
+  default     = "0.0.1"
+  validation {
+    condition     = length(trimspace(var.release_version)) > 0
+    error_message = "release_version must not be empty."
+  }
+}
+
+variable "jobs_image_ref" {
+  description = "Optional immutable Jobs image. Empty preserves the existing latest image and withholds the onboarding descriptor."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.jobs_image_ref == "" || can(regex("^[^\\s@]+@sha256:[0-9a-f]{64}$", var.jobs_image_ref))
+    error_message = "jobs_image_ref must be empty or pinned to a lowercase SHA-256 digest."
+  }
+}
+
 variable "subscription_id" {
   description = "Azure subscription ID"
   type        = string
@@ -10,7 +42,7 @@ variable "location" {
 }
 
 variable "enable_aca_sandbox" {
-  description = "Feature flag that creates the ACA Sandbox Group and dedicated sandbox dispatcher identity when true."
+  description = "Legacy additive Jobs plus Sandbox mode. Preserved for existing mixed installs, not compatible with execution_backend=sandbox."
   type        = bool
   default     = false
 }
@@ -27,7 +59,7 @@ variable "squad_issue_opt_in_number" {
 }
 
 variable "sandbox_image_ref" {
-  description = "Optional immutable persona image reference for target repository variables. Must include a SHA-256 digest."
+  description = "Immutable worker image required by Sandbox selection; optional for legacy additive inventory. Must include a SHA-256 digest."
   type        = string
   default     = ""
 
@@ -128,11 +160,13 @@ variable "target_repos" {
 }
 
 variable "github_app_id" {
+  default     = ""
   description = "GitHub App ID (numeric)"
   type        = string
 }
 
 variable "github_app_installation_id" {
+  default     = ""
   description = "GitHub App Installation ID"
   type        = string
 }
@@ -149,6 +183,11 @@ variable "agent_job_config" {
   default = {}
 
   validation {
+    condition     = var.agent_job_config.timeout_seconds >= 1 && floor(var.agent_job_config.timeout_seconds) == var.agent_job_config.timeout_seconds
+    error_message = "timeout_seconds must be a positive integer."
+  }
+
+  validation {
     condition     = contains([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], var.agent_job_config.cpu)
     error_message = "CPU must be one of: 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0"
   }
@@ -159,7 +198,7 @@ variable "agent_job_config" {
   }
 
   validation {
-    condition     = var.agent_job_config.max_executions >= 1 && var.agent_job_config.max_executions <= 30
+    condition     = var.agent_job_config.max_executions >= 1 && var.agent_job_config.max_executions <= 30 && floor(var.agent_job_config.max_executions) == var.agent_job_config.max_executions
     error_message = "max_executions must be between 1 and 30."
   }
 }
