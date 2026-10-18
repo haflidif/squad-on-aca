@@ -2,6 +2,10 @@
 
 > Step-by-step guide to deploying Squad on ACA for your organization. Follow these steps in order.
 
+## Install into a new or existing repository without a fork
+
+Use the [no-fork installation guide](install.md) to download a release, preview target-owned workflow changes, and install with `install.ps1` or `install.sh`. This path keeps your application and Squad state in your own repository. Choose Jobs or Sandbox without assuming an application stack. Deployment and activation remain separate steps. The fork and clone instructions below are for platform customization or evaluation.
+
 ---
 
 ## Prerequisites Checklist

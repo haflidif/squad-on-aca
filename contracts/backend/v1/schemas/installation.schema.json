@@ -5,7 +5,6 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "platform_id",
     "release_version",
     "action_sha",
     "generated_files"
@@ -48,6 +47,14 @@
           }
         }
       }
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "jobs",
+        "sandbox"
+      ],
+      "default": "jobs"
     }
   }
 }

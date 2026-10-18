@@ -143,6 +143,9 @@ test('installation receipt records immutable source and generated file ownership
     generated_files: [{ path: '.github/workflows/squad-aca.yml', sha256: 'b'.repeat(64) }]
   };
   valid(value, installation);
+  const { platform_id, ...beforeDeployment } = value;
+  for (const backend of ['jobs', 'sandbox']) valid({ ...beforeDeployment, backend }, installation);
+  invalid({ ...beforeDeployment, backend: 'both' }, installation);
   invalid({ ...value, action_sha: 'main' }, installation);
   invalid({ ...value, generated_files: [] }, installation);
   invalid({ ...value, generated_files: [{ path: '.squad/execution.json', sha256: 'bad' }] }, installation);
