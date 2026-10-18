@@ -37,6 +37,7 @@ param environment    = 'dev'
 param githubRepo     = 'haflidif/squad-on-aca'
 param queueName      = 'squad-work-queue'
 param targetRepos    = []   // e.g. ['your-org/your-repo']
+param targetOidcSubjects = {} // e.g. {'your-org/your-repo': {sandbox: 'repo:your-org@123/your-repo@456:environment:squad-sandbox-issue'}}
 
 // Agent job defaults
 param agentCpu            = '1.0'

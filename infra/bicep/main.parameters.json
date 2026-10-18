@@ -28,6 +28,9 @@
     },
     "releaseVersion": {
       "value": "${SQUAD_RELEASE_VERSION=0.0.1}"
+    },
+    "targetOidcSubjects": {
+      "value": "${TARGET_OIDC_SUBJECTS={}}"
     }
   }
 }

@@ -157,6 +157,11 @@ variable "target_repos" {
   description = "GitHub repositories (owner/repo format) allowed to authenticate via OIDC federated credentials"
   type        = list(string)
   default     = []
+
+  validation {
+    condition     = alltrue([for repo in var.target_repos : can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", repo))])
+    error_message = "target_repos must contain owner/repo names without IDs, wildcards or claim delimiters."
+  }
 }
 
 variable "github_app_id" {

@@ -87,7 +87,7 @@
           },
           "subject": {
             "type": "string",
-            "pattern": "^repo:[^/]+/[^:]+:(environment:.+|ref:refs/heads/.+)$"
+            "pattern": "^(?=(?:[^:]+:[^:]+:)*repo:)(?=(?:[^:]+:[^:]+:)*(?:environment|ref):)(?!(?:[^:]+:[^:]+:)*(repo|environment|ref|repository_owner_id|repository_id):[^:]+:(?:[^:]+:[^:]+:)*\\1:)(?!(?:[^:]+:[^:]+:)*environment:[^:]+:(?:[^:]+:[^:]+:)*ref:)(?!(?:[^:]+:[^:]+:)*ref:[^:]+:(?:[^:]+:[^:]+:)*environment:)(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+):(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+)(?::(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+):(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+))?$(?![\\s\\S])"
           },
           "audience": {
             "const": "api://AzureADTokenExchange"

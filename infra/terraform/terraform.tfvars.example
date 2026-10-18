@@ -11,3 +11,11 @@ location        = "swedencentral"
 project_name    = "squad-aca"
 environment     = "dev"
 queue_name      = "squad-work-queue"
+
+# Optional exact OIDC subjects for immutable or customized GitHub repositories.
+# oidc_subjects = {
+#   "your-org/your-repo" = {
+#     jobs    = "repo:your-org@123/your-repo@456:ref:refs/heads/main"
+#     sandbox = "repo:your-org@123/your-repo@456:environment:squad-sandbox-issue"
+#   }
+# }

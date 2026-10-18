@@ -1,9 +1,14 @@
+import { checkedSubject, RepositorySubjects } from '../oidc.bicep'
+
 @description('Sandbox Group name')
 param name string
 param nameSuffix string
 param location string
 param tags object = {}
 param targetRepos array = []
+
+@description('Exact subjects keyed by target repository. Validated before creating trust.')
+param oidcSubjects RepositorySubjects = {}
 param registryId string
 
 resource imagePull 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -39,7 +44,7 @@ resource dispatchOidc 'Microsoft.ManagedIdentity/userAssignedIdentities/federate
   properties: {
     audiences: ['api://AzureADTokenExchange']
     issuer: 'https://token.actions.githubusercontent.com'
-    subject: 'repo:${repo}:environment:squad-sandbox-issue'
+    subject: checkedSubject(oidcSubjects[?repo] ?? 'repo:${repo}:environment:squad-sandbox-issue', repo, 'environment:squad-sandbox-issue')
   }
 }]
 

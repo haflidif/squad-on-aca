@@ -36,7 +36,31 @@ function validateDescriptor(value) {
     }
   }
   validate(value, schema('platform-descriptor'));
+  if (value.oidc.some(item => !subjectClaims(item.subject))) throw new Error('Invalid OIDC subject: require a repository, one context and optional consistent paired numeric IDs.');
   return value;
+}
+// Accept only repository-bound subjects with one execution context and optional paired IDs.
+function subjectClaims(subject) {
+  const parts = subject.split(':');
+  if (![4, 8].includes(parts.length)) return null;
+  const claims = {};
+  for (let i = 0; i < parts.length; i += 2) {
+    if (!['repo', 'environment', 'ref', 'repository_owner_id', 'repository_id'].includes(parts[i]) || Object.hasOwn(claims, parts[i])) return null;
+    claims[parts[i]] = parts[i + 1];
+  }
+  const repository = /^([A-Za-z0-9_.-]+)(?:@([1-9][0-9]*))?\/([A-Za-z0-9_.-]+)(?:@([1-9][0-9]*))?$/.exec(claims.repo || '');
+  if (!repository || Boolean(repository[2]) !== Boolean(repository[4])) return null;
+  if (Object.hasOwn(claims, 'ref') === Object.hasOwn(claims, 'environment')) return null;
+  if (claims.ref !== undefined && !/^refs\/heads\/[A-Za-z0-9_./-]+$/.test(claims.ref)) return null;
+  if (claims.environment !== undefined && !/^[A-Za-z0-9_.%/-]+$/.test(claims.environment)) return null;
+  const ownerId = claims.repository_owner_id, repoId = claims.repository_id;
+  if ((ownerId !== undefined || repoId !== undefined) && (!/^[1-9][0-9]*$/.test(ownerId || '') || !/^[1-9][0-9]*$/.test(repoId || ''))) return null;
+  if (repository[2] && ownerId !== undefined && (repository[2] !== ownerId || repository[4] !== repoId)) return null;
+  return { ...claims, repository: `${repository[1]}/${repository[3]}` };
+}
+function subjectMatches(subject, repo, backend) {
+  const claims = subjectClaims(subject);
+  return claims !== null && claims.repository === repo && (backend === 'jobs' ? claims.ref === 'refs/heads/main' : claims.environment === 'squad-sandbox-issue');
 }
 function settings(descriptor) {
   const subscription = descriptor.platform_id.split('/')[2];
@@ -121,7 +145,7 @@ function activate(options, { env = process.env, log = console.log, execute = run
   if (enabled) {
     const identity = descriptor.backend === 'jobs' ? descriptor.jobs.identity_client_id : descriptor.sandbox.dispatcher_client_id;
     const subject = descriptor.backend === 'jobs' ? `repo:${repo}:ref:refs/heads/main` : `repo:${repo}:environment:squad-sandbox-issue`;
-    if (!descriptor.oidc.some(item => item.client_id === identity && item.subject === subject)) throw new Error(`Missing OIDC binding ${subject} for the selected identity. Add target_repos/TARGET_REPOS and reprovision.`);
+    if (!descriptor.oidc.some(item => item.client_id === identity && subjectMatches(item.subject, repo, descriptor.backend))) throw new Error(`Missing OIDC binding ${subject} for the selected identity. Set target_repos/TARGET_REPOS and the exact oidc_subjects/targetOidcSubjects if customized, then reprovision.`);
     if (descriptor.backend === 'sandbox' && !['squad-sandbox-issue', 'squad-publish'].every(item => descriptor.protected_environments.includes(item))) throw new Error('Missing protected environments squad-sandbox-issue and squad-publish.');
   }
   const retired = legacy(root, env, options.legacySettings);

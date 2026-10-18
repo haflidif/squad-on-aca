@@ -19,6 +19,8 @@
 
 targetScope = 'subscription'
 
+import { checkedSubject, SubjectOverrides } from './oidc.bicep'
+
 // ---------------------------------------------------------------------------
 // Parameters
 // ---------------------------------------------------------------------------
@@ -54,6 +56,9 @@ param queueName string = 'squad-work-queue'
 
 @description('GitHub repos (owner/repo) allowed to authenticate via OIDC federated credentials')
 param targetRepos array = []
+
+@description('Exact OIDC subjects keyed by target repo, then jobs or sandbox. Omitted bindings use the name-based default. Include repo and the selected execution context.')
+param targetOidcSubjects SubjectOverrides = {}
 
 @description('GitHub App ID (numeric string) — required')
 param githubAppId string = ''
@@ -111,6 +116,9 @@ param tags object = {
 // ---------------------------------------------------------------------------
 
 var jobsEnabled = executionBackend == 'jobs'
+var oidcOverridesValid = !contains(map(items(targetOidcSubjects), entry => contains(targetRepos, entry.key) && !empty(entry.value) && !contains(map(items(entry.value), binding => contains(['jobs', 'sandbox'], binding.key)), false)), false)
+var checkedOidcOverrides = oidcOverridesValid ? toObject(items(targetOidcSubjects), entry => entry.key, entry => toObject(items(entry.value), binding => binding.key, binding => checkedSubject(binding.value, entry.key, binding.key == 'jobs' ? 'ref:refs/heads/main' : 'environment:squad-sandbox-issue'))) : fail('targetOidcSubjects keys must be targetRepos with jobs/sandbox overrides only.')
+var resolvedOidcSubjects = toObject(union(targetRepos, []), repo => repo, repo => checkedSubject(checkedOidcOverrides[?repo][?executionBackend] ?? (jobsEnabled ? 'repo:${repo}:ref:refs/heads/main' : 'repo:${repo}:environment:squad-sandbox-issue'), repo, jobsEnabled ? 'ref:refs/heads/main' : 'environment:squad-sandbox-issue'))
 var selectedImageRef = jobsEnabled ? jobsImageRef : sandboxImageRef
 var imageParts = split(selectedImageRef, '@sha256:')
 var imageDigest = last(imageParts)
@@ -163,6 +171,7 @@ module identity './modules/identity.bicep' = if (jobsEnabled) {
     location: location
     tags: tags
     targetRepos: targetRepos
+    oidcSubjects: resolvedOidcSubjects
   }
 }
 
@@ -365,6 +374,7 @@ module sandbox './modules/sandbox.bicep' = if (!jobsEnabled) {
     location: location
     tags: tags
     targetRepos: targetRepos
+    oidcSubjects: resolvedOidcSubjects
     registryId: acr.outputs.resourceId
   }
 }
@@ -373,7 +383,7 @@ output execution_backend string = executionBackend
 
 var descriptorOidc = map(union(targetRepos, []), repo => {
   client_id: jobsEnabled ? identity!.outputs.clientId : sandbox!.outputs.dispatcherClientId
-  subject: jobsEnabled ? 'repo:${repo}:ref:refs/heads/main' : 'repo:${repo}:environment:squad-sandbox-issue'
+  subject: resolvedOidcSubjects[repo]
   audience: 'api://AzureADTokenExchange'
 })
 

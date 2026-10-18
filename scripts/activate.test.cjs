@@ -207,3 +207,32 @@ test('azd-values CLI file produces a matching disabled Sandbox binding', t => {
   const binding = JSON.parse(fs.readFileSync(path.join(f.options.target, '.squad', 'execution.json')));
   assert.equal(binding.backend, 'sandbox'); assert.equal(binding.enabled, false);
 });
+
+const oidcCases = require('../contracts/backend/v1/fixtures/oidc-subjects.json');
+for (const example of oidcCases) {
+  test(`OIDC ${example.backend} ${example.name}: ${example.valid ? 'enables exact binding' : 'rejects without writes or calls'}`, t => {
+    const f = fixture(t, example.backend);
+    const value = descriptor(example.backend); value.oidc[0].subject = example.subject;
+    fs.writeFileSync(f.file, JSON.stringify(value));
+    const options = { ...f.options, enable: true, repo: 'example/repository' };
+    if (example.valid) {
+      const result = activate(options, f.dependencies);
+      assert.equal(result.execution.enabled, true);
+      assert.equal(result.descriptor.oidc[0].subject, example.subject);
+    } else {
+      assert.throws(() => activate(options, f.dependencies));
+      assert.equal(fs.existsSync(f.options.target), false);
+    }
+    assert.deepEqual(f.calls, []);
+  });
+}
+test('immutable binding still requires the selected identity and exact audience', t => {
+  const f = fixture(t, 'sandbox');
+  for (const changes of [{ client_id: '00000000-0000-0000-0000-000000000099' }, { audience: 'other' }]) {
+    const value = descriptor('sandbox');
+    Object.assign(value.oidc[0], { subject: 'repo:example@123/repository@456:environment:squad-sandbox-issue' }, changes);
+    fs.writeFileSync(f.file, JSON.stringify(value));
+    assert.throws(() => activate({ ...f.options, enable: true, repo: 'example/repository' }, f.dependencies));
+    assert.equal(fs.existsSync(f.options.target), false);
+  }
+});

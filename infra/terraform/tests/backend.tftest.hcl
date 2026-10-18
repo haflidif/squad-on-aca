@@ -182,3 +182,495 @@ run "reject_missing_sandbox_image" {
   variables { execution_backend = "sandbox" }
   expect_failures = [azapi_resource.sandbox_group]
 }
+
+run "oidc_jobs_plain" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:ref:refs/heads/main" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example/repository:ref:refs/heads/main" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_plain_custom_0" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:repository_owner_id:123:repository_id:456:ref:refs/heads/main" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example/repository:repository_owner_id:123:repository_id:456:ref:refs/heads/main" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_plain_custom_12" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repository_id:456:repo:example/repository:repository_owner_id:123:ref:refs/heads/main" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repository_id:456:repo:example/repository:repository_owner_id:123:ref:refs/heads/main" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_immutable" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/repository@456:ref:refs/heads/main" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example@123/repository@456:ref:refs/heads/main" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_immutable_custom_0" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:ref:refs/heads/main" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:ref:refs/heads/main" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_immutable_custom_23" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "ref:refs/heads/main:repository_id:456:repository_owner_id:123:repo:example@123/repository@456" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "ref:refs/heads/main:repository_id:456:repository_owner_id:123:repo:example@123/repository@456" && azurerm_federated_identity_credential.github_actions["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_jobs_wrong_owner" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:other@123/repository@456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_wrong_repository" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/other@456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_missing_owner_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository@456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_zero_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@0/repository@456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_wildcard_repo" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/*:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_wrong_context" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:ref:refs/heads/other" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_other_backend" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_single_custom_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:repository_id:456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_duplicate_custom_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:repository_id:123:repository_id:456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_inconsistent_owner_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/repository@456:repository_owner_id:999:repository_id:456:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_inconsistent_repo_id" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/repository@456:repository_owner_id:123:repository_id:999:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_extra_claim" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example/repository:repository_visibility:public:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_jobs_trailing_newline" {
+  command = plan
+  variables {
+    execution_backend = "jobs"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { jobs = "repo:example@123/repository@456:ref:refs/heads/main\n" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.github_actions]
+}
+
+run "oidc_sandbox_plain" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:environment:squad-sandbox-issue" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example/repository:environment:squad-sandbox-issue" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_plain_custom_0" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example/repository:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_plain_custom_12" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repository_id:456:repo:example/repository:repository_owner_id:123:environment:squad-sandbox-issue" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repository_id:456:repo:example/repository:repository_owner_id:123:environment:squad-sandbox-issue" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_immutable" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/repository@456:environment:squad-sandbox-issue" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example@123/repository@456:environment:squad-sandbox-issue" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_immutable_custom_0" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_immutable_custom_23" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123:repo:example@123/repository@456" } }
+  }
+  assert {
+    condition     = output.platform_descriptor.oidc[0].subject == "environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123:repo:example@123/repository@456" && azurerm_federated_identity_credential.sandbox_issue_environment["example/repository"].subject == output.platform_descriptor.oidc[0].subject
+    error_message = "Exact OIDC subject must be preserved in both deployed trust and descriptor."
+  }
+}
+
+run "oidc_sandbox_wrong_owner" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:other@123/repository@456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_wrong_repository" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/other@456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_missing_owner_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository@456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_zero_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@0/repository@456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_wildcard_repo" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/*:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_wrong_context" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:environment:other" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_other_backend" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:ref:refs/heads/main" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_single_custom_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:repository_id:456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_duplicate_custom_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:repository_id:123:repository_id:456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_inconsistent_owner_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/repository@456:repository_owner_id:999:repository_id:456:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_inconsistent_repo_id" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/repository@456:repository_owner_id:123:repository_id:999:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_extra_claim" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example/repository:repository_visibility:public:environment:squad-sandbox-issue" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}
+
+run "oidc_sandbox_trailing_newline" {
+  command = plan
+  variables {
+    execution_backend = "sandbox"
+    target_repos      = ["example/repository"]
+    jobs_image_ref    = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sandbox_image_ref = "example.azurecr.io/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    oidc_subjects     = { "example/repository" = { sandbox = "repo:example@123/repository@456:environment:squad-sandbox-issue\n" } }
+  }
+  expect_failures = [azurerm_federated_identity_credential.sandbox_issue_environment]
+}

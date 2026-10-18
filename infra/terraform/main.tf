@@ -184,7 +184,13 @@ resource "azurerm_federated_identity_credential" "github_actions" {
   parent_id = azurerm_user_assigned_identity.squad_agent[0].id
   audience  = ["api://AzureADTokenExchange"]
   issuer    = "https://token.actions.githubusercontent.com"
-  subject   = "repo:${each.value}:ref:refs/heads/main"
+  subject   = local.oidc_subjects.jobs[each.value]
+  lifecycle {
+    precondition {
+      condition     = local.oidc_valid
+      error_message = "OIDC subjects must bind exactly to their target repo and backend context, without wildcards, duplicate claims, malformed IDs or inconsistent inline/custom IDs."
+    }
+  }
 }
 
 # --------------------------------------------------------------------------

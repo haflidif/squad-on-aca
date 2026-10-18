@@ -1,0 +1,926 @@
+[
+  {
+    "name": "plain",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_0",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_owner_id:123:repository_id:456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_1",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_owner_id:123:ref:refs/heads/main:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_2",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_id:456:repository_owner_id:123:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_3",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_id:456:ref:refs/heads/main:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_4",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/main:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_5",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/main:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_6",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repo:example/repository:repository_id:456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_7",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repo:example/repository:ref:refs/heads/main:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_8",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:repo:example/repository:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_9",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:ref:refs/heads/main:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_10",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:ref:refs/heads/main:repo:example/repository:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_11",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:ref:refs/heads/main:repository_id:456:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_12",
+    "backend": "jobs",
+    "subject": "repository_id:456:repo:example/repository:repository_owner_id:123:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_13",
+    "backend": "jobs",
+    "subject": "repository_id:456:repo:example/repository:ref:refs/heads/main:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_14",
+    "backend": "jobs",
+    "subject": "repository_id:456:repository_owner_id:123:repo:example/repository:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_15",
+    "backend": "jobs",
+    "subject": "repository_id:456:repository_owner_id:123:ref:refs/heads/main:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_16",
+    "backend": "jobs",
+    "subject": "repository_id:456:ref:refs/heads/main:repo:example/repository:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_17",
+    "backend": "jobs",
+    "subject": "repository_id:456:ref:refs/heads/main:repository_owner_id:123:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_18",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repo:example/repository:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_19",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repo:example/repository:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_20",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_owner_id:123:repo:example/repository:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_21",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_owner_id:123:repository_id:456:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_22",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_id:456:repo:example/repository:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_23",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_id:456:repository_owner_id:123:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "immutable",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_0",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_1",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:ref:refs/heads/main:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_2",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_id:456:repository_owner_id:123:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_3",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_id:456:ref:refs/heads/main:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_4",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:ref:refs/heads/main:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_5",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:ref:refs/heads/main:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_6",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repo:example@123/repository@456:repository_id:456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_7",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repo:example@123/repository@456:ref:refs/heads/main:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_8",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:repo:example@123/repository@456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_9",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:ref:refs/heads/main:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_10",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:ref:refs/heads/main:repo:example@123/repository@456:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_11",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:ref:refs/heads/main:repository_id:456:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_12",
+    "backend": "jobs",
+    "subject": "repository_id:456:repo:example@123/repository@456:repository_owner_id:123:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_13",
+    "backend": "jobs",
+    "subject": "repository_id:456:repo:example@123/repository@456:ref:refs/heads/main:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_14",
+    "backend": "jobs",
+    "subject": "repository_id:456:repository_owner_id:123:repo:example@123/repository@456:ref:refs/heads/main",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_15",
+    "backend": "jobs",
+    "subject": "repository_id:456:repository_owner_id:123:ref:refs/heads/main:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_16",
+    "backend": "jobs",
+    "subject": "repository_id:456:ref:refs/heads/main:repo:example@123/repository@456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_17",
+    "backend": "jobs",
+    "subject": "repository_id:456:ref:refs/heads/main:repository_owner_id:123:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_18",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repo:example@123/repository@456:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_19",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repo:example@123/repository@456:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_20",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_owner_id:123:repo:example@123/repository@456:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_21",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_owner_id:123:repository_id:456:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_22",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_id:456:repo:example@123/repository@456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_23",
+    "backend": "jobs",
+    "subject": "ref:refs/heads/main:repository_id:456:repository_owner_id:123:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "wrong_owner",
+    "backend": "jobs",
+    "subject": "repo:other@123/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "wrong_repository",
+    "backend": "jobs",
+    "subject": "repo:example@123/other@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "missing_owner_id",
+    "backend": "jobs",
+    "subject": "repo:example/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "missing_repo_id",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "zero_id",
+    "backend": "jobs",
+    "subject": "repo:example@0/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "leading_zero_id",
+    "backend": "jobs",
+    "subject": "repo:example@0123/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "negative_id",
+    "backend": "jobs",
+    "subject": "repo:example@-1/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "text_id",
+    "backend": "jobs",
+    "subject": "repo:example@abc/repository@456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "wildcard_repo",
+    "backend": "jobs",
+    "subject": "repo:example/*:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "wildcard_owner",
+    "backend": "jobs",
+    "subject": "repo:*/repository:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "wildcard_context",
+    "backend": "jobs",
+    "subject": "repo:example/repository:environment:*",
+    "valid": false
+  },
+  {
+    "name": "wrong_context",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/other",
+    "valid": false
+  },
+  {
+    "name": "other_backend",
+    "backend": "jobs",
+    "subject": "repo:example/repository:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "single_custom_id",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_id:456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "missing_repository",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "duplicate_context",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/main:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "duplicate_repo",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repo:example/repository:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "duplicate_custom_id",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_id:123:repository_id:456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "inconsistent_owner_id",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_owner_id:999:repository_id:456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "inconsistent_repo_id",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:repository_id:999:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "non_numeric_custom_id",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_owner_id:abc:repository_id:456:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "extra_claim",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_visibility:public:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "trailing_claim",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:ref:refs/heads/main:",
+    "valid": false
+  },
+  {
+    "name": "trailing_newline",
+    "backend": "jobs",
+    "subject": "repo:example@123/repository@456:ref:refs/heads/main\n",
+    "valid": false
+  },
+  {
+    "name": "wildcard_custom_id",
+    "backend": "jobs",
+    "subject": "repo:example/repository:repository_owner_id:123:repository_id:*:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "unbound_ids",
+    "backend": "jobs",
+    "subject": "repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "both_contexts",
+    "backend": "jobs",
+    "subject": "repo:example/repository:ref:refs/heads/main:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "plain",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_0",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_1",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_owner_id:123:environment:squad-sandbox-issue:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_2",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_id:456:repository_owner_id:123:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_3",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_id:456:environment:squad-sandbox-issue:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_4",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:squad-sandbox-issue:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_5",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_6",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repo:example/repository:repository_id:456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_7",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repo:example/repository:environment:squad-sandbox-issue:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_8",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:repo:example/repository:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_9",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_10",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:environment:squad-sandbox-issue:repo:example/repository:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_11",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:environment:squad-sandbox-issue:repository_id:456:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_12",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repo:example/repository:repository_owner_id:123:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_13",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repo:example/repository:environment:squad-sandbox-issue:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_14",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repository_owner_id:123:repo:example/repository:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_15",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repository_owner_id:123:environment:squad-sandbox-issue:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_16",
+    "backend": "sandbox",
+    "subject": "repository_id:456:environment:squad-sandbox-issue:repo:example/repository:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_17",
+    "backend": "sandbox",
+    "subject": "repository_id:456:environment:squad-sandbox-issue:repository_owner_id:123:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_18",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repo:example/repository:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_19",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repo:example/repository:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_20",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_owner_id:123:repo:example/repository:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_21",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_owner_id:123:repository_id:456:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_22",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_id:456:repo:example/repository:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "plain_custom_23",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123:repo:example/repository",
+    "valid": true
+  },
+  {
+    "name": "immutable",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_0",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_1",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:environment:squad-sandbox-issue:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_2",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_id:456:repository_owner_id:123:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_3",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_id:456:environment:squad-sandbox-issue:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_4",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:environment:squad-sandbox-issue:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_5",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_6",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repo:example@123/repository@456:repository_id:456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_7",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repo:example@123/repository@456:environment:squad-sandbox-issue:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_8",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:repo:example@123/repository@456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_9",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_10",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:environment:squad-sandbox-issue:repo:example@123/repository@456:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_11",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:environment:squad-sandbox-issue:repository_id:456:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_12",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repo:example@123/repository@456:repository_owner_id:123:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_13",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repo:example@123/repository@456:environment:squad-sandbox-issue:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_14",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repository_owner_id:123:repo:example@123/repository@456:environment:squad-sandbox-issue",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_15",
+    "backend": "sandbox",
+    "subject": "repository_id:456:repository_owner_id:123:environment:squad-sandbox-issue:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_16",
+    "backend": "sandbox",
+    "subject": "repository_id:456:environment:squad-sandbox-issue:repo:example@123/repository@456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_17",
+    "backend": "sandbox",
+    "subject": "repository_id:456:environment:squad-sandbox-issue:repository_owner_id:123:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_18",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repo:example@123/repository@456:repository_owner_id:123:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_19",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repo:example@123/repository@456:repository_id:456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_20",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_owner_id:123:repo:example@123/repository@456:repository_id:456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_21",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_owner_id:123:repository_id:456:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_22",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_id:456:repo:example@123/repository@456:repository_owner_id:123",
+    "valid": true
+  },
+  {
+    "name": "immutable_custom_23",
+    "backend": "sandbox",
+    "subject": "environment:squad-sandbox-issue:repository_id:456:repository_owner_id:123:repo:example@123/repository@456",
+    "valid": true
+  },
+  {
+    "name": "wrong_owner",
+    "backend": "sandbox",
+    "subject": "repo:other@123/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "wrong_repository",
+    "backend": "sandbox",
+    "subject": "repo:example@123/other@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "missing_owner_id",
+    "backend": "sandbox",
+    "subject": "repo:example/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "missing_repo_id",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "zero_id",
+    "backend": "sandbox",
+    "subject": "repo:example@0/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "leading_zero_id",
+    "backend": "sandbox",
+    "subject": "repo:example@0123/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "negative_id",
+    "backend": "sandbox",
+    "subject": "repo:example@-1/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "text_id",
+    "backend": "sandbox",
+    "subject": "repo:example@abc/repository@456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "wildcard_repo",
+    "backend": "sandbox",
+    "subject": "repo:example/*:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "wildcard_owner",
+    "backend": "sandbox",
+    "subject": "repo:*/repository:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "wildcard_context",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:*",
+    "valid": false
+  },
+  {
+    "name": "wrong_context",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:other",
+    "valid": false
+  },
+  {
+    "name": "other_backend",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:ref:refs/heads/main",
+    "valid": false
+  },
+  {
+    "name": "single_custom_id",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "missing_repository",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "duplicate_context",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:environment:squad-sandbox-issue:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "duplicate_repo",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repo:example/repository:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "duplicate_custom_id",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "inconsistent_owner_id",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_owner_id:999:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "inconsistent_repo_id",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:repository_owner_id:123:repository_id:999:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "non_numeric_custom_id",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_owner_id:abc:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "extra_claim",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_visibility:public:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "trailing_claim",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:environment:squad-sandbox-issue:",
+    "valid": false
+  },
+  {
+    "name": "trailing_newline",
+    "backend": "sandbox",
+    "subject": "repo:example@123/repository@456:environment:squad-sandbox-issue\n",
+    "valid": false
+  },
+  {
+    "name": "wildcard_custom_id",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:repository_owner_id:123:repository_id:*:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "unbound_ids",
+    "backend": "sandbox",
+    "subject": "repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue",
+    "valid": false
+  },
+  {
+    "name": "both_contexts",
+    "backend": "sandbox",
+    "subject": "repo:example/repository:ref:refs/heads/main:environment:squad-sandbox-issue",
+    "valid": false
+  }
+]

@@ -114,6 +114,26 @@ node scripts\activate.cjs --azd --target C:\src\my-application --repo example/re
 
 The script reads the hook's descriptor environment value, or calls `azd env get-values --output json` when absent. An exported JSON values file works with `--azd-values <file>`. `--descriptor <file>` accepts a descriptor directly. No shell exports are evaluated. Both IaC paths expose `platform_descriptor_missing` with exact blockers for null descriptors. Activation rejects invalid or incomplete Sandbox descriptors without modifying files or GitHub. Legacy Terraform mixed inventory (`enable_aca_sandbox=true`) is never an activation destination.
 
+### Exact OIDC subjects
+
+GitHub supports both `repo:OWNER/REPO:environment:ENV` and immutable `repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:ENV` subjects. Jobs uses `:ref:refs/heads/main` instead of the environment suffix; Sandbox requires `:environment:squad-sandbox-issue`. The IDs are positive decimal numbers, not names joined with a hyphen. See the [GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims) and [updated changelog](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/).
+
+Keep `target_repos`/`targetRepos` as plain `owner/repo` names. For an immutable repository, set its exact subject before provisioning, for example:
+
+```hcl
+oidc_subjects = {
+  "example/repository" = {
+    sandbox = "repo:example@123/repository@456:environment:squad-sandbox-issue"
+  }
+}
+```
+
+Bicep uses the equivalent `targetOidcSubjects` object, keyed by repository and then `jobs` or `sandbox`. With azd, set `TARGET_OIDC_SUBJECTS` to its JSON representation. Omitted entries preserve the existing name-based defaults. Inspect GitHub's OIDC subject preview/settings to obtain the exact names, IDs and claim order; no token or secret is needed. Both IaC outputs preserve the exact deployed subject.
+
+Customized subjects may include `repository_owner_id:123` and `repository_id:456` as a pair, in any claim order, alongside the required `repo` and execution context. For example: `repo:example/repository:repository_owner_id:123:repository_id:456:environment:squad-sandbox-issue`. If the `repo` segment also includes IDs, the separate ID claims must agree. Wildcards, duplicate claims, partial/non-numeric IDs, other repositories and wrong contexts are rejected. ID-only templates and additional custom claims are deliberately unsupported because activation must verify a named repository and the selected execution context. Activation validates the declared exact binding; it does not query GitHub or verify live environment protections.
+
+The shared subject fixtures also run offline against Bicep with `bicep snapshot infra\bicep\tests\oidc.bicepparam --mode validate` (tested with Bicep 0.48.1).
+
 ### Review settings, then enable
 
 Default activation changes only the two local JSON files, not GitHub. Re-running an unchanged binding preserves bytes and timestamps. `--preview` makes the whole operation write-free. An existing enabled binding is preserved on an identical rerun; changing its backend, platform or descriptor requires a prior pause. Use `--repo` on enabled reruns so OIDC validation can check the repository.

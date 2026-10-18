@@ -153,3 +153,13 @@ test('installation receipt records immutable source and generated file ownership
     invalid({ ...value, generated_files: [{ path: file, sha256: 'b'.repeat(64) }] }, installation);
   }
 });
+
+test('subject schema accepts default and customized repository-bound formats and rejects unsafe structures', () => {
+  for (const example of read('fixtures/oidc-subjects.json')) {
+    const value = exampleDescriptor(example.backend); value.oidc[0].subject = example.subject;
+    // Repo/context selection and agreement between inline and custom IDs are cross-field activation checks.
+    const semanticOnly = ['wrong_owner', 'wrong_repository', 'wrong_context', 'other_backend', 'inconsistent_owner_id', 'inconsistent_repo_id'];
+    if (example.valid || semanticOnly.includes(example.name)) valid(value, descriptor);
+    else invalid(value, descriptor);
+  }
+});

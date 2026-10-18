@@ -66,7 +66,13 @@ resource "azurerm_federated_identity_credential" "sandbox_issue_environment" {
   parent_id = azurerm_user_assigned_identity.sandbox_dispatcher[0].id
   audience  = ["api://AzureADTokenExchange"]
   issuer    = "https://token.actions.githubusercontent.com"
-  subject   = "repo:${each.value}:environment:squad-sandbox-issue"
+  subject   = local.oidc_subjects.sandbox[each.value]
+  lifecycle {
+    precondition {
+      condition     = local.oidc_valid
+      error_message = "OIDC subjects must bind exactly to their target repo and backend context, without wildcards, duplicate claims, malformed IDs or inconsistent inline/custom IDs."
+    }
+  }
 }
 
 resource "azurerm_user_assigned_identity" "sandbox_image_pull" {

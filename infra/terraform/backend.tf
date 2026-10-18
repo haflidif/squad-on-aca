@@ -21,7 +21,7 @@ output "platform_descriptor" {
     }
     oidc = [for repo in distinct(var.target_repos) : {
       client_id = local.jobs_enabled ? azurerm_user_assigned_identity.squad_agent[0].client_id : azurerm_user_assigned_identity.sandbox_dispatcher[0].client_id
-      subject   = local.jobs_enabled ? "repo:${repo}:ref:refs/heads/main" : "repo:${repo}:environment:squad-sandbox-issue"
+      subject   = local.oidc_subjects[var.execution_backend][repo]
       audience  = "api://AzureADTokenExchange"
     }]
     protected_environments = local.jobs_enabled ? [] : ["squad-sandbox-issue", "squad-publish"]
