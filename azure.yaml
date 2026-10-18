@@ -23,7 +23,8 @@
 #   1. Build and push agents/base/Dockerfile → ACR as squad-agent:latest
 #   2. Check Key Vault secrets (github-app-private-key, copilot-pat) and print
 #      guidance if they are missing — values are NEVER embedded in this file.
-#   3. Set 5 GitHub Actions repository variables on every repo in TARGET_REPOS.
+#   3. Preview descriptor activation and exact GitHub settings, without applying them.
+#      Set SQUAD_ACTIVATION_TARGET to prepare disabled JSON files in a target repo.
 #
 # NOTE: Terraform is the canonical IaC path. Bicep/azd coexist under infra/bicep/.
 # Choose one deployment path per environment — do not mix.
@@ -69,7 +70,7 @@ hooks:
       shell: pwsh
       run: infra/hooks/preprovision.ps1
       interactive: true
-  # postprovision: build/push image; check KV secrets; set GH Actions variables
+  # postprovision: build/push Jobs image; check KV secrets; prepare disabled binding
   postprovision:
     posix:
       shell: sh

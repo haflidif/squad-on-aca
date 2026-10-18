@@ -413,3 +413,8 @@ output platformDescriptor object? = descriptorReady ? union({
 }) : null
 
 output jobs_image_ref string = jobsEnabled ? jobsImageRef : ''
+
+@description('Exact activation blockers. Empty means platformDescriptor is ready for schema validation.')
+output platform_descriptor_missing array = descriptorReady ? [] : [
+  jobsEnabled ? 'SQUAD_JOBS_IMAGE_REF/jobsImageRef: supply an immutable registry/repository@sha256 digest' : 'SQUAD_SANDBOX_IMAGE_REF/sandboxImageRef: supply an immutable registry/repository@sha256 digest'
+]

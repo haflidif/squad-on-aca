@@ -98,6 +98,15 @@ make no Azure or GitHub calls. Run Bicep build with a process-local
 
 ---
 
+## Activate and switch backend
+
+After a reviewed apply, pipe `terraform output -json` to `node scripts\activate.cjs --terraform - --target <repository>` from the release root. Both azd postprovision hooks use the same script with `--azd`: set `SQUAD_ACTIVATION_TARGET` to prepare disabled JSON files, or leave it unset for a write-free preview. Supply the selected Jobs or Sandbox image digest first. `platform_descriptor_missing` reports the exact input blocking a null descriptor. No mutable tag is accepted as an activation image pin.
+
+Activation writes the validated non-secret descriptor and repository binding, never Terraform state or credentials. GitHub settings are print-only unless `--apply` is explicit and `gh` is present. `--enable --repo <owner/repo>` is a separate reviewed choice after settings, protections and ingress migration. The old azd hook no longer writes legacy settings. Terraform's existing GitHub resource ownership remains until explicitly transferred without remote deletion; do not use two settings writers.
+
+To switch, commit a pause, drain admitted work, provision a separate destination, bind and review it, then enable. Do not destroy old resources while in-flight receipts or PR revisions still need them. In-flight issues keep their original backend and settings. See [activation and migration](install.md#activate-from-terraform) for commands, secrets, ownership transfer and both switch directions.
+
+
 ## Terraform Modules
 
 Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure consistency:

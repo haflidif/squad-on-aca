@@ -14,10 +14,10 @@
 #      Prints `az keyvault secret set` commands to upload them.
 #      Secret VALUES are never echoed or embedded here.
 #
-#   C) GitHub Actions repository variables.
-#      Sets 5 variables on every repo in TARGET_REPOS via `gh variable set`.
-#      Idempotent — gh variable set is a create-or-update operation.
-#      Skips gracefully if `gh` is not installed or not authenticated.
+#   C) Descriptor activation and GitHub setting guidance through scripts/activate.cjs.
+#      GitHub settings are print-only. An explicit later --apply is required.
+#      Set SQUAD_ACTIVATION_TARGET to write a disabled binding in a target repo.
+#      Without a target, the hook previews only and writes no repository files.
 #
 # azd exports Bicep outputs as uppercase env vars before running hooks, e.g.:
 #   RESOURCE_GROUP_NAME, ACR_LOGIN_SERVER, STORAGE_ACCOUNT_NAME, QUEUE_NAME,
@@ -52,6 +52,16 @@ resolve_output() {
   echo "$val"
 }
 
+activate_repository() {
+  local script_dir
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -n "${SQUAD_ACTIVATION_TARGET:-}" ]]; then
+    node "$script_dir/../../scripts/activate.cjs" --azd --target "$SQUAD_ACTIVATION_TARGET"
+  else
+    node "$script_dir/../../scripts/activate.cjs" --azd --preview
+  fi
+}
+
 BACKEND=$(resolve_output "EXECUTION_BACKEND")
 BACKEND="${BACKEND:-${SQUAD_EXECUTION_BACKEND-jobs}}"
 case "$BACKEND" in
@@ -65,6 +75,7 @@ fi
 if [[ "$BACKEND" == sandbox ]]; then
   echo 'Sandbox infrastructure provisioned. Use the published immutable worker image and platformDescriptor output for separate repository onboarding.'
   echo 'Skipping Jobs image build, Job update, Key Vault/PAT checks, and legacy queue repository variables. Execution has not been enabled.'
+  activate_repository
   exit 0
 fi
 JOBS_IMAGE_REF=$(resolve_output "JOBS_IMAGE_REF")
@@ -229,85 +240,6 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# C) GitHub Actions repository variables
-# ---------------------------------------------------------------------------
-echo -e "${CYAN}--- C) GitHub Actions repository variables ---${NC}"
-echo ""
-
-if [[ -z "${TARGET_REPOS:-}" ]]; then
-  echo -e "${YELLOW}ℹ TARGET_REPOS is not set — skipping GitHub Actions variable setup.${NC}"
-  echo "  Set it and re-run 'azd provision' to wire the variables:"
-  echo "    azd env set TARGET_REPOS '[\"owner/repo\"]'"
-  echo ""
-else
-  # Check gh CLI is available and authenticated
-  if ! command -v gh &>/dev/null; then
-    echo -e "${YELLOW}⚠ 'gh' CLI not found — skipping GitHub Actions variable setup.${NC}"
-    echo "  Install from https://cli.github.com and run:"
-    echo "    gh auth login"
-    echo "  Then re-run 'azd provision' or set the variables manually:"
-    echo "    gh variable set SQUAD_AZURE_CLIENT_ID     --body <client_id>      --repo <owner/repo>"
-    echo "    gh variable set SQUAD_AZURE_TENANT_ID     --body <tenant_id>      --repo <owner/repo>"
-    echo "    gh variable set SQUAD_AZURE_SUBSCRIPTION_ID --body <sub_id>       --repo <owner/repo>"
-    echo "    gh variable set SQUAD_STORAGE_ACCOUNT     --body <storage_name>   --repo <owner/repo>"
-    echo "    gh variable set SQUAD_QUEUE_NAME           --body <queue_name>     --repo <owner/repo>"
-  elif ! gh auth status &>/dev/null; then
-    echo -e "${YELLOW}⚠ 'gh' CLI is not authenticated — skipping GitHub Actions variable setup.${NC}"
-    echo "  Run:  gh auth login"
-    echo "  Then re-run 'azd provision'."
-  else
-    # Parse TARGET_REPOS JSON array into shell array
-    # Supports formats: '["owner/repo1","owner/repo2"]' or '["owner/repo1"]'
-    repos=()
-    while IFS= read -r repo; do
-      repos+=("$repo")
-    done < <(echo "$TARGET_REPOS" | tr -d '[] ' | tr ',' '\n' | tr -d '"')
-
-    for repo in "${repos[@]}"; do
-      if [[ -z "$repo" ]]; then
-        continue
-      fi
-      echo "  Setting variables on repo: $repo"
-
-      set_var() {
-        local var_name="$1"
-        local var_value="$2"
-        if [[ -z "$var_value" ]]; then
-          echo -e "    ${YELLOW}⚠ Skipping $var_name — value is empty${NC}"
-          return
-        fi
-        gh variable set "$var_name" --body "$var_value" --repo "$repo" && \
-          echo -e "    ${GREEN}✓ $var_name${NC}" || \
-          echo -e "    ${RED}✗ Failed to set $var_name — check repo permissions${NC}"
-      }
-
-      set_var "SQUAD_AZURE_CLIENT_ID"       "$SQUAD_AGENT_CLIENT_ID"
-      set_var "SQUAD_AZURE_TENANT_ID"       "$SQUAD_AGENT_TENANT_ID"
-      set_var "SQUAD_AZURE_SUBSCRIPTION_ID" "$AZURE_SUBSCRIPTION_ID"
-      set_var "SQUAD_STORAGE_ACCOUNT"       "$STORAGE_ACCOUNT_NAME"
-      set_var "SQUAD_QUEUE_NAME"            "$QUEUE_NAME"
-      set_var "SQUAD_ISSUE_FLOW_ENABLED"   "false"
-      set_var "SQUAD_ISSUE_OPT_IN_NUMBER" "0"
-      set_label() {
-        local name="$1" color="$2" description="$3"
-        if gh label create "$name" --repo "$repo" --color "$color" --description "$description" --force >/dev/null; then
-          echo -e "    ${GREEN}✓ $name${NC}"
-        else
-          echo -e "    ${YELLOW}⚠ Failed to create $name; check repository permissions${NC}"
-        fi
-      }
-      set_label "sandbox-run" "1D76DB" "Opt in to the ACA Sandbox issue workflow"
-      set_label "sandbox:processing" "FBCA04" "Sandbox work is being dispatched"
-      set_label "sandbox:queued" "0052CC" "Sandbox draft PR is ready for review"
-      set_label "sandbox:revising" "5319E7" "Sandbox PR revision is in progress"
-      set_label "sandbox:ready" "0E8A16" "Sandbox run completed successfully"
-      set_label "sandbox:failed" "B60205" "Sandbox run failed"
-      echo ""
-    done
-  fi
-fi
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo "==================================================================="
@@ -330,3 +262,5 @@ echo ""
 #   Remove --purge in production or if purge protection is enabled.
 # - RBAC propagation on newly created resources may take 1-2 minutes; if the
 #   agent job fails with auth errors on first run, wait and retry.
+
+activate_repository

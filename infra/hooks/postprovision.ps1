@@ -13,10 +13,10 @@
 #      Prints `az keyvault secret set` commands to upload them.
 #      Secret VALUES are never echoed or embedded here.
 #
-#   C) GitHub Actions repository variables.
-#      Sets 5 variables on every repo in TARGET_REPOS via `gh variable set`.
-#      Idempotent — gh variable set is a create-or-update operation.
-#      Skips gracefully if `gh` is not installed or not authenticated.
+#   C) Descriptor activation and GitHub setting guidance through scripts/activate.cjs.
+#      GitHub settings are print-only. An explicit later --apply is required.
+#      Set SQUAD_ACTIVATION_TARGET to write a disabled binding in a target repo.
+#      Without a target, the hook previews only and writes no repository files.
 #
 # azd exports Bicep outputs as uppercase env vars before running hooks, e.g.:
 #   RESOURCE_GROUP_NAME, ACR_LOGIN_SERVER, STORAGE_ACCOUNT_NAME, QUEUE_NAME,
@@ -43,6 +43,15 @@ function Resolve-AzdOutput {
     return $val
 }
 
+function Invoke-Activation {
+    $script = Join-Path $PSScriptRoot '..\..\scripts\activate.cjs'
+    $arguments = @($script, '--azd')
+    if ($env:SQUAD_ACTIVATION_TARGET) { $arguments += @('--target', $env:SQUAD_ACTIVATION_TARGET) }
+    else { $arguments += '--preview' }
+    node @arguments
+    if ($LASTEXITCODE -ne 0) { throw 'Descriptor activation failed. Resolve the reported missing fields; execution remains unchanged.' }
+}
+
 $Backend = Resolve-AzdOutput 'EXECUTION_BACKEND'
 if (-not $Backend) { $Backend = if (Test-Path Env:\SQUAD_EXECUTION_BACKEND) { $env:SQUAD_EXECUTION_BACKEND } else { 'jobs' } }
 if ($Backend -cnotin @('jobs', 'sandbox')) { throw 'Execution backend must be jobs or sandbox.' }
@@ -52,6 +61,7 @@ if ((Test-Path Env:\SQUAD_EXECUTION_BACKEND) -and $Backend -cne $env:SQUAD_EXECU
 if ($Backend -ceq 'sandbox') {
     Write-Host 'Sandbox infrastructure provisioned. Use the published immutable worker image and platformDescriptor output for separate repository onboarding.'
     Write-Host 'Skipping Jobs image build, Job update, Key Vault/PAT checks, and legacy queue repository variables. Execution has not been enabled.'
+    Invoke-Activation
     exit 0
 }
 $JobsImageRef = Resolve-AzdOutput 'JOBS_IMAGE_REF'
@@ -232,84 +242,6 @@ if (-not (Test-KvSecret "copilot-pat")) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------
-# C) GitHub Actions repository variables
-# ---------------------------------------------------------------------------
-Write-Host "--- C) GitHub Actions repository variables ---" -ForegroundColor Cyan
-Write-Host ""
-
-$TargetRepos = $env:TARGET_REPOS
-
-if (-not $TargetRepos) {
-    Write-Host "TARGET_REPOS is not set — skipping GitHub Actions variable setup." -ForegroundColor Yellow
-    Write-Host "  Set it and re-run 'azd provision' to wire the variables:"
-    Write-Host '    azd env set TARGET_REPOS "[""owner/repo""]"'
-    Write-Host ""
-} else {
-    # Check gh CLI
-    $ghAvailable = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
-    if (-not $ghAvailable) {
-        Write-Host "WARNING: 'gh' CLI not found — skipping GitHub Actions variable setup." -ForegroundColor Yellow
-        Write-Host "  Install from https://cli.github.com and run: gh auth login"
-        Write-Host "  Then re-run 'azd provision' or set the variables manually:"
-        Write-Host "    gh variable set SQUAD_AZURE_CLIENT_ID       --body <client_id>    --repo <owner/repo>"
-        Write-Host "    gh variable set SQUAD_AZURE_TENANT_ID       --body <tenant_id>    --repo <owner/repo>"
-        Write-Host "    gh variable set SQUAD_AZURE_SUBSCRIPTION_ID --body <sub_id>       --repo <owner/repo>"
-        Write-Host "    gh variable set SQUAD_STORAGE_ACCOUNT       --body <storage_name> --repo <owner/repo>"
-        Write-Host "    gh variable set SQUAD_QUEUE_NAME            --body <queue_name>   --repo <owner/repo>"
-    } else {
-        $ghAuthed = $null
-        try { gh auth status 2>&1 | Out-Null; $ghAuthed = $true } catch { $ghAuthed = $false }
-        if (-not $ghAuthed) {
-            Write-Host "WARNING: 'gh' CLI is not authenticated — skipping GitHub Actions variable setup." -ForegroundColor Yellow
-            Write-Host "  Run:  gh auth login"
-            Write-Host "  Then re-run 'azd provision'."
-        } else {
-            # Parse TARGET_REPOS JSON array: '["owner/repo1","owner/repo2"]'
-            $repoList = $TargetRepos -replace '[\[\]\s]', '' -split ',' | ForEach-Object { $_.Trim('"') } | Where-Object { $_ }
-
-            function Set-GhVar {
-                param([string]$VarName, [string]$VarValue, [string]$Repo)
-                if (-not $VarValue) {
-                    Write-Host "    Skipping $VarName - value is empty" -ForegroundColor Yellow
-                    return
-                }
-                try {
-                    gh variable set $VarName --body $VarValue --repo $Repo 2>&1 | Out-Null
-                    Write-Host "    ✓ $VarName" -ForegroundColor Green
-                } catch {
-                    Write-Host "    ✗ Failed to set ${VarName} - check repo permissions" -ForegroundColor Red
-                }
-            }
-            function Set-GhLabel {
-                param([string]$Name, [string]$Color, [string]$Description, [string]$Repo)
-                gh label create $Name --repo $Repo --color $Color --description $Description --force 2>&1 | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "    Failed to create label $Name; check repo permissions" -ForegroundColor Yellow
-                }
-            }
-
-            foreach ($repo in $repoList) {
-                Write-Host "  Setting variables on repo: $repo"
-                Set-GhVar "SQUAD_AZURE_CLIENT_ID"       $SquadAgentClientId   $repo
-                Set-GhVar "SQUAD_AZURE_TENANT_ID"       $SquadAgentTenantId   $repo
-                Set-GhVar "SQUAD_AZURE_SUBSCRIPTION_ID" $AzureSubscriptionId  $repo
-                Set-GhVar "SQUAD_STORAGE_ACCOUNT"       $StorageAccountName   $repo
-                Set-GhVar "SQUAD_QUEUE_NAME"            $QueueName            $repo
-                Set-GhVar "SQUAD_ISSUE_FLOW_ENABLED"   "false"              $repo
-                Set-GhVar "SQUAD_ISSUE_OPT_IN_NUMBER" "0"                  $repo
-                Set-GhLabel "sandbox-run" "1D76DB" "Opt in to the ACA Sandbox issue workflow" $repo
-                Set-GhLabel "sandbox:processing" "FBCA04" "Sandbox work is being dispatched" $repo
-                Set-GhLabel "sandbox:queued" "0052CC" "Sandbox draft PR is ready for review" $repo
-                Set-GhLabel "sandbox:revising" "5319E7" "Sandbox PR revision is in progress" $repo
-                Set-GhLabel "sandbox:ready" "0E8A16" "Sandbox run completed successfully" $repo
-                Set-GhLabel "sandbox:failed" "B60205" "Sandbox run failed" $repo
-                Write-Host ""
-            }
-        }
-    }
-}
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 Write-Host "===================================================================" -ForegroundColor Cyan
@@ -334,3 +266,5 @@ Write-Host ""
 #   Remove --purge in production or if purge protection is enabled.
 # - RBAC propagation on newly created resources may take 1-2 minutes; if the
 #   agent job fails with auth errors on first run, wait and retry.
+
+Invoke-Activation

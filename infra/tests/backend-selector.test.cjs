@@ -103,7 +103,26 @@ for (const [variant, executable, args] of [
     }
     Object.assign(env, variables);
     // Neither preflight nor the Sandbox post-hook may need Azure/GitHub tools.
-    env.PATH = path.dirname(shell);
+    env.PATH = [path.dirname(shell), path.dirname(process.execPath)].join(path.delimiter);
+    const backend = variables.EXECUTION_BACKEND || 'jobs';
+    const platform = '/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/example';
+    const id = type => `${platform}/providers/${type}/example`;
+    const client = '00000000-0000-0000-0000-000000000002';
+    const image = `example.azurecr.io/worker@sha256:${'a'.repeat(64)}`;
+    env.PLATFORM_DESCRIPTOR = JSON.stringify({
+      schema_version: 'backend/v1', release_version: 'v1.0.0', backend, platform_id: platform,
+      location: 'example-region', tenant_id: client, registry_id: id('Microsoft.ContainerRegistry/registries'),
+      monitoring_id: id('Microsoft.OperationalInsights/workspaces'),
+      limits: { max_concurrency: 2, timeout_seconds: 1800 }, oidc: [], protected_environments: [],
+      ...(backend === 'sandbox' ? { sandbox: {
+        group_id: id('Microsoft.App/sandboxGroups'), dispatcher_client_id: client,
+        image_pull_client_id: client, image_ref: image
+      } } : { jobs: {
+        managed_environment_id: id('Microsoft.App/managedEnvironments'), job_id: id('Microsoft.App/jobs'),
+        storage_account_id: id('Microsoft.Storage/storageAccounts'), queue_name: 'example-queue',
+        identity_client_id: client, image_ref: image, key_vault_id: id('Microsoft.KeyVault/vaults')
+      } })
+    });
     return spawnSync(shell, [...args, path.join(root, 'infra', 'hooks', `${name}.${variant === 'POSIX' ? 'sh' : 'ps1'}`)], { encoding: 'utf8', env, timeout: 20000 });
   }
   const pin = `example.azurecr.io/worker@sha256:${'a'.repeat(64)}`;
@@ -146,8 +165,22 @@ for (const [variant, executable, args] of [
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /Skipping Jobs image build/);
     assert.match(result.stdout, /Execution has not been enabled/);
+    assert.match(result.stdout, /Preview only/);
+    assert.match(result.stdout, /SQUAD_SANDBOX_IMAGE_PULL_CLIENT_ID/);
+    assert.match(result.stdout, /GitHub unchanged/);
     const mismatch = hook('postprovision', { EXECUTION_BACKEND: 'jobs', SQUAD_EXECUTION_BACKEND: 'sandbox' });
     assert.notEqual(mismatch.status, 0);
     assert.match(mismatch.stdout + mismatch.stderr, /Requested backend differs/);
   });
 }
+
+test('both post-hooks use the shared activation script and never apply GitHub settings', () => {
+  for (const extension of ['ps1', 'sh']) {
+    const source = read('infra', 'hooks', `postprovision.${extension}`);
+    assert.match(source, /scripts[\\/]activate\.cjs/);
+    assert.match(source, /--azd/);
+    assert.match(source, /--preview/);
+    assert.match(source, /SQUAD_ACTIVATION_TARGET/);
+    assert.doesNotMatch(source, /gh variable set|gh label create/);
+  }
+});

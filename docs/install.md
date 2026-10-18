@@ -71,12 +71,72 @@ For an existing repository, check for other issue and revision workflows before 
 ## Deploy and enable separately
 
 1. Choose one platform deployment path from the extracted release: `infra/terraform` or Bicep through `azure.yaml` and `azd`. Set Terraform `execution_backend`, or azd `SQUAD_EXECUTION_BACKEND`, to the same `jobs` or `sandbox` value you installed. Review the plan before deploying. Follow the [adoption guide](adoption-guide.md) for identities, images, credentials, and protections. Infrastructure hooks and providers have their own GitHub-setting behavior; the repository installer never invokes them.
-2. Export the deployed platform descriptor to `.squad/platform.json` in the target. Review it against the platform descriptor schema. Bind `.squad/execution.json` to the descriptor's actual `platform_id` and matching backend.
-3. Initialize Squad in the target with your chosen members and charters. Configure `.squad/sandbox-flow.json` with your own allowed paths and checks if needed. No Terraform-specific application checks are installed.
-4. Configure the backend-specific OIDC identity and repository variables. Jobs needs its queue and storage variables. Sandbox needs its immutable worker image, dispatcher and publisher settings, credentials, and protected execution/publish environments. Use the [infrastructure guide](infrastructure.md) and [routing guide](sandbox-issue-flow.md).
-5. Review the callers and retire competing ingress. Set `enabled` to `true` in `.squad/execution.json` only after the descriptor and protections are ready. Set the target repository variable `SQUAD_EXECUTION_BACKEND` to the same backend as the final explicit admission step. Both the installed router variable guard and execution setting must allow admission.
+2. Run the shared activation step below from the extracted release. It validates the descriptor, writes `.squad/platform.json`, and prepares `.squad/execution.json` disabled by default. It prints the exact GitHub settings without changing GitHub.
+3. Initialize Squad in the target with your chosen members and charters. Configure `.squad/sandbox-flow.json` with your own allowed paths and checks if needed. No application stack is assumed.
+4. Review backend-specific OIDC subjects, repository variables, secrets and environment protections. Retire competing ingress, then explicitly enable the reviewed binding. Commit both JSON files through review to the trusted default branch.
 
-Installing `sandbox` alone does not opt a repository into live execution. For a backend switch, pause admission, drain work, provision the destination, and review its binding before enabling it. Existing receipts keep their original provider binding.
+### Activate from Terraform
+
+Supply `jobs_image_ref` or `sandbox_image_ref` as an existing `registry/repository@sha256:<64 lowercase hex>` reference before applying. Mutable tags alone cannot activate either backend. Both pin variables already feed the deployed image and descriptor. Default Jobs provisioning still permits a mutable image for legacy compatibility, but its descriptor is null until pinned.
+
+After an approved apply, run from the extracted release in PowerShell:
+
+```powershell
+terraform '-chdir=infra\terraform' output -json | node scripts\activate.cjs --terraform - --target C:\src\my-application --repo example/repository
+```
+
+On Linux or macOS, use the same Node.js script:
+
+```bash
+terraform -chdir=infra/terraform output -json | node scripts/activate.cjs --terraform - --target "$HOME/src/my-application" --repo example/repository
+```
+
+Alternatively save `terraform output -json` as a local JSON file and pass `--terraform <file>`. A selected `terraform output -json platform_descriptor` object is also accepted. Do not commit full Terraform output or state. Only the validated non-secret descriptor is copied to the target.
+
+### Activate from azd
+
+Before provisioning, set the selected immutable image and the target repositories for OIDC:
+
+```powershell
+azd env set SQUAD_EXECUTION_BACKEND sandbox
+azd env set SQUAD_SANDBOX_IMAGE_REF 'example.azurecr.io/worker@sha256:<digest>'
+azd env set TARGET_REPOS '["example/repository"]'
+azd env set SQUAD_ACTIVATION_TARGET C:\src\my-application
+```
+
+Both postprovision hooks call the same Node.js script. With `SQUAD_ACTIVATION_TARGET`, they prepare disabled target JSON files. Without it, they preview only and write no repository files. They never apply GitHub settings or enable execution. The Jobs hook retains image build and Key Vault guidance; the Sandbox hook skips all Jobs setup. Node.js must be on PATH.
+
+To rerun separately from the release root:
+
+```powershell
+node scripts\activate.cjs --azd --target C:\src\my-application --repo example/repository
+```
+
+The script reads the hook's descriptor environment value, or calls `azd env get-values --output json` when absent. An exported JSON values file works with `--azd-values <file>`. `--descriptor <file>` accepts a descriptor directly. No shell exports are evaluated. Both IaC paths expose `platform_descriptor_missing` with exact blockers for null descriptors. Activation rejects invalid or incomplete Sandbox descriptors without modifying files or GitHub. Legacy Terraform mixed inventory (`enable_aca_sandbox=true`) is never an activation destination.
+
+### Review settings, then enable
+
+Default activation changes only the two local JSON files, not GitHub. Re-running an unchanged binding preserves bytes and timestamps. `--preview` makes the whole operation write-free. An existing enabled binding is preserved on an identical rerun; changing its backend, platform or descriptor requires a prior pause. Use `--repo` on enabled reruns so OIDC validation can check the repository.
+
+The output lists every backend variable, including Sandbox image-pull identity, and names any required secrets. Sandbox needs `SQUAD_GITHUB_APP_ID`, `SQUAD_GITHUB_APP_INSTALLATION_ID`, and secret `SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` in protected environment `squad-publish`. Jobs queue dispatch needs no GitHub secret; its worker still needs the App key and Copilot PAT in Key Vault. Never paste secret values into descriptors or source files.
+
+Only an explicit `--apply` with an installed, authenticated `gh` applies known non-secret repository variables. For Sandbox, provide `--app-id <id> --installation-id <id>` or azd `GITHUB_APP_ID` and `GITHUB_APP_INSTALLATION_ID`. Secrets and protections always remain manual. Settings apply is not transactional; a CLI failure stops immediately and reports failure. Inspect partial settings before retrying. No branch, commit, push, Actions run or deployment is created by activation.
+
+Before applying, stop any old settings writer. Existing Terraform GitHub resources still own their variables and labels. If transferring ownership, remove the corresponding resource configuration and state ownership without remote deletion, using a reviewed `removed` block with `lifecycle { destroy = false }` or explicit state removal. Confirm the next plan neither recreates nor deletes them. Do not remove target repositories from OIDC just to stop GitHub settings writes. Never have Terraform and activation manage the same variable concurrently.
+
+After verifying the printed settings, OIDC subjects, required environment protections, caller workflows, roster and single ingress, rerun with `--enable --repo example/repository`. This explicitly sets local `enabled: true`. `--enable` alone still does not contact GitHub. Set the printed repository variable `SQUAD_EXECUTION_BACKEND` last, or use `--apply` after the checks. Review and commit the binding before requesting work.
+
+### Migrate legacy settings and switch backend
+
+Activation detects `SQUAD_ISSUE_FLOW_ENABLED`, `SQUAD_ISSUE_OPT_IN_NUMBER` and `sandbox-run` references in target workflow files or process settings. To include existing remote settings without a default network call, export `gh variable list --repo example/repository --json name,value` and pass that file as `--legacy-settings <file>`. No secret values are read. A warning explains the replacement: one router, `.squad/execution.json`, `squad:<member>` requests, and optional generic `squad` requests for Sandbox. Retired variables no longer activate or restrict routing. Delete them manually only after stopping their old writer and retiring old independently triggered workflows.
+
+To switch Jobs to Sandbox or back:
+
+1. Set `enabled: false` on the current binding, or rerun activation with its current descriptor and `--disable`, then commit the pause. Do not change backend-specific variables yet. Let admitted Actions runs, Jobs queue messages and Sandbox executions drain.
+2. Provision a separate destination with the desired selector and immutable image. Preserve the old deployment and credentials. Never flip an existing resource selector and accept a destructive plan as an activation shortcut.
+3. Run activation against the destination descriptor while paused. Review its binding and settings. Use `--enable` only after the destination and protections are ready, then commit through review.
+4. Keep in-flight issues and open PR revisions on their original receipt backend. Activation never rewrites receipts. Keep the old platform, settings and protected environments available until those references close. A switch between deployments of the same backend also requires retaining old settings, or waiting until all old PRs close, because repository variables are not versioned per receipt.
+5. Retire old resources only in a separately reviewed operation. Failed or ambiguous claims require reconciliation, not relabeling to force a different backend.
 
 ## Optional branch and pull request
 

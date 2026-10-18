@@ -29,7 +29,7 @@ Schemas and illustrative routing fixtures live in [`contracts/backend/v1`](../co
 
 Image references end in `@sha256:<64 lowercase hex characters>`. ARM IDs and identity client IDs are non-secret references, never exported secret values. Terraform state, tokens, App PEM, PATs, and secret values do not belong in descriptors or receipts. Installation file paths use repository-relative POSIX notation, even on Windows. The receipt does not hash itself; the installer writes a companion `.squad/aca-installation.sha256` to detect accidental receipt edits. The installer rejects duplicate paths and unsafe links, and skips unowned or modified files rather than overwriting them. See the [installation guide](install.md) for preview, strict conflict handling, and upgrades.
 
-An output adapter unwraps Terraform's output envelope or azd's output representation without changing the object fields. Until later slices implement these outputs, existing outputs stay unchanged. Existing Sandbox flow limits, dynamic roster resolution, ownership checks, credential boundaries, and stack-neutral checks stay separate and unchanged.
+`scripts/activate.cjs` unwraps Terraform's output envelope or azd JSON environment values without changing descriptor fields. It validates against the platform schema before writing `.squad/platform.json` and a matching `.squad/execution.json`. Fresh bindings are disabled; GitHub settings are print-only unless `--apply` is explicit. Both IaC paths expose `platform_descriptor_missing` for exact null-output blockers. Immutable Jobs and Sandbox image inputs already make the descriptor non-null; mutable tags are never accepted for activation. Existing Sandbox flow limits, dynamic roster resolution, ownership checks, credential boundaries, and stack-neutral checks stay separate and unchanged.
 
 ## Repository router
 
@@ -48,7 +48,7 @@ Fixtures cover explicit Jobs, explicit Sandbox, omitted/default Jobs, and invali
 
 ## Resource migration matrix
 
-This table defines the target resource sets, not today's behavior. Today Terraform's `enable_aca_sandbox` is additive and Bicep provisions Jobs only.
+Both IaC paths implement the selected resource sets below. Terraform's legacy `enable_aca_sandbox` remains additive only for existing inventory and withholds an activation descriptor.
 
 | Resource or boundary | Fresh `jobs` | Fresh `sandbox` | Existing Jobs install |
 |---|---|---|---|
@@ -77,8 +77,16 @@ For a backend switch: provision the destination, export its descriptor, pause ad
 
 Distribution starts with versioned GitHub Release archives, Terraform/azd sources, and `install.ps1`/`install.sh`. No clone or fork is required. The [local packaging command and no-fork installers](install.md) prepare reviewable target-owned callers without deploying or enabling execution. PowerShell module, npm, and winget distribution are deferred.
 
+## Activation and backend switching
+
+Use the [activation commands](install.md#activate-from-terraform) after Terraform apply or through either azd postprovision hook. `--preview` writes nothing; `--enable` is a separate local admission decision. Neither default activation nor azd hooks changes GitHub settings. Explicit `--apply` requires `gh` and applies non-secret variables only. Secrets and protected environments remain administrator-owned.
+
+Legacy settings detection covers target workflow references, process variables and an optional exported repository-variable JSON file. It reports retired `SQUAD_ISSUE_FLOW_ENABLED`, `SQUAD_ISSUE_OPT_IN_NUMBER` and `sandbox-run` settings without translating them into authorization. Stop the old settings writer and retire competing ingress before activation. Terraform's existing GitHub provider ownership must be transferred explicitly before settings apply.
+
+For either switch direction, commit a pause, drain admitted work, bind a ready separate destination, review settings and protections, then explicitly enable. In-flight issues keep their receipt backend. Keep the old platform and credentials for outstanding PR revisions. Receipts do not snapshot repository variable values, so do not replace same-backend settings while old revisions still need them. See the [cutover steps](install.md#migrate-legacy-settings-and-switch-backend).
+
 ## Targeted validation
 
-Run `node --test contracts\backend\v1\test\contracts.test.cjs scripts\backend-router.test.cjs` from the repository root. These tests are offline and do not start Actions or Azure calls.
+Run `node --test contracts\backend\v1\test\contracts.test.cjs scripts\backend-router.test.cjs scripts\activate.test.cjs` from the repository root. These tests are offline and do not start Actions or Azure calls.
 
 Related: [Infrastructure](infrastructure.md), [Architecture](architecture.md), [Azure Container Apps Jobs](https://learn.microsoft.com/azure/container-apps/jobs).

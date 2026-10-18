@@ -97,6 +97,10 @@ run "default_jobs" {
     condition     = output.platform_descriptor == null
     error_message = "Mutable legacy image must not produce a ready descriptor."
   }
+  assert {
+    condition     = length(output.platform_descriptor_missing) == 1 && startswith(output.platform_descriptor_missing[0], "jobs_image_ref:")
+    error_message = "Legacy Jobs activation must report the exact missing image pin."
+  }
 }
 
 run "pinned_jobs" {
@@ -111,6 +115,10 @@ run "pinned_jobs" {
   assert {
     condition     = output.platform_descriptor.jobs.image_ref == azapi_resource.squad_agent_job[0].body.properties.template.containers[0].image
     error_message = "Descriptor and deployed Jobs image must match."
+  }
+  assert {
+    condition     = length(output.platform_descriptor_missing) == 0
+    error_message = "Pinned Jobs must have no image readiness blockers."
   }
 }
 
@@ -134,6 +142,10 @@ run "sandbox_only" {
     condition     = output.platform_descriptor.backend == "sandbox" && contains(keys(output.platform_descriptor), "sandbox") && !contains(keys(output.platform_descriptor), "jobs")
     error_message = "Sandbox descriptor must include only the selected backend."
   }
+  assert {
+    condition     = length(output.platform_descriptor_missing) == 0
+    error_message = "Pinned Sandbox must have no image readiness blockers."
+  }
 }
 
 run "legacy_additive" {
@@ -142,6 +154,10 @@ run "legacy_additive" {
   assert {
     condition     = length(azapi_resource.squad_agent_job) == 1 && length(azapi_resource.sandbox_group) == 1 && length(azurerm_user_assigned_identity.sandbox_image_pull) == 0 && output.platform_descriptor == null
     error_message = "Legacy additive installs must keep mixed inventory and not claim destination readiness."
+  }
+  assert {
+    condition     = length(output.platform_descriptor_missing) == 2 && startswith(output.platform_descriptor_missing[1], "enable_aca_sandbox:")
+    error_message = "Legacy mixed inventory must explicitly block activation."
   }
 }
 

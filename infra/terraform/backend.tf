@@ -44,3 +44,11 @@ output "platform_descriptor" {
     }
   }) : null
 }
+
+output "platform_descriptor_missing" {
+  description = "Exact activation blockers. Empty means platform_descriptor is ready for schema validation."
+  value = concat(
+    local.descriptor_ready ? [] : [var.execution_backend == "sandbox" ? "sandbox_image_ref: supply an immutable registry/repository@sha256 digest" : "jobs_image_ref: supply an immutable registry/repository@sha256 digest"],
+    var.enable_aca_sandbox ? ["enable_aca_sandbox: legacy mixed inventory cannot activate; provision a separate destination"] : []
+  )
+}
