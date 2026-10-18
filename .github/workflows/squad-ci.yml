@@ -35,6 +35,7 @@ jobs:
           contracts/aca-sandbox/v1/test/*.test.js
           dispatcher/test/*.test.js
           agents/sandbox/test/*.test.js
+          .github/actions/sandbox-engine/engine.test.cjs
           scripts/issue-plan.test.cjs
           scripts/issue-route.test.cjs
           scripts/issue-routing-multi.test.cjs

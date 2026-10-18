@@ -277,7 +277,7 @@ function main(argv, env) {
     console.log(`ISSUE_EVENT_OK issue=${result.issueNumber}`);
     return;
   }
-  const root = path.resolve(__dirname, '..');
+  const root = path.resolve(process.cwd());
   const roster = loadRoster(root);
   const config = loadConfig(root);
   const plan = buildLeadPlan({ ...result, runId: env.GITHUB_RUN_ID, attempt: env.GITHUB_RUN_ATTEMPT || '1', roster, config });

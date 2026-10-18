@@ -38,9 +38,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Require write access for the user who applied the label
         if: github.event_name == 'issues'
         env:
@@ -69,13 +67,13 @@ jobs:
           SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
         with:
           script: |
-            await require('./scripts/issue-revise.cjs').prepare({ github, context, root: process.cwd() });
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-revise.cjs').prepare({ github, context, root: process.cwd() });
       - name: Reject stale main or unsupported PR changes before ACA dispatch
         if: steps.request.outputs.revise == 'true'
         env:
           SQUAD_FETCH_TOKEN: ${{ github.token }}
           SQUAD_ISSUE_NUMBER: ${{ steps.request.outputs.issue_number }}
-        run: node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+        run: squad-engine revise "$GITHUB_WORKSPACE/.squad-issue/revise.json"
       - uses: actions/upload-artifact@v4
         if: steps.request.outputs.already_published != 'true'
         with:
@@ -90,7 +88,7 @@ jobs:
           script: |
             const fs = require('node:fs');
             const request = JSON.parse(fs.readFileSync('.squad-issue/revise.json', 'utf8'));
-            await require('./scripts/issue-revise.cjs').transitionLabels(github, context.repo, [request.issue_number, request.pr_number], false, true);
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-revise.cjs').transitionLabels(github, context.repo, [request.issue_number, request.pr_number], false, true);
 
   dispatch-lead:
     env:
@@ -111,9 +109,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Download gate-owned request
         uses: actions/download-artifact@v4
         with:
@@ -139,7 +135,7 @@ jobs:
       - name: Build Lead routing plan from the issue payload
         env:
           SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
-        run: node scripts/issue-plan.cjs --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
+        run: squad-engine plan --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
       - name: Validate Lead plan and live prerequisites before Azure authentication
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -166,7 +162,7 @@ jobs:
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_PREFLIGHT_REQUIRE_LIVE_CONFIG: '1'
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
       - name: Log in to Azure using OIDC dispatcher identity
         uses: azure/login@v2
         with:
@@ -189,7 +185,7 @@ jobs:
           SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
-          node dispatcher/cli.js
+          squad-engine dispatch
           --plan "$RUNNER_TEMP/validated-squad-plan.json"
           --repo "$GITHUB_WORKSPACE"
           --out "$RUNNER_TEMP/squad-lead-out"
@@ -201,12 +197,12 @@ jobs:
           --concurrency 1
           --timeout-ms 300000
       - name: Route to the selected member from the Lead integrated patch
-        run: node scripts/issue-route.cjs --summary "$SUMMARY_FILE" --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$RUNNER_TEMP/squad-route"
+        run: squad-engine route --summary "$SUMMARY_FILE" --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$RUNNER_TEMP/squad-route"
       - name: Sanitize Lead dispatcher diagnostics even on failure
         if: always()
         env:
           SQUAD_COPILOT_TOKEN: ${{ github.token }}
-        run: node dispatcher/diagnose-summary.js
+        run: squad-engine diagnose
       - name: Verify Lead cleanup state
         if: always()
         run: |
@@ -265,9 +261,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Download gate-owned request
         uses: actions/download-artifact@v4
         with:
@@ -285,7 +279,7 @@ jobs:
           SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_REVISE_POSTPROCESS: 'false'
         run: |
-          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          squad-engine revise "$GITHUB_WORKSPACE/.squad-issue/revise.json"
           echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
       - name: Stage routed member plan for preflight
         id: route
@@ -296,7 +290,7 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const plan = JSON.parse(fs.readFileSync(".squad-issue/member-plan.json", "utf8"));
-            const { loadRoster, validateRoutingDecision } = require("./scripts/issue-plan.cjs");
+            const { loadRoster, validateRoutingDecision } = require(process.env.SQUAD_ENGINE_ROOT + "/scripts/issue-plan.cjs");
             const roster = loadRoster(process.cwd());
             validateRoutingDecision({reason: "Validate workflow member plan.", members: plan.tasks.map(task => ({member: task.owner.logical_member_id, objective: "Execute validated task.", owned_paths: task.owned_paths, depends_on: (task.dependencies || []).map(dep => plan.tasks.find(candidate => candidate.task_id === dep.task_id)?.owner.logical_member_id)}))}, roster);
             for (const task of plan.tasks) {
@@ -346,7 +340,7 @@ jobs:
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_PREFLIGHT_REQUIRE_LIVE_CONFIG: '1'
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
       - name: Log in to Azure using OIDC dispatcher identity
         uses: azure/login@v2
         with:
@@ -370,7 +364,7 @@ jobs:
           SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
-          node scripts/issue-stages.cjs
+          squad-engine stages
           --plan "$RUNNER_TEMP/validated-squad-plan.json"
           --repo "$GITHUB_WORKSPACE"
           --out "$RUNNER_TEMP/squad-member-out"
@@ -382,7 +376,7 @@ jobs:
         if: always()
         env:
           SQUAD_COPILOT_TOKEN: ${{ github.token }}
-        run: node dispatcher/diagnose-summary.js
+        run: squad-engine diagnose
       - name: Verify member cleanup state
         if: always()
         run: |
@@ -406,7 +400,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          node scripts/issue-report.cjs stage-artifact --summary "$SUMMARY_FILE" --diagnostics "$SQUAD_DIAGNOSTICS_DIR" --out "$RUNNER_TEMP/squad-member-artifact" --include-patch
+          squad-engine report stage-artifact --summary "$SUMMARY_FILE" --diagnostics "$SQUAD_DIAGNOSTICS_DIR" --out "$RUNNER_TEMP/squad-member-artifact" --include-patch
           cp "$GITHUB_WORKSPACE/.squad-issue/member-plan.json" "$RUNNER_TEMP/squad-member-artifact/member-plan.json"
       - name: Upload member stage result and integrated patch
         if: always()
@@ -433,9 +427,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Download gate-owned request
         uses: actions/download-artifact@v4
         with:
@@ -448,7 +440,7 @@ jobs:
           SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_REVISE_POSTPROCESS: 'true'
         run: |
-          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          squad-engine revise "$GITHUB_WORKSPACE/.squad-issue/revise.json"
           echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
       - name: Download combined member patch
         uses: actions/download-artifact@v4
@@ -458,10 +450,10 @@ jobs:
       - name: Exclude gate data from the formatter worktree
         run: echo ".squad-issue/" >> .git/info/exclude
       - name: Validate trusted flow config and install pinned tools
-        run: node scripts/install-sandbox-tools.cjs --repo "$GITHUB_WORKSPACE" --destination "$RUNNER_TEMP/sandbox-tools"
+        run: squad-engine install-tools --repo "$GITHUB_WORKSPACE" --destination "$RUNNER_TEMP/sandbox-tools"
       - name: Run scoped deterministic postprocess steps
         run: >-
-          node scripts/issue-postprocess.cjs run
+          squad-engine postprocess run
           --artifact "$RUNNER_TEMP/squad-postprocess-input"
           --repo "$GITHUB_WORKSPACE"
           --output "$RUNNER_TEMP/squad-postprocess-output"
@@ -491,9 +483,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Download gate-owned request
         uses: actions/download-artifact@v4
         with:
@@ -506,7 +496,7 @@ jobs:
           SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
           SQUAD_REVISE_POSTPROCESS: 'false'
         run: |
-          node scripts/issue-revise.cjs "$GITHUB_WORKSPACE/.squad-issue/revise.json"
+          squad-engine revise "$GITHUB_WORKSPACE/.squad-issue/revise.json"
           echo "SQUAD_REVISE_CONTEXT=$GITHUB_WORKSPACE/.squad-issue/revise.json" >> "$GITHUB_ENV"
       - name: Download member dispatch artifact
         uses: actions/download-artifact@v4
@@ -532,7 +522,7 @@ jobs:
           SQUAD_ENABLE_PUBLISH_LIVE: 'false'
           SQUAD_SUMMARY_PATH: ${{ runner.temp }}/squad-dispatch-out/dispatcher-summary.json
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js verify-summary
+        run: squad-engine preflight verify-summary
       - name: Verify GitHub App configuration
         env:
           GITHUB_APP_ID: ${{ vars.SQUAD_GITHUB_APP_ID }}
@@ -545,7 +535,7 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
           SQUAD_GITHUB_APP_PRIVATE_KEY_PEM: ${{ secrets.SQUAD_GITHUB_APP_PRIVATE_KEY_PEM }}
-        run: node dispatcher/stage-pem.js
+        run: squad-engine stage-pem
       - name: Publish member result as a draft pull request
         env:
           GITHUB_APP_ID: ${{ vars.SQUAD_GITHUB_APP_ID }}
@@ -558,7 +548,7 @@ jobs:
           set -euo pipefail
           trap 'rm -f -- "$SQUAD_GITHUB_APP_PRIVATE_KEY_PATH"' EXIT
           test -s "$SQUAD_GITHUB_APP_PRIVATE_KEY_PATH"
-          node dispatcher/cli.js publish \
+          squad-engine dispatch publish \
             --summary "$RUNNER_TEMP/squad-dispatch-out/dispatcher-summary.json" \
             --repo "$GITHUB_WORKSPACE" \
             --plan "$RUNNER_TEMP/validated-squad-plan.json" \
@@ -583,9 +573,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Download gate-owned request
         uses: actions/download-artifact@v4
         with:
@@ -609,7 +597,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          node scripts/issue-report.cjs summarize \
+          squad-engine report summarize \
             --lead-summary "$RUNNER_TEMP/squad-issue-lead/dispatcher-summary.json" \
             --lead-diagnostics "$RUNNER_TEMP/squad-issue-lead/lead-diagnostics" \
             --member-summary "$RUNNER_TEMP/squad-issue-member/dispatcher-summary.json" \
@@ -625,7 +613,7 @@ jobs:
           POSTPROCESS_RESULT: ${{ needs.postprocess.result }}
         with:
           script: |
-            const { postReport } = require('./scripts/issue-triage.cjs');
+            const { postReport } = require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-triage.cjs');
             const fs = require('node:fs');
             const request = JSON.parse(fs.readFileSync('.squad-issue/event.json', 'utf8'));
             const linkedContext = { repo: context.repo, issue: { number: request.issue.number } };

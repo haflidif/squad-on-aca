@@ -10,6 +10,28 @@ Label issue #<number> with sandbox-run
 
 The `squad-sandbox-issue.yml` workflow routes work through your Squad roster, runs members in dependency-ordered stages, integrates their patches, applies optional trusted postprocess steps, and publishes one draft pull request. The existing `squad-queue.yml` workflow remains the default ACA Job path. The Sandbox workflow stays off unless you explicitly enable it.
 
+## Consume the packaged engine
+
+You do not need to fork this repository or copy `scripts/`, `dispatcher/`, `contracts/`, or `agents/` into your target repository. Start with the issue workflow in `.github/workflows/squad-sandbox-issue.yml` from the engine release you select. Replace every local `uses: ./.github/actions/sandbox-engine` step with the same full commit pin:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    persist-credentials: false
+    ref: ${{ github.sha }}
+- uses: haflidif/squad-on-aca/.github/actions/sandbox-engine@<full-40-character-commit-sha>
+- name: Build the Lead plan
+  run: squad-engine plan --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
+```
+
+Replace the SHA placeholder with a reviewed engine commit, not a branch or mutable tag. Retain the complete workflow's gate, environment protections, permissions, artifacts, job ordering, and publish checks. The example above only shows how to load and invoke the package after the gate has captured the request. Apply the same pin to the optional conflict-hint and manual workflows if you use them. The external conflict-hint workflow does not need its engine-only `sparse-checkout` list.
+
+The action bundles the engine through the selected repository commit, sets up the pinned Node.js version, and adds `squad-engine` to `PATH`. Commands map to the existing entrypoints: `plan`, `route`, `stages`, `revise`, `report`, `postprocess`, `install-tools`, `preflight`, `dispatch`, `diagnose`, and `stage-pem`. Arguments pass through unchanged without shell evaluation. `dispatch publish` invokes the existing trusted publisher.
+
+The working directory and `--repo "$GITHUB_WORKSPACE"` always refer to your trusted target checkout. Your roster, charters, `.squad/sandbox-flow.json`, captured requests, and generated plans stay there. `SQUAD_ENGINE_ROOT` and the action's `engine-root` output refer only to the pinned engine bundle. GitHub-script steps load engine modules from that root, never from target `scripts/`. Do not check out a PR head or a sandbox patch as trusted engine code.
+
+Keep the App private key and write installation token in the protected publish job. Do not pass them to the action setup, dispatcher, postprocess, or sandbox. Metadata jobs retain their existing limited workflow-token writes. Packaging does not change runtime behavior or enable execution: `SQUAD_ISSUE_FLOW_ENABLED`, the single-issue `SQUAD_ISSUE_OPT_IN_NUMBER`, and all existing opt-in checks still apply.
+
 ## How the flow works
 
 1. A repository collaborator with write access applies `sandbox-run` to an open issue.

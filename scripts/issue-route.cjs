@@ -137,7 +137,7 @@ function main(argv, env) {
     else fail('USAGE');
   }
   if (!args.summaryFile || !args.eventFile || !args.outDir) fail('USAGE');
-  const result = route({ ...args, env, repoRoot: path.resolve(__dirname, '..') });
+  const result = route({ ...args, env, repoRoot: path.resolve(process.cwd()) });
   console.log(`ISSUE_ROUTE_OK member=${result.member}`);
 }
 

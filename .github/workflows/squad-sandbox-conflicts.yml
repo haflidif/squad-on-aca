@@ -21,10 +21,12 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: |
+            .github/actions/sandbox-engine
             scripts
             contracts
             dispatcher
+      - uses: ./.github/actions/sandbox-engine
       - uses: actions/github-script@v7
         with:
           script: |
-            await require('./scripts/issue-revise.cjs').conflictHints({ github, context });
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-revise.cjs').conflictHints({ github, context });

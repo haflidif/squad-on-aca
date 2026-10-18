@@ -69,9 +69,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Validate plan, baseline, repository, and gates
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -85,7 +83,7 @@ jobs:
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_COPILOT_AUTH_MODE: ${{ inputs.copilot_auth_mode }}
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
 
   dispatch-fake:
     needs: preflight
@@ -97,9 +95,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Revalidate checked-out plan
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -112,7 +108,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
       - name: Run fake dispatch and integration offline
         env:
           SQUAD_COPILOT_TOKEN: offline-fake-token-not-a-credential
@@ -120,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod 700 "$SQUAD_COPILOT_BIN"
-          node dispatcher/cli.js \
+          squad-engine dispatch \
             --plan "$RUNNER_TEMP/validated-squad-plan.json" \
             --repo "$GITHUB_WORKSPACE" \
             --out "$RUNNER_TEMP/squad-dispatch-out" \
@@ -136,7 +132,7 @@ jobs:
           SQUAD_EXECUTION_MODE: ${{ inputs.execution_mode }}
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
-        run: node dispatcher/workflow-preflight.js verify-summary
+        run: squad-engine preflight verify-summary
       - name: Stage minimal offline result artifact
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -149,7 +145,7 @@ jobs:
           SQUAD_EXECUTION_MODE: ${{ inputs.execution_mode }}
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
-        run: node dispatcher/workflow-preflight.js stage-publish-inputs
+        run: squad-engine preflight stage-publish-inputs
       - uses: actions/upload-artifact@v4
         with:
           name: squad-fake-dispatch-${{ github.run_id }}
@@ -172,9 +168,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Install verified official ACA CLI v1.0.0-preview.4
         run: |
           set -euo pipefail
@@ -214,7 +208,7 @@ jobs:
           SQUAD_COPILOT_AUTH_MODE: actions
           SQUAD_PREFLIGHT_REQUIRE_LIVE_CONFIG: '1'
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
       - name: Log in to Azure using OIDC dispatcher identity
         uses: azure/login@v2
         with:
@@ -262,7 +256,7 @@ jobs:
           SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
-          node dispatcher/cli.js
+          squad-engine dispatch
           --plan "$RUNNER_TEMP/validated-squad-plan.json"
           --repo "$GITHUB_WORKSPACE"
           --out "$RUNNER_TEMP/squad-dispatch-out"
@@ -282,7 +276,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_COPILOT_AUTH_MODE: actions
-        run: node dispatcher/workflow-preflight.js verify-summary
+        run: squad-engine preflight verify-summary
       - name: Record and verify cleanup state
         if: always()
         run: |
@@ -325,7 +319,7 @@ jobs:
           SQUAD_EXECUTION_MODE: ${{ inputs.execution_mode }}
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
-        run: node dispatcher/workflow-preflight.js stage-publish-inputs
+        run: squad-engine preflight stage-publish-inputs
       - uses: actions/upload-artifact@v4
         with:
           name: squad-actions-experimental-${{ github.run_id }}
@@ -347,9 +341,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - name: Validate plan and all live prerequisites before Azure authentication
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -375,7 +367,7 @@ jobs:
           SQUAD_COPILOT_AUTH_MODE: ${{ inputs.copilot_auth_mode }}
           SQUAD_PREFLIGHT_REQUIRE_LIVE_CONFIG: '1'
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js check
+        run: squad-engine preflight check
       - name: Log in to Azure using the dispatcher identity
         uses: azure/login@v2
         with:
@@ -397,7 +389,7 @@ jobs:
           SQUAD_SANDBOX_IMAGE_REF: ${{ vars.SQUAD_SANDBOX_IMAGE_REF }}
           SQUAD_ENABLE_ACA_SANDBOX: '1'
         run: >-
-          node dispatcher/cli.js
+          squad-engine dispatch
           --plan "$RUNNER_TEMP/validated-squad-plan.json"
           --repo "$GITHUB_WORKSPACE"
           --out "$RUNNER_TEMP/squad-dispatch-out"
@@ -417,7 +409,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_COPILOT_AUTH_MODE: ${{ inputs.copilot_auth_mode }}
-        run: node dispatcher/workflow-preflight.js verify-summary
+        run: squad-engine preflight verify-summary
       - name: Stage minimal verified result artifact
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -430,7 +422,7 @@ jobs:
           SQUAD_EXECUTION_MODE: ${{ inputs.execution_mode }}
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
-        run: node dispatcher/workflow-preflight.js stage-publish-inputs
+        run: squad-engine preflight stage-publish-inputs
       - uses: actions/upload-artifact@v4
         with:
           name: squad-live-dispatch-${{ github.run_id }}
@@ -451,9 +443,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.14.0
+      - uses: ./.github/actions/sandbox-engine
       - uses: actions/download-artifact@v4
         with:
           name: squad-live-dispatch-${{ github.run_id }}
@@ -470,7 +460,7 @@ jobs:
           SQUAD_ENABLE_SANDBOX_LIVE: ${{ inputs.enable_sandbox_live }}
           SQUAD_ENABLE_PUBLISH_LIVE: ${{ inputs.enable_publish_live }}
           SQUAD_MATERIALIZED_PLAN_PATH: ${{ runner.temp }}/validated-squad-plan.json
-        run: node dispatcher/workflow-preflight.js verify-summary
+        run: squad-engine preflight verify-summary
       - name: Validate publisher identity configuration before staging secrets
         env:
           GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
@@ -482,7 +472,7 @@ jobs:
       - name: Validate and stage protected GitHub App PEM
         env:
           SQUAD_GITHUB_APP_PRIVATE_KEY_PEM: ${{ secrets.SQUAD_GITHUB_APP_PRIVATE_KEY_PEM }}
-        run: node dispatcher/stage-pem.js
+        run: squad-engine stage-pem
       - name: Publish verified result with GitHub App credentials
         env:
           GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
@@ -498,7 +488,7 @@ jobs:
           test -s "$SQUAD_GITHUB_APP_PRIVATE_KEY_PATH" || { echo "Staged GitHub App PEM is missing." >&2; exit 1; }
           test -n "$GITHUB_APP_ID" || { echo "GITHUB_APP_ID is required." >&2; exit 1; }
           test -n "$GITHUB_APP_INSTALLATION_ID" || { echo "GITHUB_APP_INSTALLATION_ID is required." >&2; exit 1; }
-          node dispatcher/cli.js publish \
+          squad-engine dispatch publish \
             --summary "$SQUAD_SUMMARY_PATH" \
             --repo "$GITHUB_WORKSPACE" \
             --plan "$RUNNER_TEMP/validated-squad-plan.json" \
