@@ -60,7 +60,7 @@ Enriched PR Body
 
 ✅ **Graceful Fallback** — If Copilot CLI fails, a work artifact is created and a PR is still opened so context isn't lost.
 
-🧪 **Opt-in ACA Sandbox issue flow** - A separate, disabled-by-default workflow supports staged multi-member work, scoped postprocess steps, and `/squad revise` on Sandbox PRs. The existing ACA Job workflow remains the default. See the [Sandbox issue flow guide](docs/sandbox-issue-flow.md).
+🧪 **Repository-wide execution backend** - One router selects ACA Jobs (default) or ACA Sandbox for every eligible issue. Trusted repository configuration replaces the single-issue opt-in gate. Durable receipts keep Sandbox `/squad revise` requests on their original backend. See the [Sandbox issue flow guide](docs/sandbox-issue-flow.md).
 
 ---
 
@@ -111,7 +111,7 @@ az keyvault secret set --vault-name "${KV_NAME}" --name "copilot-pat" --value "Y
 
 ### 5. Test It
 
-1. Copy `agents/workflows/squad-queue.yml` to your target repo's `.github/workflows/`
+1. Install `squad-router.yml`, the callable `squad-queue.yml`, and `squad-sandbox-issue.yml` together from `.github/workflows/`, then pin their engine action. Replace any independently triggered legacy queue workflow. See the [backend contract](docs/backend-contract.md).
 2. Label any issue with `squad:{agent-name}` (agent names from `.squad/team.md`)
 3. Watch: workflow runs → container spins up → PR gets created!
 
@@ -157,7 +157,7 @@ Contributions welcome! Areas for expansion:
 | [Adoption Guide](docs/adoption-guide.md) | Full step-by-step deployment guide with prerequisites |
 | [Architecture](docs/architecture.md) | Sequence diagrams, component diagrams, KEDA scaling model, RBAC map |
 | [Infrastructure](docs/infrastructure.md) | Terraform modules, key decisions, component details |
-| [ACA Sandbox issue flow](docs/sandbox-issue-flow.md) | Opt-in setup, multi-member stages, postprocess, revise, labels, and rollback |
+| [ACA Sandbox issue flow](docs/sandbox-issue-flow.md) | Repository backend setup, multi-member stages, postprocess, revise, labels, and rollback |
 | [Customization](docs/customization.md) | Container image, entrypoint, new agent types, target repo setup |
 | [Limitations](docs/limitations.md) | Known limitations with mitigations |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and how to resolve them |

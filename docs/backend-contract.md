@@ -1,6 +1,6 @@
 # Backend selector contract
 
-> Contract only. This slice does not change infrastructure, workflows, routing, or installation behavior.
+> The repository router implements admission and backend selection. Deployment packaging and installation remain separate slices.
 
 ## One selector, native names
 
@@ -31,17 +31,20 @@ Image references end in `@sha256:<64 lowercase hex characters>`. ARM IDs and ide
 
 An output adapter unwraps Terraform's output envelope or azd's output representation without changing the object fields. Until later slices implement these outputs, existing outputs stay unchanged. Existing Sandbox flow limits, dynamic roster resolution, ownership checks, credential boundaries, and stack-neutral checks stay separate and unchanged.
 
-## Routing contract for the later router slice
+## Repository router
 
-1. Read `.squad/execution.json` from the trusted default branch. Missing `backend` means `jobs`; missing `enabled` means disabled. Do not treat a missing or invalid platform binding as a usable installation.
-2. Validate the setting and matching descriptor. Reject an unavailable backend, invalid selector, or disabled repository before queue send or Sandbox creation.
-3. For any authorized, eligible issue request, route `jobs` to provider `aca-job` or `sandbox` to `aca-sandbox`. Issue numbers do not select a backend. Labels request work, not a different provider. Do not execute every incoming issue automatically.
-4. Retain actor permission, issue/repository identity, baseline, scope, limits, protected environments, and publication checks. Serialize admission per repository and issue, persist a trusted route receipt before dispatch, and block ambiguous retries for reconciliation. Never dispatch the same request to both backends.
-5. Revisions keep the original run/PR provider. Legacy queue messages without provider metadata always remain `aca-job`, regardless of repository settings or environment variables. There is no automatic fallback.
+1. `squad-router.yml` is the only issue execution ingress. It reads `.squad/execution.json` and the exported deployment descriptor saved as `.squad/platform.json` from the trusted default-branch event commit. Missing `backend` means `jobs`; missing `enabled` means disabled. Both files are schema validated and their backend and platform IDs must match. Empty, unknown, plural, or mixed backend values fail closed with `ROUTE_REJECTED`, without dispatching either backend.
+2. Apply a `squad:<member>` label to request work from either backend. Sandbox also accepts the generic `squad` label for Lead selection. Lifecycle labels are not requests. Issues must be open, and the actor must be a human with current write, maintain, or admin permission. Existing Sandbox issue author, scope, baseline, and publication checks remain in force.
+3. The router serializes admission for the repository, then posts a `<!-- squad-route:v1 -->` issue comment containing repository, issue number, backend, provider, platform ID, and original Actions run ID. It posts a separate `<!-- squad-route-request:v1 -->` claim before releasing that request to a backend. Only comments from the GitHub Actions bot's fixed identity are trusted. Malformed or duplicate trusted receipts require reconciliation.
+4. Exactly one callable workflow is selected: `squad-queue.yml` for `jobs`, or `squad-sandbox-issue.yml` for `sandbox`. Neither has an issue event trigger. Both independently verify the run-bound claim and backend receipt before authentication or dispatch. Install the router and both callable workflows together; disable or replace any old independently triggered queue or Sandbox workflow before activation.
+5. `/squad revise` on an owned Sandbox PR resolves the original issue and reuses its receipt, even if the repository selector has changed or admission has been paused. The original deployment, environment settings, and resources must remain available until those PRs close. Jobs revisions retain the existing Jobs review process; this slice does not add a new Jobs revision protocol or reroute a Jobs PR to Sandbox.
+6. A rerun, relabel, duplicate revise request, or receipt with no definite dispatch outcome fails with `DISPATCH_AMBIGUOUS_RECONCILE_REQUIRED`. There is no automatic retry or fallback. Inspect the receipt's run and queue or Sandbox state. Only after proving the old request cannot still execute may an administrator reconcile its claim (and the initial receipt when retrying initial work). Post a new revise comment for a new revision. Never delete a receipt merely to change providers for an in-flight PR.
 
-The future repository-wide `enabled` setting replaces `SQUAD_ISSUE_FLOW_ENABLED` as admission control. The backend selector replaces the `SQUAD_ISSUE_OPT_IN_NUMBER` and `sandbox-run` routing gate together. Retire the workflow conditions, issue/revise validators, settings writers, and associated tests in one later slice. If retained as a compatibility request label, `sandbox-run` must use this same router and must not override `backend`. Disable overlapping legacy workflows before activation. None of those gates change in this slice.
+For compatibility, a repository with **no** `.squad/execution.json` uses a guarded legacy Jobs adapter. This preserves existing provider-less queue messages, dedup labels, OIDC login, and queue sends. The adapter cannot select Sandbox. A present but disabled, invalid, unbound, or unreadable configuration never enters the adapter. New installations should always include the explicit binding and `enabled` setting.
 
-Fixtures cover explicit Jobs, explicit Sandbox, omitted/default Jobs, and invalid plural spelling. The dependency-free test validates the JSON Schema subset used here and records provider mappings; it is not a runtime router implementation.
+`SQUAD_ISSUE_FLOW_ENABLED`, `SQUAD_ISSUE_OPT_IN_NUMBER`, and the `sandbox-run` request label are retired, not selector aliases. Old values do not activate or restrict routing. The old `--require-opt-in` plan CLI spelling is accepted as a no-op for command compatibility, but cannot authorize dispatch. The infrastructure's azd `SQUAD_EXECUTION_BACKEND` setting is not a second runtime selector: export its descriptor and review the repository binding. No Actions repository variable overrides `.squad/execution.json`.
+
+Fixtures cover explicit Jobs, explicit Sandbox, omitted/default Jobs, and invalid plural spelling. Runtime tests reuse these fixtures. Legacy queue messages without provider metadata always remain `aca-job`, regardless of repository settings or environment variables.
 
 ## Resource migration matrix
 
@@ -67,7 +70,7 @@ Do not silently reinterpret `enable_aca_sandbox=true` as Sandbox-only: it curren
 | Azure resources and state | Selected Terraform root or Bicep deployment | Same owner. Preserve Terraform addresses with `moved` blocks if needed and stable Bicep names. Review a no-replacement plan/what-if before selector adoption. No cross-IaC state migration. |
 | GitHub variables and labels | Terraform `github.tf` or azd post-provision hooks | Explicit onboarding settings apply. Stop the old writer first; remove Terraform state ownership without remote deletion where needed. Never leave two writers. |
 | Generated workflows and installation receipt | Existing repository content or none | Release installer proposes reviewable changes and records hashes. Modified files are conflicts, not overwrite targets. Preserve roster, charters, decisions, custom workflows, and `.squad/sandbox-flow.json`. |
-| Execution setting and activation | Existing single-issue workflow gates | Repository-owned execution setting. Deploying or redeploying infrastructure never enables a repository. Activation follows reviewed workflow migration and protection checks. |
+| Execution setting and activation | Repository router | Repository-owned execution setting. Deploying or redeploying infrastructure never enables a repository. Activation follows reviewed workflow migration and protection checks. |
 | Secrets and environment protections | Repository/platform administrators | Keep administrator ownership. Settings apply never weakens protections or writes secrets into PR files. |
 
 For a backend switch: provision the destination, export its descriptor, pause admission, drain queued/running work, disable old ingress, review the binding and workflow migration, then activate the new route. Keep the old platform while open PR revisions or receipts still need it. Retire resources only through an explicit reviewed operation. Do not migrate in-flight runs.
@@ -76,6 +79,6 @@ Distribution starts with versioned GitHub Release archives, Terraform/azd source
 
 ## Targeted validation
 
-Run `node --test contracts\backend\v1\test\contracts.test.cjs` from the repository root. No runtime or CI changes are part of this slice.
+Run `node --test contracts\backend\v1\test\contracts.test.cjs scripts\backend-router.test.cjs` from the repository root. These tests are offline and do not start Actions or Azure calls.
 
 Related: [Infrastructure](infrastructure.md), [Architecture](architecture.md), [Azure Container Apps Jobs](https://learn.microsoft.com/azure/container-apps/jobs).

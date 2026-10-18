@@ -1,30 +1,14 @@
-# Squad Issue Queue — Workflow Template
+# Squad Issue Queue - Workflow Template
 
-This GitHub Actions workflow replaces the Azure Function App as the issue-to-queue bridge. It fires when a `squad:*` label is added to an issue, authenticates to Azure via OIDC (zero secrets), and enqueues the issue to Azure Storage Queue for processing by the Container App Job.
-
-This is the legacy ACA Job template. It intentionally keeps provider-less queue
-messages on `aca-job` and must not be changed to select `aca-sandbox`. The
-`aca-sandbox` entrypoint remains a loud pre-acknowledgement rejection until
-live ACA create, exec, stdin or file transfer, and ACR authentication have
-passed verification. Sandbox trials use the manual workflow described in
-`dispatcher/README.md`; they do not run from issue labels.
-
-## Architecture
-
-```
-GitHub Issue → [squad:{agent-name} label] → GitHub Actions workflow → Azure Storage Queue → KEDA → Container App Job → Copilot CLI → PR
-```
+The Jobs queue workflow is now a callable backend, not an independent issue trigger. The single repository router validates authorized issue requests and the repository execution setting, records a durable route receipt, then invokes either this Jobs backend or the Sandbox backend. Provider-less Jobs messages keep their existing `aca-job` behavior.
 
 ## Installation
 
-### 1. Copy the workflow
+### 1. Install the router and callable workflows together
 
-Copy `squad-queue.yml` into your target repository:
+Copy `squad-router.yml`, `squad-queue.yml`, and `squad-sandbox-issue.yml` from `.github/workflows/` in the reviewed release into the target repository. `agents/workflows/squad-queue.yml` is an identical Jobs template. Replace each local engine action reference with the same full reviewed commit pin. Remove or disable old independently triggered queue and Sandbox workflows before activation.
 
-```bash
-# From the squad-on-aca repo root
-cp agents/workflows/squad-queue.yml <target-repo>/.github/workflows/squad-queue.yml
-```
+Bind the exported deployment descriptor as `.squad/platform.json`, and configure `.squad/execution.json` on the trusted default branch. Jobs is the default backend; Sandbox is an explicit repository-wide alternative. Missing `enabled` is disabled. Only repositories with no execution file use the guarded legacy Jobs adapter. See the [backend contract](../../docs/backend-contract.md) for the full binding, receipt, and cutover rules.
 
 ### 2. Set GitHub repository variables
 
@@ -38,7 +22,7 @@ Go to **Settings → Secrets and variables → Actions → Variables** in the ta
 | `SQUAD_STORAGE_ACCOUNT` | Storage account name | `stsquadacaa6b49feb` |
 | `SQUAD_QUEUE_NAME` | Storage queue name | `squad-work-queue` |
 
-> **Note:** These are repository **variables** (`vars.*`), not secrets. None of these values are sensitive — they're resource identifiers, not credentials.
+> **Note:** These are repository **variables** (`vars.*`), not secrets. None of these values are sensitive - they're resource identifiers, not credentials.
 
 ### 3. Add a federated credential on the UAMI
 
@@ -60,9 +44,9 @@ resource "azurerm_federated_identity_credential" "github_actions" {
 ```
 
 > **Subject filter:** The `subject` field controls which branches/environments can authenticate. Options:
-> - `repo:owner/repo:ref:refs/heads/main` — only the main branch
-> - `repo:owner/repo:environment:production` — only a specific environment
-> - `repo:owner/repo:ref:refs/heads/*` — any branch (broader, use with caution)
+> - `repo:owner/repo:ref:refs/heads/main` - only the main branch
+> - `repo:owner/repo:environment:production` - only a specific environment
+> - `repo:owner/repo:ref:refs/heads/*` - any branch (broader, use with caution)
 
 #### Using Azure CLI
 
@@ -84,13 +68,13 @@ The UAMI needs the following role on the storage account (or queue scope):
 |------|-------|---------|
 | **Storage Queue Data Message Sender** | Storage account or queue | Send messages to the queue |
 
-> The UAMI likely already has `Storage Queue Data Contributor` from the Container App Job setup — this includes message send permissions.
+> The UAMI likely already has `Storage Queue Data Contributor` from the Container App Job setup - this includes message send permissions.
 
 ## How it works
 
 ### Trigger
 
-The workflow triggers on the `issues: [labeled]` event. It only runs when the added label starts with `squad:`. This workflow emits the legacy ACA Job queue shape; its `agent_type` value is an opaque compatibility routing value, not the dynamic Sandbox member identity.
+The router handles `issues: [labeled]` events for work request labels. This callable workflow runs only when the router selects `jobs` and its run-bound receipt verifies. It only accepts a `squad:<member>` request label. This workflow emits the legacy ACA Job queue shape; its `agent_type` value is an opaque compatibility routing value, not the dynamic Sandbox member identity.
 
 ### Dedup flow
 
@@ -103,7 +87,7 @@ This makes the dedup bulletproof against infinite loops.
 
 ### Label lifecycle
 
-> **Prerequisite**: The `squad:{agent-name}` label must already exist on the repo. Agent labels are created automatically during `squad init` or `squad upgrade`. If needed, the `sync-squad-labels.yml` workflow keeps them in sync with the team roster, or you can create them manually with `gh label create`. The pipeline labels (`squad:processing`, `squad:queued`) are separate — they're auto-created by the container entrypoint, not by Squad.
+> **Prerequisite**: The `squad:{agent-name}` label must already exist on the repo. Agent labels are created automatically during `squad init` or `squad upgrade`. If needed, the `sync-squad-labels.yml` workflow keeps them in sync with the team roster, or you can create them manually with `gh label create`. The pipeline labels (`squad:processing`, `squad:queued`) are separate - they're auto-created by the container entrypoint, not by Squad.
 
 ```
 1. User adds "squad:{agent-name}" label to issue (label must already exist)
@@ -154,7 +138,7 @@ This triggers the workflow again with a clean dedup state.
 
 The original approach used a timer-triggered Python Azure Function to poll for labeled issues. This had issues:
 
-- **Consumption plan + identity-based storage** — The Function App struggled with `AzureWebJobsStorage` in identity-based mode on the Consumption plan.
-- **Polling vs. event-driven** — Timer triggers poll every N minutes; GitHub Actions fires instantly on label events.
-- **Secret management** — Function App needed a GitHub PAT stored as an app setting. This workflow uses `github.token` (automatic, scoped, ephemeral).
-- **OIDC** — GitHub Actions has native OIDC support for Azure auth. No secrets to rotate.
+- **Consumption plan + identity-based storage** - The Function App struggled with `AzureWebJobsStorage` in identity-based mode on the Consumption plan.
+- **Polling vs. event-driven** - Timer triggers poll every N minutes; GitHub Actions fires instantly on label events.
+- **Secret management** - Function App needed a GitHub PAT stored as an app setting. This workflow uses `github.token` (automatic, scoped, ephemeral).
+- **OIDC** - GitHub Actions has native OIDC support for Azure auth. No secrets to rotate.
