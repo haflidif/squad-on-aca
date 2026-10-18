@@ -8,7 +8,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   hint:
-    if: vars.SQUAD_ISSUE_FLOW_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:

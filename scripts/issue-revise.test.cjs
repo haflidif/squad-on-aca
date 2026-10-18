@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { parseCommand, validateRequest, HINT, assertHeadUnchanged, transitionLabels, conflictHints, requireCurrentMain, validateBaseline } = require('./issue-revise.cjs');
 const repository = 'test-owner/test-repo';
 const BOT_LOGIN = 'example-app[bot]';
-const env = { GITHUB_REPOSITORY: repository, SQUAD_ISSUE_FLOW_ENABLED: 'true', SQUAD_ISSUE_OPT_IN_NUMBER: '11' };
+const env = { GITHUB_REPOSITORY: repository, SQUAD_ISSUE_NUMBER: '11', SQUAD_ISSUE_FLOW_ENABLED: 'true', SQUAD_ISSUE_OPT_IN_NUMBER: '11' };
 const member = (id, role) => ({ logical_member_id: id, role, resolved_persistent_name: id });
 const roster = { members: [member('test-docs', 'Documentation'), member('test-infra', 'Infrastructure'), member('test-tester', 'Testing')] };
 function request() {
@@ -40,12 +40,12 @@ for (const [name, mutate] of [
   ['branch traversal', pr => { pr.head.ref += '/../../main'; }], ['wrong issue', pr => { pr.head.ref = 'squad/aca-sandbox/issue-13-test'; }],
   ['closed', pr => { pr.state = 'closed'; }], ['wrong base', pr => { pr.base.ref = 'dev'; }]
 ]) test(`guard rejects ${name}`, () => { const { event, pr } = request(); mutate(pr); assert.throws(() => validateRequest(event, pr, env, roster)); });
-test('unassigned target, missing opt-in and disabled flow rejected', () => {
+test('unassigned target rejected and retired per-issue gates ignored', () => {
   const { event, pr } = request(); pr.labels = [];
   assert.throws(() => validateRequest(event, pr, env, roster), /TARGET_NOT_ASSIGNED/);
   const valid = request();
-  assert.throws(() => validateRequest(valid.event, valid.pr, { ...env, SQUAD_ISSUE_OPT_IN_NUMBER: '12' }, roster), /OPT_IN/);
-  assert.throws(() => validateRequest(valid.event, valid.pr, { ...env, SQUAD_ISSUE_FLOW_ENABLED: 'false' }, roster), /PR_REJECTED/);
+  assert.doesNotThrow(() => validateRequest(valid.event, valid.pr, { ...env, SQUAD_ISSUE_OPT_IN_NUMBER: '12' }, roster));
+  assert.doesNotThrow(() => validateRequest(valid.event, valid.pr, { ...env, SQUAD_ISSUE_FLOW_ENABLED: 'false' }, roster));
 });
 test('head moved refuses publish while exact commit replay is idempotent', () => {
   assert.equal(assertHeadUnchanged('original', 'original', 'published'), 'push');

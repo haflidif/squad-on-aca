@@ -1,28 +1,30 @@
 name: Squad sandbox issue flow
 
-# Labeling an issue sandbox-run dispatches Lead routing then up to two dependency-ordered member stages.
+# Called only after the repository router persists the Sandbox route receipt.
 # The issue title and body are untrusted and are read only by scripts/issue-plan.cjs.
 
 on:
-  issues:
-    types: [labeled]
-  issue_comment:
-    types: [created]
+  workflow_call:
+    inputs:
+      backend:
+        type: string
+        required: true
+      route_run_id:
+        type: string
+        required: true
 
 permissions: {}
 
 env:
   SQUAD_ISSUE_FLOW_OPT_IN: '1'
-  SQUAD_ISSUE_FLOW_ENABLED: ${{ vars.SQUAD_ISSUE_FLOW_ENABLED }}
-  SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
 
 concurrency:
-  group: squad-sandbox-issue-${{ github.repository }}
+  group: squad-sandbox-engine-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   gate:
-    if: ${{ github.ref == 'refs/heads/main' && vars.SQUAD_ISSUE_FLOW_ENABLED == 'true' && ((github.event_name == 'issues' && github.event.label.name == 'sandbox-run') || (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/squad revise ') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))) }}
+    if: github.run_attempt == 1 && inputs.backend == 'sandbox' && inputs.route_run_id == github.run_id
     outputs:
       issue_number: ${{ steps.request.outputs.issue_number }}
       revise: ${{ steps.request.outputs.revise }}
@@ -39,19 +41,13 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
       - uses: ./.github/actions/sandbox-engine
-      - name: Require write access for the user who applied the label
-        if: github.event_name == 'issues'
+      - name: Verify exclusive Sandbox admission receipt
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ github.token }}
-          SENDER_LOGIN: ${{ github.event.sender.login }}
-        run: |
-          set -euo pipefail
-          [[ "$SENDER_LOGIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$ ]] || { echo "GATE_REJECTED SENDER_LOGIN"; exit 1; }
-          ROLE="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${SENDER_LOGIN}/permission" --jq '.role_name')"
-          case "$ROLE" in
-            admin|maintain|write) echo "GATE_SENDER_OK role=$ROLE" ;;
-            *) echo "GATE_REJECTED SENDER_PERMISSION"; exit 1 ;;
-          esac
+          ROUTE_RUN_ID: ${{ inputs.route_run_id }}
+        with:
+          script: |
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/backend-router.cjs').assertRoute({ github, context, backend: 'sandbox', runId: process.env.ROUTE_RUN_ID });
       - name: Recover the original captured head on a rerun
         if: github.event_name == 'issue_comment' && github.run_attempt != 1
         uses: actions/download-artifact@v4
@@ -62,9 +58,6 @@ jobs:
       - name: Validate and capture the trusted issue or revise request
         id: request
         uses: actions/github-script@v7
-        env:
-          SQUAD_ISSUE_FLOW_ENABLED: ${{ vars.SQUAD_ISSUE_FLOW_ENABLED }}
-          SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
         with:
           script: |
             await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-revise.cjs').prepare({ github, context, root: process.cwd() });
@@ -95,7 +88,7 @@ jobs:
       SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
       SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: gate
-    if: needs.gate.outputs.already_published != 'true'
+    if: github.run_attempt == 1 && needs.gate.outputs.already_published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: squad-sandbox-issue
@@ -133,9 +126,7 @@ jobs:
           chmod 755 "${INSTALL_DIR}/aca"
           "${INSTALL_DIR}/aca" --version
       - name: Build Lead routing plan from the issue payload
-        env:
-          SQUAD_ISSUE_OPT_IN_NUMBER: ${{ vars.SQUAD_ISSUE_OPT_IN_NUMBER }}
-        run: squad-engine plan --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json" --require-opt-in
+        run: squad-engine plan --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json"
       - name: Validate Lead plan and live prerequisites before Azure authentication
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -244,7 +235,7 @@ jobs:
       SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
       SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: [gate, dispatch-lead]
-    if: ${{ needs.dispatch-lead.result == 'success' }}
+    if: ${{ github.run_attempt == 1 && needs.dispatch-lead.result == 'success' }}
     outputs:
       supported_members: ${{ steps.route.outputs.supported_members }}
       no_changes: ${{ steps.members.outputs.no_changes }}
@@ -416,7 +407,7 @@ jobs:
       SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
       SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: [gate, dispatch-member]
-    if: ${{ needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
+    if: ${{ github.run_attempt == 1 && needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -472,7 +463,7 @@ jobs:
       SQUAD_ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
       SQUAD_REVISE_VALIDATED: ${{ needs.gate.outputs.revise }}
     needs: [gate, dispatch-member, postprocess]
-    if: ${{ needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.postprocess.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
+    if: ${{ github.run_attempt == 1 && needs.gate.result == 'success' && needs.dispatch-member.result == 'success' && needs.postprocess.result == 'success' && needs.dispatch-member.outputs.supported_members == 'true' && needs.dispatch-member.outputs.no_changes != 'true' }}
     runs-on: ubuntu-latest
     environment: squad-publish
     permissions:

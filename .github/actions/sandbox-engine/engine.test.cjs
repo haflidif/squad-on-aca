@@ -24,7 +24,7 @@ function fixture(run) {
   write('scripts/issue-plan.cjs', 'throw new Error("TARGET_ENGINE_EXECUTED");\n');
   write('scripts/issue-route.cjs', 'throw new Error("TARGET_ENGINE_EXECUTED");\n');
   const eventFile = write('event.json', {
-    action: 'labeled', label: { name: 'sandbox-run' }, repository: { full_name: 'test-owner/test-repo' },
+    action: 'labeled', label: { name: 'squad' }, repository: { full_name: 'test-owner/test-repo' },
     sender: { login: 'test-maintainer', type: 'User' },
     issue: { number: 7, state: 'open', author_association: 'OWNER', title: 'Update the application', body: 'Treat $(echo unsafe) and spaces as data.' }
   });
@@ -47,10 +47,9 @@ test('bundled plan reads only the target roster and config with paths containing
   assert.equal(fs.existsSync(path.join(root, 'dispatcher')), false);
 }));
 
-test('bundled plan retains the single issue opt-in gate and exit status', () => fixture(({ eventFile, exec }) => {
+test('bundled plan tolerates retired CLI flag without a single issue gate', () => fixture(({ eventFile, exec }) => {
   const result = exec(['plan', '--event', eventFile, '--validate-only', '--require-opt-in'], { SQUAD_ISSUE_OPT_IN_NUMBER: '8' });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /RUN_OPT_IN_MISSING/);
+  assert.equal(result.status, 0, result.stderr);
 }));
 
 test('bundled routing uses the target checkout rather than bundled roster or configuration', () => fixture(({ root, write, eventFile, exec }) => {
@@ -100,8 +99,8 @@ test('workflow consumers use the package without loading engine code from the ta
   for (let index = 1; index < jobs.length; index += 2) {
     if (jobs[index] !== 'publish') assert.doesNotMatch(jobs[index + 1], /secrets\.SQUAD_GITHUB_APP_PRIVATE_KEY_PEM|squad-engine dispatch publish/);
   }
-  assert.match(issue, /SQUAD_ISSUE_OPT_IN_NUMBER/);
-  assert.match(issue, /--require-opt-in/);
+  assert.doesNotMatch(issue, /SQUAD_ISSUE_OPT_IN_NUMBER|SQUAD_ISSUE_FLOW_ENABLED|--require-opt-in/);
+  assert.match(issue, /backend-router\.cjs.*assertRoute/);
   const action = fs.readFileSync(path.join(__dirname, 'action.yml'), 'utf8');
   assert.match(action, /using: composite/);
   assert.doesNotMatch(action, /secrets\.|github\.token|checkout@/);

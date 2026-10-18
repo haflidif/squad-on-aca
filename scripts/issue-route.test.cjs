@@ -22,7 +22,7 @@ function scratch(run) {
 
 function event() {
   return {
-    action: 'labeled', label: { name: 'sandbox-run' }, repository: { full_name: REPO },
+    action: 'labeled', label: { name: 'squad' }, repository: { full_name: REPO },
     sender: { login: 'haflidif', type: 'User' },
     issue: { number: 42, state: 'open', author_association: 'OWNER', title: 'Issue title', body: 'Issue body' }
   };
