@@ -57,3 +57,6 @@ infra/bicep/*.json
 infra/hooks/sandbox-lab.local.json
 infra/terraform/sandbox-lab/backend.hcl
 infra/terraform/sandbox-lab-state/backend.hcl
+
+# Squad local scratch state
+.squad/scratch/
