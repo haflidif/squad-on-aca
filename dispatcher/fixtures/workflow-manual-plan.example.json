@@ -1,0 +1,46 @@
+{
+  "schema_version": "aca-sandbox/v1",
+  "run_id": "run-offline-smoke-template",
+  "provider": {
+    "id": "aca-sandbox-example",
+    "kind": "aca-sandbox",
+    "contract_version": "aca-sandbox-provider/v1"
+  },
+  "baseline_sha": "$CHECKED_OUT_SHA",
+  "roster": {
+    "revision": "offline-smoke-template-v1",
+    "hash": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    "members": [
+      {
+        "logical_member_id": "offline-example-member",
+        "resolved_persistent_name": "Offline Example Member",
+        "charter_ref": ".squad/agents/offline-example-member/charter.md",
+        "membership": "persona",
+        "capabilities": ["planning"]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "task-offline-smoke",
+      "owner": {
+        "logical_member_id": "offline-example-member",
+        "resolved_persistent_name": "Offline Example Member",
+        "charter_ref": ".squad/agents/offline-example-member/charter.md",
+        "membership": "persona",
+        "capabilities": ["planning"]
+      },
+      "objective": "Exercise offline dispatch and integration smoke checks only.",
+      "required_capabilities": ["planning"],
+      "dependencies": [],
+      "baseline_sha": "$CHECKED_OUT_SHA",
+      "provider": {
+        "id": "aca-sandbox-example",
+        "kind": "aca-sandbox",
+        "contract_version": "aca-sandbox-provider/v1"
+      },
+      "schema_version": "aca-sandbox/v1",
+      "owned_paths": ["docs/workflow-smoke"]
+    }
+  ]
+}

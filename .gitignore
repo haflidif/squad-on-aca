@@ -3,6 +3,8 @@
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+!infra/terraform/sandbox-lab-state/.terraform.lock.hcl
+!infra/terraform/sandbox-lab/.terraform.lock.hcl
 *.tfvars
 !*.tfvars.example
 tfplan
@@ -47,3 +49,14 @@ docs/blog-source-material.md
 
 # Compiled Bicep ARM output (build artifact)
 infra/bicep/*.json
+
+# Local Azure proof and lab state
+.azure/
+
+# Local sandbox lab configuration
+infra/hooks/sandbox-lab.local.json
+infra/terraform/sandbox-lab/backend.hcl
+infra/terraform/sandbox-lab-state/backend.hcl
+
+# Squad local scratch state
+.squad/scratch/

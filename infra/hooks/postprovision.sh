@@ -264,6 +264,22 @@ else
       set_var "SQUAD_AZURE_SUBSCRIPTION_ID" "$AZURE_SUBSCRIPTION_ID"
       set_var "SQUAD_STORAGE_ACCOUNT"       "$STORAGE_ACCOUNT_NAME"
       set_var "SQUAD_QUEUE_NAME"            "$QUEUE_NAME"
+      set_var "SQUAD_ISSUE_FLOW_ENABLED"   "false"
+      set_var "SQUAD_ISSUE_OPT_IN_NUMBER" "0"
+      set_label() {
+        local name="$1" color="$2" description="$3"
+        if gh label create "$name" --repo "$repo" --color "$color" --description "$description" --force >/dev/null; then
+          echo -e "    ${GREEN}✓ $name${NC}"
+        else
+          echo -e "    ${YELLOW}⚠ Failed to create $name; check repository permissions${NC}"
+        fi
+      }
+      set_label "sandbox-run" "1D76DB" "Opt in to the ACA Sandbox issue workflow"
+      set_label "sandbox:processing" "FBCA04" "Sandbox work is being dispatched"
+      set_label "sandbox:queued" "0052CC" "Sandbox draft PR is ready for review"
+      set_label "sandbox:revising" "5319E7" "Sandbox PR revision is in progress"
+      set_label "sandbox:ready" "0E8A16" "Sandbox run completed successfully"
+      set_label "sandbox:failed" "B60205" "Sandbox run failed"
       echo ""
     done
   fi

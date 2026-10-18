@@ -24,3 +24,42 @@ Agent Lando initialized as Container Dev. Responsible for the agent base Dockerf
 - **2026-07-30 — Issue #9 azd/Bicep delivered:** Added `azure.yaml` and cross-platform pre/post-provision hooks so operators can use `azd up`; hooks build/push the agent image to ACR, print Key Vault secret guidance, and set the five `SQUAD_*` GitHub variables.
 
 - **2026-07-31 — Issue #9 postprovision live-run fix:** Cassian's live e2e run proved the postprovision hook must update the Container App Job image after `az acr build`; first provision uses the MCR hello-world placeholder until ACR contains `squad-agent:latest`. The e2e/what-if scripts also now pass `.bicepparam` and overrides as separate `--parameters` flags.
+
+
+## 2026-09-25 — ACA Sandbox runtime provider seam
+
+Implemented the initial PR 2 refactor from `agents/base/entrypoint.sh` into `agents/base/lib/` and `agents/base/providers/`, including Dockerfile updates and a provider seam defaulting to `aca-job`. Reviewer rejection triggered lockout; Wedge owned the approved revision.
+
+
+## 2026-09-26 — PR 4 persona sandbox image initial implementation
+
+Implemented the initial PR 4 persona sandbox worker image and runner under `agents/sandbox/**`, including `owned_paths` in persona dispatch. Cassian rejected review round 1 with six findings: credential scope, renames, symlinks, ignored files, contract mismatch, and weak tests. Lando was locked out from further revisions on this artifact.
+
+Final PR 4 outcome: Cassian approved round 4 after Wedge's final revision. Validation passed 18 sandbox tests and 14 contract tests; Docker build was not run because the daemon was unavailable. Lasting learning: offline tests must also verify image packaging coverage, and persona processes must not be able to see runner output paths.
+
+
+📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher final outcome — Lando's initial dispatcher implementation introduced dependency-aware fan-out, baseline git bundle staging, fake/ACA clients, dispatcher summary schema, artifact re-verification, and the separate `copilot-agent` UID, but Cassian rejected R1 with four High findings and Lando was locked out. Chewie's later revision was approved in Cassian R3. Tests passing at final approval: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration round-2 revision
+
+Implemented the PR 6 round-2 integration revision after Wedge's first revision: isolated check copies without `.git`, full source fingerprinting, a hardened bare-repo verifier with temp indexes, raw blob byte equality checks, mirrored runner/dispatcher delta policy, a 256 MiB plumbing ceiling, and Windows `taskkill /T /F` process-tree cleanup gated by `SQUAD_REQUIRE_PROCESS_TREE_KILL_TEST`. Cassian rejected R2 with one High and three Medium findings, and Lando was locked out from further revisions on this artifact.
+
+Final PR 6 outcome: Haflidi later lifted Wedge's lockout, Wedge completed the final hardening revision, and Cassian approved round 4. Validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.
+
+
+## 2026-09-26 — PR 7 trusted publisher final revision
+
+Implemented Haflidi-authorized final narrow fixes after Cassian's R4 findings: `runPublish` now returns only the safe result and result path, never its client/token; marker-comment lookup paginates with a 100-page maximum and fails closed on malformed responses or the limit. Added tests for token absence in serialized returns, marker on page 2, absent marker, malformed response, and pagination limit. Cassian approved the final revision. Validation passed: dispatcher 53, sandbox 47, contracts 20 tests, zero skipped; `git diff --check` and LF shell checks passed. No commit created. Learning: keep credentials-bearing clients out of returned operational results, and make API pagination bounded and fail closed.
+
+## 2026-09-26 — PR 8 revision: issue binding and committed CI diff
+
+Bound live plans to the selected repository and issue at workflow preflight, direct ACA dispatch, and publisher preflight before credentials or network calls. Preserved unbound offline plans for fake mode only. CI now checks committed PR merge-base and push before-to-after ranges with full checkout history. The combined offline runner reproduced a dispatcher happy-path failure at roughly 40 seconds under parallel load with the test's original 20-second sandbox timeout; scoped the happy-path test to 120 seconds without retries, leaving timeout failure tests unchanged. Final combined run: 140 tests, 139 passed, one Windows symlink privilege skip, zero failures.
+
+## 2026-09-26 — PR 8 live issue binding and committed CI ranges
+
+Implemented PR 8 fixes binding live plans to the selected repository and issue across schema, dispatcher, workflow preflight, and publisher; fake offline plans remain compatible. Updated CI to inspect committed PR merge-base and push before-to-after ranges. Wedge's final review found and fixed manifest-to-plan consistency and the created-push zero-SHA range; Cassian approved. Final offline validation: 142 passed, one Windows symlink EPERM skip. YAML parsing, shell LF, Terraform fmt/validate passed. Docker build and live ACA/Azure/GitHub behavior remain unverified. Learning: enforce issue identity before credentials or network calls and make CI inspect committed ranges, including first pushes.
+
+## 2026-10-17 — Publisher tests aligned with multi-member publication
+
+Updated seven stale publisher tests for repository-scoped Basic authentication, App-derived bot fixtures, Squad-Contributor trailers, sandbox lifecycle labels, and separate PR member/source-issue label operations. The manifest identity preflight already passed; strengthened it to observe every GitHub client method, not only token requests. Credential assertions now reject both raw and Base64 secrets in argv and returned/receipt output, require URL-scoped headers for all remote operations, and forbid credentials on local Git operations. No publisher implementation changes were needed. Validation: targeted 8/8; publisher 31/31; scripts 81/81; full dispatcher 114 passed, 21 outside-scope failures, 2 skipped. Learning: authentication encoding and label operation fan-out change test observation points without changing the security guarantees.

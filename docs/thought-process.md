@@ -151,7 +151,7 @@ All other resources (Storage, ACR, ACA Environment) use AVM modules.
 
 ## Why single generic job instead of per-agent jobs?
 
-**Decision**: One Container App Job handles all agent types. The agent type is parsed from the queue message at runtime — agent names come from Squad's casting system, defined in `.squad/team.md`.
+**Decision**: One Container App Job handles the existing legacy queue routing values. Dynamic Sandbox work resolves logical member identity, persistent name, membership, capabilities, and charter from the initialized Squad roster.
 
 **Alternatives considered**:
 - **Per-agent jobs**: `job-squad-{agent-a}`, `job-squad-{agent-b}`, etc.
@@ -163,7 +163,7 @@ All other resources (Storage, ACR, ACA Environment) use AVM modules.
 
 2. **Simplified scaling**: One KEDA trigger, one queue, one scaling policy. Per-agent jobs would need per-agent KEDA configs with per-agent RBAC.
 
-3. **Same image**: All agent types use the same container image. The entrypoint script parses `agent_type` from the message and passes `@{agent-name}` to Copilot's Squad framework, which routes to the correct agent charter in `.squad/team.md`.
+3. **Same image**: The legacy ACA Job path uses the same container image for all queue routing values. New Sandbox contracts carry the resolved logical member identity and roster snapshot, while the provider boundary remains separate from worker execution.
 
 4. **Uniform resource allocation**: All agents get the same CPU/memory (1.0 CPU, 2Gi RAM). If per-agent tuning is needed later, it moves into container logic (e.g., the entrypoint could set resource limits based on agent type).
 

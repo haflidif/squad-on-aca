@@ -1,0 +1,89 @@
+{
+  "schema_version": "aca-sandbox/v1",
+  "run_id": "run-example-001",
+  "provider": {
+    "id": "aca-sandbox-example",
+    "kind": "aca-sandbox",
+    "contract_version": "aca-sandbox-provider/v1",
+    "configuration_ref": "config://example/sandbox"
+  },
+  "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+  "roster": {
+    "revision": "roster-example-07",
+    "hash": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    "members": [
+      {
+        "logical_member_id": "planner-example",
+        "resolved_persistent_name": "Example Planner",
+        "charter_ref": ".squad/agents/example-planner/charter.md",
+        "membership": "persona",
+        "capabilities": ["planning"]
+      },
+      {
+        "logical_member_id": "validator-example",
+        "resolved_persistent_name": "Example Validator",
+        "charter_ref": ".squad/agents/example-validator/charter.md",
+        "membership": "persona",
+        "capabilities": ["validation"]
+      },
+      {
+        "logical_member_id": "coordinator-system",
+        "resolved_persistent_name": "Example Coordinator",
+        "charter_ref": ".squad/system/coordinator.md",
+        "membership": "function",
+        "capabilities": ["coordination"]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "task-example-plan",
+      "owner": {
+        "logical_member_id": "planner-example",
+        "resolved_persistent_name": "Example Planner",
+        "charter_ref": ".squad/agents/example-planner/charter.md",
+        "membership": "persona",
+        "capabilities": ["planning"]
+      },
+      "objective": "Create an illustrative execution plan",
+      "required_capabilities": ["planning"],
+      "dependencies": [],
+      "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+      "provider": {
+        "id": "aca-sandbox-example",
+        "kind": "aca-sandbox",
+        "contract_version": "aca-sandbox-provider/v1",
+        "configuration_ref": "config://example/sandbox"
+      },
+      "schema_version": "aca-sandbox/v1",
+      "owned_paths": ["docs/plan"]
+    },
+    {
+      "task_id": "task-example-validate",
+      "owner": {
+        "logical_member_id": "validator-example",
+        "resolved_persistent_name": "Example Validator",
+        "charter_ref": ".squad/agents/example-validator/charter.md",
+        "membership": "persona",
+        "capabilities": ["validation"]
+      },
+      "objective": "Validate the illustrative plan",
+      "required_capabilities": ["validation"],
+      "dependencies": [
+        {
+          "task_id": "task-example-plan",
+          "condition": "successful"
+        }
+      ],
+      "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+      "provider": {
+        "id": "aca-sandbox-example",
+        "kind": "aca-sandbox",
+        "contract_version": "aca-sandbox-provider/v1",
+        "configuration_ref": "config://example/sandbox"
+      },
+      "schema_version": "aca-sandbox/v1",
+      "owned_paths": ["docs/validate"]
+    }
+  ]
+}

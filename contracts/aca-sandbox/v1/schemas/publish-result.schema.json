@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/publish-result.schema.json",
+  "title": "ACA Sandbox publish result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_type", "run_id", "status", "branch", "commit_sha", "pr_number", "pr_url", "idempotency", "labels"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "message_type": { "type": "string", "const": "publish.result" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed"],
+      "description": "Closed or merged PR idempotency conflicts fail closed before this receipt is written."
+    },
+    "branch": { "type": "string", "minLength": 1 },
+    "commit_sha": { "$ref": "common.schema.json#/$defs/sha" },
+    "pr_number": { "type": "integer", "minimum": 1 },
+    "pr_url": { "type": "string", "minLength": 1 },
+    "idempotency": {
+      "type": "string",
+      "enum": ["created", "existing"],
+      "description": "existing means an open pull request for the deterministic branch was reused. Closed or merged pull requests are not reused."
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "removed"],
+      "properties": {
+        "added": { "type": "array", "items": { "type": "string" } },
+        "removed": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

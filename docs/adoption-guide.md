@@ -425,7 +425,7 @@ az acr build \
   .
 ```
 
-The `BASE_ACR_HOST` build argument overrides the Dockerfile default so the `FROM` lines use your ACR. Run the base-image import commands first so those images exist in your registry.
+The `BASE_ACR_HOST` build argument is required and points the `FROM` lines to your ACR. Run the base-image import commands first so those images exist in your registry. The manual `.github/workflows/acr-import-base.yml` workflow requires repository variables `SQUAD_ACR_NAME`, `SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, and `SQUAD_AZURE_SUBSCRIPTION_ID`; the three Azure values should match the OIDC identity configured for the repository.
 
 ### Option B: Build locally with Docker
 
@@ -487,7 +487,7 @@ Before testing, each target repo needs a Squad team. [Squad](https://bradygaster
    copilot --agent squad
    ```
 
-2. **Squad proposes a team**: Squad's casting system assigns unique agent names from a fictional universe (e.g., `ripley`, `data`, `gandalf`). You'll see a proposal with roles, specialties, and routing rules.
+2. **Squad proposes a team**: Squad initialization resolves stable logical member IDs, persistent names, membership kinds, capabilities, and charter references. You'll see a proposal with routing rules and a roster snapshot.
 
 3. **Confirm the proposal**: Once you approve, Squad creates:
 
@@ -536,7 +536,7 @@ The platform adds its own **operational labels** (`squad:processing`, `squad:que
 If `squad init` didn't create labels (e.g., running on a repo without GitHub CLI access), you can create them manually:
 
 ```bash
-# Check .squad/team.md for your agent names
+# Check .squad/team.md for the initialized roster and logical member IDs
 # Example: if your team has agents named "ripley", "data", and "gandalf"
 gh label create "squad:ripley" --repo your-org/your-repo --color "008672"
 gh label create "squad:data" --repo your-org/your-repo --color "008672"
@@ -562,6 +562,10 @@ body:
 ```
 
 ---
+
+## Optional: Enable the ACA Sandbox issue flow
+
+The ACA Sandbox issue workflow is a separate preview path. The ACA Job queue remains the default and stays unchanged. Complete the [ACA Sandbox issue flow setup](sandbox-issue-flow.md) before enabling it. That guide covers the Sandbox Group, GitHub App, protected environments, OIDC subject, repository variables, image digest, labels, postprocess configuration, revise flow, and rollback.
 
 ## Step 8: Test end-to-end
 

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/common.schema.json",
+  "title": "ACA Sandbox common contract definitions",
+  "$defs": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^aca-sandbox/v1$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,64}$"
+    },
+    "roster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "hash", "members"],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{7,128}$"
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/member"
+          }
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_member_id",
+        "resolved_persistent_name",
+        "charter_ref",
+        "membership",
+        "capabilities"
+      ],
+      "properties": {
+        "logical_member_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "resolved_persistent_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "charter_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "membership": {
+          "type": "string",
+          "enum": ["persona", "function", "system"]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "contract_version"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["aca-job", "aca-sandbox", "local", "custom"]
+        },
+        "contract_version": {
+          "type": "string",
+          "pattern": "^aca-sandbox-provider/v[0-9]+$"
+        },
+        "configuration_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id"],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+        },
+        "condition": {
+          "type": "string",
+          "enum": ["completed", "successful"]
+        }
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "kind"],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["patch", "log", "report", "manifest", "other"]
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        }
+      }
+    },
+    "ownedPaths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

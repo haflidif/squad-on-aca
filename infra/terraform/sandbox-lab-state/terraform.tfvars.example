@@ -1,0 +1,6 @@
+subscription_id       = "00000000-0000-0000-0000-000000000000"
+resource_group_name   = "<state-resource-group>"
+location              = "<azure-region>"
+operator_ipv4_cidrs   = ["<operator-public-ipv4>/32"] # Replace with approved public egress IP before any plan.
+# storage_account_name = "<globally-unique-storage-name>"
+# state_operator_principal_id = "00000000-0000-0000-0000-000000000000"

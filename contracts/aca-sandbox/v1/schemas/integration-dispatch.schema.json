@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/haflidif/squad-on-aca/contracts/aca-sandbox/v1/schemas/integration-dispatch.schema.json",
+  "title": "ACA Sandbox integration dispatch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_type", "run_id", "provider", "baseline_sha", "roster", "tasks"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "message_type": { "type": "string", "const": "integration.dispatch" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "provider": { "$ref": "common.schema.json#/$defs/provider" },
+    "baseline_sha": { "$ref": "common.schema.json#/$defs/sha" },
+    "roster": { "$ref": "common.schema.json#/$defs/roster" },
+    "allow_3way": { "type": "string", "enum": ["true", "false"] },
+    "check_commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "argv"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "argv": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "timeout_ms": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "owner", "dependencies", "owned_paths", "patch_ref"],
+        "properties": {
+          "task_id": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$" },
+          "owner": { "$ref": "common.schema.json#/$defs/member" },
+          "dependencies": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/dependency" }, "uniqueItems": true },
+          "owned_paths": { "$ref": "common.schema.json#/$defs/ownedPaths" },
+          "allow_executable_bits": { "type": "string", "enum": ["true", "false"] },
+          "patch_ref": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

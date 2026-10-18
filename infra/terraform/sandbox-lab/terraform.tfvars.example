@@ -1,0 +1,10 @@
+subscription_id          = "00000000-0000-0000-0000-000000000000"
+resource_group_name      = "<sandbox-resource-group>"
+location                 = "<azure-region>"
+acr_name                 = "<acr-name>"
+acr_resource_group_name  = "<acr-resource-group>"
+sandbox_group_name       = "<sandbox-group-name>"
+repository_full_name     = "<owner>/<repository>"
+# grant_group_acr_pull   = true # Registry-wide AcrPull for the image-pull UAMI; only with approval.
+# operator_principal_id  = "00000000-0000-0000-0000-000000000000" # Optional group-scoped operator role.
+environment_name         = "<github-environment>"

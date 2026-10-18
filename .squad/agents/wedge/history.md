@@ -75,3 +75,32 @@ Key project components:
 - **2026-07-30 — Issue #9 azd/Bicep delivered:** Documented the additive azd/Bicep path alongside canonical Terraform, including prerequisites, commands, post-provision secret handling, GitHub variable setup, teardown, comparison notes, and limitations.
 
 - **2026-07-31 — Issue #9 e2e docs outcome:** Cassian delivered live azd/Bicep e2e testing docs and scripts. Final guidance: use what-if plus manual ephemeral deploy for real e2e validation, keep CI deferred, keep job execution opt-in, always tear down by default, and document the Key Vault public-network policy constraint as environment-specific rather than a Bicep defect.
+
+
+## 2026-09-25 — ACA Sandbox contracts and runtime revision
+
+Led the one-sandbox-per-persona ACA Sandbox model. Delivered the approved PR 1 versioned execution contracts under `contracts/aca-sandbox/v1/`. Owned the PR 2 runtime revision after reviewer lockout of the initial author, establishing that legacy queue messages resolve to `aca-job` and unsupported provider metadata is validated before queue acknowledgement.
+
+
+## 2026-09-26 — PR 4 persona sandbox deadlock resolution
+
+Owned PR 4 revisions after Lando's initial sandbox worker implementation was rejected. First revision scoped credentials, disabled rename diffs, added symlink and ignored-file scans, required `owned_paths` in task and dispatch, added segment-aware `path-scope.js`, and gated bash test skips. Cassian later rejected round 2, and Wedge was locked out.
+
+A deadlock followed after Lando, Wedge, and Chewie were each rejected on `agents/sandbox/**`. Haflidi lifted Wedge's lockout in decision `feb6a61a-b876-47d8-a137-340964306d0b`. Wedge completed the final revision: Copilot runs under `env -i` with an allowlist, persona processes cannot see runner output paths, output tampering returns `output_tampered`, cleanup uses one early `EXIT` trap, the Docker build context is repo-root with `Dockerfile.dockerignore`, and tests verify `path-scope.js` image COPY coverage. Cassian approved round 4.
+
+Final validation passed 18 sandbox tests and 14 contract tests. Docker build was not run because the daemon was unavailable. Lasting learning: offline tests must verify image packaging coverage, and persona processes must not see output paths.
+
+
+📌 Team update (2026-09-26T03:05:00+02:00): PR 5 dispatcher final outcome — Wedge's R1 revision added path containment, schema/validator tightening, fd 3 token handoff through `copilot-launch.sh`, a static identity test for the Dockerfile `chown` fix, and stdin JSON environment bootstrap through `exec-with-env.js`. Cassian rejected R2, locking Wedge out; Chewie completed the approved R3 revision. Final tests passed: dispatcher 17, sandbox 24, contracts 17. Live ACA CLI flags, stdin forwarding, file transfer, and ACR auth remain unverified in `dispatcher/README.md`. Learnings: strip credentials from every child process env, not only the target; Windows hosts need device-name-aware path checks; `JSON.parse` hides duplicate keys.
+
+
+## 2026-09-26 — PR 6 integration hardening and deadlock resolution
+
+Owned PR 6 integration revisions after Chewie's R1 rejection, then completed the final revision after Haflidi lifted Wedge's reviewer lockout in decision `dd632375-e523-4d96-a1c6-8d5b02b479c6`. The first revision hashed outputs before checks with tree verification, used write-tree deltas, rejected symlink/gitlink/`.git/**`/executable-bit changes by default with `allow_executable_bits` opt-in, bounded plumbing capture, added process-group kill, and used exact `mktemp` cleanup. After Lando's R2 revision and Cassian's R3 rejection, the final revision failed closed on symlinks in the check tree, added negative-control hardening tests, centralized a hardened git wrapper with a subcommand allowlist and spawn-interception test, and cleaned up materialization temp paths on failure.
+
+Cassian approved round 4. Final validation passed dispatcher 24, sandbox 47, and contracts 19 tests with zero skipped tests. Lasting learnings: hash outputs before running any untrusted check; security tests need a negative control proving the risk is real; `git --numstat` hides rename sources; never glob in cleanup traps.
+
+
+## 2026-09-26 — PR 8 workflow and CI final revision
+
+Closed the PR 8 review findings around issue-to-plan identity, manifest consistency, and committed-diff checks. For a created push with no usable before SHA, CI now compares against the empty tree, covering all commits instead of checking an empty post-push default-branch range. Cassian approved the final revision. Offline validation completed with 142 passes and one Windows EPERM symlink skip; YAML, LF shell, and Terraform checks passed. Docker build and live ACA/Azure/GitHub behavior remain unverified. Learning: handle first-push zero-SHA ranges explicitly and test the multi-commit case.
