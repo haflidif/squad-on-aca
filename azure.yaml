@@ -10,6 +10,9 @@
 #   azd env new <env-name>           # e.g. dev
 #   azd env set GITHUB_APP_ID               <your-github-app-id>
 #   azd env set GITHUB_APP_INSTALLATION_ID  <your-installation-id>
+#   # Backend selection (unset keeps jobs):
+#   azd env set SQUAD_EXECUTION_BACKEND sandbox
+#   azd env set SQUAD_SANDBOX_IMAGE_REF <registry/repository@sha256:digest>
 #   # Optional — defaults to [] (federated OIDC not wired until set):
 #   azd env set TARGET_REPOS  '["owner/repo1","owner/repo2"]'
 #
@@ -60,7 +63,7 @@ hooks:
   preprovision:
     posix:
       shell: sh
-      run: infra/hooks/preprovision.sh
+      run: bash infra/hooks/preprovision.sh
       interactive: true
     windows:
       shell: pwsh
@@ -70,7 +73,7 @@ hooks:
   postprovision:
     posix:
       shell: sh
-      run: infra/hooks/postprovision.sh
+      run: bash infra/hooks/postprovision.sh
       interactive: true
     windows:
       shell: pwsh

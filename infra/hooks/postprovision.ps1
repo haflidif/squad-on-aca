@@ -43,6 +43,19 @@ function Resolve-AzdOutput {
     return $val
 }
 
+$Backend = Resolve-AzdOutput 'EXECUTION_BACKEND'
+if (-not $Backend) { $Backend = if (Test-Path Env:\SQUAD_EXECUTION_BACKEND) { $env:SQUAD_EXECUTION_BACKEND } else { 'jobs' } }
+if ($Backend -cnotin @('jobs', 'sandbox')) { throw 'Execution backend must be jobs or sandbox.' }
+if ((Test-Path Env:\SQUAD_EXECUTION_BACKEND) -and $Backend -cne $env:SQUAD_EXECUTION_BACKEND) {
+    throw 'Requested backend differs from deployed backend. Reconcile the destination before post-provision setup.'
+}
+if ($Backend -ceq 'sandbox') {
+    Write-Host 'Sandbox infrastructure provisioned. Use the published immutable worker image and platformDescriptor output for separate repository onboarding.'
+    Write-Host 'Skipping Jobs image build, Job update, Key Vault/PAT checks, and legacy queue repository variables. Execution has not been enabled.'
+    exit 0
+}
+$JobsImageRef = Resolve-AzdOutput 'JOBS_IMAGE_REF'
+
 Write-Host ""
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host " Squad on ACA — post-provision setup" -ForegroundColor Cyan
@@ -86,6 +99,7 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 # A) Build + push squad-agent image
 # ---------------------------------------------------------------------------
+if (-not $JobsImageRef) {
 Write-Host "--- A) Building squad-agent image ---" -ForegroundColor Cyan
 Write-Host ""
 
@@ -150,6 +164,10 @@ if ($AgentJobName -and $ResourceGroupName) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------
+} else {
+    Write-Host 'Using the pinned Jobs image from provisioning; skipping latest image build and Job update.'
+}
+
 # B) Key Vault secret guidance
 # ---------------------------------------------------------------------------
 Write-Host "--- B) Key Vault secrets ---" -ForegroundColor Cyan

@@ -26,6 +26,20 @@ targetScope = 'subscription'
 @description('Azure region for all resources')
 param location string = 'swedencentral'
 
+@description('Execution backend. Keep existing deployments on jobs; provision a separate destination to switch.')
+@allowed(['jobs', 'sandbox'])
+param executionBackend string = 'jobs'
+
+@description('Installed platform release recorded in the descriptor')
+@minLength(1)
+param releaseVersion string = '0.0.1'
+
+@description('Optional immutable Jobs image. Empty preserves legacy provisioning and withholds the descriptor.')
+param jobsImageRef string = ''
+
+@description('Immutable Sandbox worker image, required for sandbox bootstrap')
+param sandboxImageRef string = ''
+
 @description('Project name — used in resource naming')
 param projectName string = 'squad-aca'
 
@@ -42,10 +56,10 @@ param queueName string = 'squad-work-queue'
 param targetRepos array = []
 
 @description('GitHub App ID (numeric string) — required')
-param githubAppId string
+param githubAppId string = ''
 
 @description('GitHub App Installation ID — required')
-param githubAppInstallationId string
+param githubAppInstallationId string = ''
 
 @description('CPU cores for the agent container (e.g. "1.0", "0.5")')
 param agentCpu string = '1.0'
@@ -54,9 +68,12 @@ param agentCpu string = '1.0'
 param agentMemory string = '2Gi'
 
 @description('Maximum concurrent job executions')
+@minValue(1)
+@maxValue(30)
 param agentMaxExecutions int = 10
 
 @description('Job replica timeout in seconds')
+@minValue(1)
 param agentTimeoutSeconds int = 1800
 
 @description('''
@@ -64,7 +81,7 @@ param agentTimeoutSeconds int = 1800
   Granted Key Vault Secrets Officer so secrets can be uploaded post-provision.
   Required. Get with: az ad signed-in-user show --query id -o tsv
 ''')
-param deployerPrincipalId string
+param deployerPrincipalId string = ''
 
 @description('''
   Principal type of the deployer. Use 'ServicePrincipal' for CI/CD pipelines,
@@ -92,6 +109,14 @@ param tags object = {
 // ---------------------------------------------------------------------------
 // Computed locals
 // ---------------------------------------------------------------------------
+
+var jobsEnabled = executionBackend == 'jobs'
+var selectedImageRef = jobsEnabled ? jobsImageRef : sandboxImageRef
+var imageParts = split(selectedImageRef, '@sha256:')
+var imageDigest = last(imageParts)
+var nonHexDigest = reduce(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'], imageDigest, (remaining, digit) => replace(remaining, digit, ''))
+var imageNameValid = !empty(first(imageParts)) && !contains(map(range(0, length(first(imageParts))), index => contains('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/-', substring(first(imageParts), index, 1))), false)
+var descriptorReady = length(imageParts) == 2 && imageNameValid && length(imageDigest) == 64 && empty(nonHexDigest)
 
 var projectNoHyphen = replace(projectName, '-', '')
 var namePrefix      = '${projectName}-${environment}'
@@ -130,7 +155,7 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
 // Must deploy before storage/acr/kv so we have the principalId for RBAC.
 // ---------------------------------------------------------------------------
 
-module identity './modules/identity.bicep' = {
+module identity './modules/identity.bicep' = if (jobsEnabled) {
   scope: rg
   name: 'identity-module'
   params: {
@@ -161,7 +186,7 @@ module monitoring './modules/monitoring.bicep' = {
 //        UAMI → Storage Queue Data Contributor (agent dequeues at runtime)
 // ---------------------------------------------------------------------------
 
-module storage './modules/storage.bicep' = {
+module storage './modules/storage.bicep' = if (jobsEnabled) {
   scope: rg
   name: 'storage-module'
   params: {
@@ -171,12 +196,12 @@ module storage './modules/storage.bicep' = {
     queueName: queueName
     roleAssignments: [
       {
-        principalId:            identity.outputs.principalId
+        principalId:            identity!.outputs.principalId
         roleDefinitionIdOrName: roleIds.storageQueueDataReader
         principalType:          'ServicePrincipal'
       }
       {
-        principalId:            identity.outputs.principalId
+        principalId:            identity!.outputs.principalId
         roleDefinitionIdOrName: roleIds.storageQueueDataContributor
         principalType:          'ServicePrincipal'
       }
@@ -197,18 +222,18 @@ module acr './modules/acr.bicep' = {
     name: acrName
     location: location
     tags: tags
-    roleAssignments: [
+    roleAssignments: jobsEnabled ? [
       {
-        principalId:            identity.outputs.principalId
+        principalId:            identity!.outputs.principalId
         roleDefinitionIdOrName: roleIds.acrPull
         principalType:          'ServicePrincipal'
       }
       {
-        principalId:            identity.outputs.principalId
+        principalId:            identity!.outputs.principalId
         roleDefinitionIdOrName: roleIds.acrPush
         principalType:          'ServicePrincipal'
       }
-    ]
+    ] : []
   }
 }
 
@@ -219,7 +244,7 @@ module acr './modules/acr.bicep' = {
 // Secret VALUES are NOT created here — upload manually post-provision.
 // ---------------------------------------------------------------------------
 
-module keyvault './modules/keyvault.bicep' = {
+module keyvault './modules/keyvault.bicep' = if (jobsEnabled) {
   scope: rg
   name: 'keyvault-module'
   params: {
@@ -228,7 +253,7 @@ module keyvault './modules/keyvault.bicep' = {
     tags: tags
     roleAssignments: [
       {
-        principalId:            identity.outputs.principalId
+        principalId:            identity!.outputs.principalId
         roleDefinitionIdOrName: roleIds.keyVaultSecretsUser
         principalType:          'ServicePrincipal'
       }
@@ -246,7 +271,7 @@ module keyvault './modules/keyvault.bicep' = {
 // Linked to Log Analytics workspace; zone redundancy disabled.
 // ---------------------------------------------------------------------------
 
-module acaEnvironment 'br/public:avm/res/app/managed-environment:0.8.1' = {
+module acaEnvironment 'br/public:avm/res/app/managed-environment:0.8.1' = if (jobsEnabled) {
   scope: rg
   name: 'aca-env-module'
   params: {
@@ -265,20 +290,20 @@ module acaEnvironment 'br/public:avm/res/app/managed-environment:0.8.1' = {
 // from storage, acr, keyvault, and acaEnvironment modules).
 // ---------------------------------------------------------------------------
 
-module agentJob './modules/container-app-job.bicep' = {
+module agentJob './modules/container-app-job.bicep' = if (jobsEnabled) {
   scope: rg
   name: 'agent-job-module'
   params: {
     name:                   jobName
     location:               location
     tags:                   tags
-    acaEnvironmentId:       acaEnvironment.outputs.resourceId
+    acaEnvironmentId:       acaEnvironment!.outputs.resourceId
     acrLoginServer:         acr.outputs.loginServer
-    uamiResourceId:         identity.outputs.resourceId
-    uamiClientId:           identity.outputs.clientId
-    storageAccountName:     storage.outputs.name
+    uamiResourceId:         identity!.outputs.resourceId
+    uamiClientId:           identity!.outputs.clientId
+    storageAccountName:     storage!.outputs.name
     queueName:              queueName
-    keyVaultName:           keyvault.outputs.name
+    keyVaultName:           keyvault!.outputs.name
     githubRepo:             githubRepo
     githubAppId:            githubAppId
     githubAppInstallationId: githubAppInstallationId
@@ -286,6 +311,7 @@ module agentJob './modules/container-app-job.bicep' = {
     memory:                 agentMemory
     maxExecutions:          agentMaxExecutions
     timeoutSeconds:         agentTimeoutSeconds
+    containerImage:         empty(jobsImageRef) ? 'mcr.microsoft.com/hello-world:latest' : jobsImageRef
   }
 }
 
@@ -297,34 +323,93 @@ module agentJob './modules/container-app-job.bicep' = {
 output resource_group_name string = rg.name
 
 @description('Name of the Storage Account')
-output storage_account_name string = storage.outputs.name
+output storage_account_name string = jobsEnabled ? storage!.outputs.name : ''
 
 @description('Name of the Storage Queue')
-output queue_name string = queueName
+output queue_name string = jobsEnabled ? queueName : ''
 
 @description('Login server of the Container Registry')
 output acr_login_server string = acr.outputs.loginServer
 
 @description('Name of the ACA Managed Environment')
-output container_apps_environment string = acaEnvironment.outputs.name
+output container_apps_environment string = jobsEnabled ? acaEnvironment!.outputs.name : ''
 
 @description('Name of the Container App Job')
-output agent_job_name string = agentJob.outputs.name
+output agent_job_name string = jobsEnabled ? agentJob!.outputs.name : ''
 
 @description('Name of the User-Assigned Managed Identity')
-output agent_identity_name string = identity.outputs.name
+output agent_identity_name string = jobsEnabled ? identity!.outputs.name : ''
 
 @description('Client ID of the UAMI — for GitHub Actions OIDC login')
-output squad_agent_client_id string = identity.outputs.clientId
+output squad_agent_client_id string = jobsEnabled ? identity!.outputs.clientId : ''
 
 @description('Tenant ID — for GitHub Actions OIDC login')
 output squad_agent_tenant_id string = tenant().tenantId
 
 @description('Name of the Key Vault')
-output key_vault_name string = keyvault.outputs.name
+output key_vault_name string = jobsEnabled ? keyvault!.outputs.name : ''
 
 @description('Resource ID of the UAMI — for downstream consumers')
-output uami_resource_id string = identity.outputs.resourceId
+output uami_resource_id string = jobsEnabled ? identity!.outputs.resourceId : ''
 
 @description('Principal ID of the UAMI — for downstream consumers')
-output uami_principal_id string = identity.outputs.principalId
+output uami_principal_id string = jobsEnabled ? identity!.outputs.principalId : ''
+
+// Uses the verified Sandbox Group and separate image-pull identity model from sandbox-lab.
+module sandbox './modules/sandbox.bicep' = if (!jobsEnabled) {
+  scope: rg
+  name: 'sandbox-module'
+  params: {
+    name: 'sbg-${namePrefix}-${nameSuffix}'
+    nameSuffix: nameSuffix
+    location: location
+    tags: tags
+    targetRepos: targetRepos
+    registryId: acr.outputs.resourceId
+  }
+}
+
+output execution_backend string = executionBackend
+
+var descriptorOidc = map(union(targetRepos, []), repo => {
+  client_id: jobsEnabled ? identity!.outputs.clientId : sandbox!.outputs.dispatcherClientId
+  subject: jobsEnabled ? 'repo:${repo}:ref:refs/heads/main' : 'repo:${repo}:environment:squad-sandbox-issue'
+  audience: 'api://AzureADTokenExchange'
+})
+
+@description('Non-secret backend/v1 descriptor. Null until the selected image is immutable. Does not activate repository execution.')
+output platformDescriptor object? = descriptorReady ? union({
+  schema_version: 'backend/v1'
+  release_version: releaseVersion
+  platform_id: rg.id
+  backend: executionBackend
+  location: location
+  tenant_id: tenant().tenantId
+  registry_id: acr.outputs.resourceId
+  monitoring_id: monitoring.outputs.resourceId
+  limits: {
+    max_concurrency: agentMaxExecutions
+    timeout_seconds: agentTimeoutSeconds
+  }
+  oidc: descriptorOidc
+  protected_environments: jobsEnabled ? [] : ['squad-sandbox-issue', 'squad-publish']
+}, jobsEnabled ? {
+  jobs: {
+    managed_environment_id: acaEnvironment!.outputs.resourceId
+    job_id: agentJob!.outputs.resourceId
+    storage_account_id: storage!.outputs.resourceId
+    queue_name: queueName
+    identity_client_id: identity!.outputs.clientId
+    image_ref: jobsImageRef
+    key_vault_id: keyvault!.outputs.resourceId
+  }
+} : {
+  sandbox: {
+    group_id: sandbox!.outputs.groupId
+    dispatcher_client_id: sandbox!.outputs.dispatcherClientId
+    image_pull_client_id: sandbox!.outputs.imagePullClientId
+    image_ref: sandboxImageRef
+  }
+}) : null
+
+output jobs_image_ref string = jobsEnabled ? jobsImageRef : ''

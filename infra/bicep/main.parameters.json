@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "executionBackend": {
+      "value": "${SQUAD_EXECUTION_BACKEND=jobs}"
+    },
+    "githubAppId": {
+      "value": "${GITHUB_APP_ID=}"
+    },
+    "githubAppInstallationId": {
+      "value": "${GITHUB_APP_INSTALLATION_ID=}"
+    },
+    "deployerPrincipalId": {
+      "value": "${AZURE_PRINCIPAL_ID=}"
+    },
+    "deployerPrincipalType": {
+      "value": "${AZURE_PRINCIPAL_TYPE=User}"
+    },
+    "targetRepos": {
+      "value": "${TARGET_REPOS=[]}"
+    },
+    "jobsImageRef": {
+      "value": "${SQUAD_JOBS_IMAGE_REF=}"
+    },
+    "sandboxImageRef": {
+      "value": "${SQUAD_SANDBOX_IMAGE_REF=}"
+    },
+    "releaseVersion": {
+      "value": "${SQUAD_RELEASE_VERSION=0.0.1}"
+    }
+  }
+}

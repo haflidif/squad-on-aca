@@ -60,3 +60,6 @@ infra/terraform/sandbox-lab-state/backend.hcl
 
 # Squad local scratch state
 .squad/scratch/
+
+# azd source parameter mapping, not a compiled template
+!infra/bicep/main.parameters.json

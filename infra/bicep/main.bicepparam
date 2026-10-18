@@ -47,3 +47,8 @@ param agentTimeoutSeconds = 1800
 // nameSuffix is auto-derived from subscription + project + environment by default.
 // Override here to keep resource names stable across redeployments in the same env:
 //   param nameSuffix = 'a1b2c3d4'
+
+// Alternative backend for a new destination deployment.
+param executionBackend = 'jobs'
+param jobsImageRef = ''
+param sandboxImageRef = '' // Set a published registry/repository@sha256:<64 lowercase hex> for sandbox.

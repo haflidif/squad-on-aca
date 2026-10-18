@@ -20,6 +20,25 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+BACKEND="${SQUAD_EXECUTION_BACKEND-jobs}"
+case "$BACKEND" in
+  jobs|sandbox) ;;
+  *) echo 'SQUAD_EXECUTION_BACKEND must be jobs or sandbox.' >&2; exit 1 ;;
+esac
+IMAGE_PATTERN='^[^[:space:]@]+@sha256:[0-9a-f]{64}$'
+if [[ "$BACKEND" == sandbox ]]; then
+  if [[ ! "${SQUAD_SANDBOX_IMAGE_REF:-}" =~ $IMAGE_PATTERN ]]; then
+    echo 'Sandbox requires SQUAD_SANDBOX_IMAGE_REF pinned to a lowercase SHA-256 digest.' >&2
+    exit 1
+  fi
+  echo 'Sandbox bootstrap: no Jobs Key Vault, PAT, queue, or App settings are required. Repository execution remains disabled.'
+  exit 0
+fi
+if [[ -n "${SQUAD_JOBS_IMAGE_REF:-}" && ! "$SQUAD_JOBS_IMAGE_REF" =~ $IMAGE_PATTERN ]]; then
+  echo 'SQUAD_JOBS_IMAGE_REF must be pinned to a lowercase SHA-256 digest.' >&2
+  exit 1
+fi
+
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'

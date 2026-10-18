@@ -52,6 +52,23 @@ resolve_output() {
   echo "$val"
 }
 
+BACKEND=$(resolve_output "EXECUTION_BACKEND")
+BACKEND="${BACKEND:-${SQUAD_EXECUTION_BACKEND-jobs}}"
+case "$BACKEND" in
+  jobs|sandbox) ;;
+  *) echo 'Execution backend must be jobs or sandbox.' >&2; exit 1 ;;
+esac
+if [[ "${SQUAD_EXECUTION_BACKEND+x}" == x && "$BACKEND" != "$SQUAD_EXECUTION_BACKEND" ]]; then
+  echo 'Requested backend differs from deployed backend. Reconcile the destination before post-provision setup.' >&2
+  exit 1
+fi
+if [[ "$BACKEND" == sandbox ]]; then
+  echo 'Sandbox infrastructure provisioned. Use the published immutable worker image and platformDescriptor output for separate repository onboarding.'
+  echo 'Skipping Jobs image build, Job update, Key Vault/PAT checks, and legacy queue repository variables. Execution has not been enabled.'
+  exit 0
+fi
+JOBS_IMAGE_REF=$(resolve_output "JOBS_IMAGE_REF")
+
 RESOURCE_GROUP_NAME=$(resolve_output "RESOURCE_GROUP_NAME")
 ACR_LOGIN_SERVER=$(resolve_output "ACR_LOGIN_SERVER")
 KEY_VAULT_NAME=$(resolve_output "KEY_VAULT_NAME")
@@ -83,6 +100,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # A) Build + push squad-agent image
 # ---------------------------------------------------------------------------
+if [[ -z "$JOBS_IMAGE_REF" ]]; then
 echo -e "${CYAN}--- A) Building squad-agent image ---${NC}"
 echo ""
 
@@ -142,6 +160,10 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
+else
+  echo 'Using the pinned Jobs image from provisioning; skipping latest image build and Job update.'
+fi
+
 # B) Key Vault secret guidance
 # ---------------------------------------------------------------------------
 echo -e "${CYAN}--- B) Key Vault secrets ---${NC}"
