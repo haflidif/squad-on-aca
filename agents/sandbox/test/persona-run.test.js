@@ -807,13 +807,14 @@ test('real Linux root to UID 10001 ownership behavior verifies baseline, patch g
   assert.match(execResult.stdout, /ALL_LINUX_ROOT_TESTS_PASSED/);
 });
 
-test('Docker container root to UID 10001 isolation and safe.directory enforcement', {
-  skip: !isDockerAvailable() && 'Docker daemon is not running'
-}, () => {
-  const containerScript = [
+function dockerRootRegressionScript() {
+  return [
     'set -euo pipefail',
-    'useradd -u 10001 copilot-agent 2>/dev/null || true',
-    'TMPD="$(mktemp -d "${PWD}/docker-root-XXXXXX")"',
+    'apt-get update -qq',
+    'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git >/dev/null',
+    'useradd --uid 10001 --user-group test-agent-1',
+    'TMPD="${PWD}/docker-root"',
+    'mkdir -m 755 "$TMPD"',
     'cd "$TMPD"',
     'git init src >/dev/null',
     'cd src',
@@ -827,26 +828,45 @@ test('Docker container root to UID 10001 isolation and safe.directory enforcemen
     'cd ..',
     'WORK_DIR="$TMPD/work"',
     'SOURCE_REPO_PATH="$TMPD/src"',
-    'git() { command git ${WORK_DIR:+-c safe.directory="$WORK_DIR"} ${SOURCE_REPO_PATH:+-c safe.directory="$SOURCE_REPO_PATH"} "$@"; }',
+    'git() { command git -c "safe.directory=$WORK_DIR" -c "safe.directory=$SOURCE_REPO_PATH" "$@"; }',
     'git clone --no-hardlinks "$SOURCE_REPO_PATH" "$WORK_DIR" >/dev/null 2>&1',
     'cd "$WORK_DIR"',
     'chown -R 10001:10001 "$WORK_DIR"',
-    'set +e; command git rev-parse HEAD >/dev/null 2>&1; test $? -eq 128; set -e',
+    'set +e',
+    'command git rev-parse HEAD >/dev/null 2>&1',
+    'UNWRAPPED_EXIT=$?',
+    'set -e',
+    'test "$UNWRAPPED_EXIT" -eq 128',
     'HEAD=$(git rev-parse HEAD)',
     'test "$HEAD" = "$BASE"',
-    'su -s /bin/bash copilot-agent -c "echo edit >> $WORK_DIR/allowed/f.txt"',
-    'su -s /bin/bash copilot-agent -c "echo bad >> $WORK_DIR/.github/workflows/ci.yml"',
+    'su -s /bin/bash test-agent-1 -c \'test "$(id -u)" -eq 10001\'',
+    'su -s /bin/bash test-agent-1 -c "echo edit >> \\"$WORK_DIR/allowed/f.txt\\""',
+    'su -s /bin/bash test-agent-1 -c "echo bad >> \\"$WORK_DIR/.github/workflows/ci.yml\\""',
     'git add -N -- .',
     'PATCH=$(git diff --binary "$BASE" -- .)',
     'test -n "$PATCH"',
+    'mapfile -d "" -t CHANGED < <(git diff --no-renames -z --name-only "$BASE" -- .)',
+    'test "${#CHANGED[@]}" -eq 2',
+    '[[ "${CHANGED[0]}" == ".github/workflows/ci.yml" ]]',
+    '[[ "${CHANGED[1]}" == "allowed/f.txt" ]]',
     'echo DOCKER_ROOT_REGRESSION_PASSED'
-  ].join(' && ');
+  ].join('\n');
+}
 
-  fs.mkdirSync(workRoot, { recursive: true });
+test('Docker ownership regression fixture has valid Bash syntax', { skip: !bash && 'Git Bash is not available' }, () => {
+  const result = spawnSync(bash, ['-n'], {
+    input: dockerRootRegressionScript(), encoding: 'utf8', shell: false
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('Docker container root to UID 10001 isolation and safe.directory enforcement', {
+  skip: !isDockerAvailable() && 'Docker daemon is not running'
+}, () => {
   const result = spawnSync('docker', [
-    'run', '--rm', '--volume', `${workRoot}:/workspace/.work`, '--workdir', '/workspace/.work',
-    'ubuntu:22.04', 'bash', '-c', containerScript
-  ], { encoding: 'utf8', shell: false });
-  assert.equal(result.status, 0, `Docker container regression failed: ${result.stderr}`);
+    'run', '--rm', '--workdir', '/workspace',
+    'ubuntu:22.04', 'bash', '-c', dockerRootRegressionScript()
+  ], { encoding: 'utf8', shell: false, timeout: 180000 });
+  assert.equal(result.status, 0, `Docker container regression failed: ${result.error || ''}\n${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /DOCKER_ROOT_REGRESSION_PASSED/);
 });

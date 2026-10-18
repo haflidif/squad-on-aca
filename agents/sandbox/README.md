@@ -123,6 +123,17 @@ developer validation only. The container path is the intended artifact boundary.
 The dispatcher, not the persona process, downloads and verifies final artifacts
 after the runner exits.
 
+### Ownership regression tests
+
+Run `node --test agents/sandbox/test/persona-run.test.js` from the repository
+root. Bash syntax is checked even without Docker. With a running Linux Docker
+daemon, the ownership fixture starts `ubuntu:22.04`, installs Git with APT, and
+uses only the disposable container filesystem, with no host bind mount. This
+test needs network access to the image registry and Ubuntu package mirrors.
+It verifies that unscoped root Git fails on the UID 10001-owned checkout while
+directory-scoped Git can verify the baseline, generate a patch, and detect both
+the allowed edit and the protected workflow edit.
+
 ## Build context
 
 Build the persona worker from the repository root, not from `agents/sandbox`:
