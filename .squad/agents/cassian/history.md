@@ -54,3 +54,14 @@ Re-reviewed Lando's final narrow fixes after Haflidi lifted the reviewer lockout
 ## 2026-09-26 — PR 8 workflow and CI final review
 
 Reviewed the final PR 8 workflow, live issue binding, and CI range fixes. Approved after Wedge closed the first-push empty-before-SHA case using an empty-tree comparison and corrected manifest-to-plan checks. Offline validation finished with 142 passing tests and one Windows symlink-creation skip due to EPERM. YAML parsing, shell LF checks, and Terraform fmt/validate passed. Docker build was unavailable because no daemon was running. Live ACA CLI, stdin/file transfer, ACR auth, and Azure/GitHub behavior remain unverified. Learning: CI for a newly created branch must compare its committed changes against the empty tree when no valid before SHA exists.
+## 2026-10-18 Slice 8 live smoke (blocked before Actions)
+
+Installer preview and install, activation fail-closed and print-only, and a local router simulation passed against a fresh clone of the auth lab. The live run was blocked with 0 Actions runs used: installed callers pin `haflidif/squad-on-aca/.github/actions/sandbox-engine@<sha>`, which does not resolve until the SHA is on origin, and a private action in another owner (the azureviking lab) cannot be used by a haflidif private repo. The lab target FIC for `squad-sandbox-issue` was also deleted in the PR #13 cleanup. Finding: the auth lab uses immutable OIDC subjects, but activation `--enable` and Terraform only accept `repo:owner/repo:...`. Learnings: check that the engine SHA resolves from the target before spending any run; the router job itself needs the engine, so even a routing-only check costs a failed run; existing repos need old ingress removed before install or the installer reports conflicts.
+
+### 2026-10-18: Slice 8 live smoke PASS at 250b7ace
+- All 5 steps passed on haflidif/squad-on-aca-auth-lab with 4 real router runs: sandbox run 39119874779 (issue #15, draft PR #16), revise 39120316258 stayed sandbox, jobs switch 39120826784 routed jobs (enqueue failed at Azure Login, Jobs not wired for lab target, expected), invalid 39120955898 failed closed BACKEND_INVALID.
+- Learning: switching backend requires pause (enabled=false) first, then rebind, then enable; activation enforces it.
+- Learning: set SQUAD_EXECUTION_BACKEND away from sandbox before pushing to main to keep the conflict hint workflow skipped.
+- Learning: publisher App label/comment events trigger cheap cancelled or skipped router runs; count them separately from real runs.
+- Learning: older lab TF outputs lack platform_descriptor, so activation needs a hand-built descriptor there.
+- Lab left with fic-squad-auth-lab-sandbox-issue, SQUAD_EXECUTION_BACKEND=jobs, main at a0af377 (backend=banana). Cleanup pending Haflidi's decision.
