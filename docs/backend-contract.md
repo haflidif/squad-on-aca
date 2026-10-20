@@ -79,7 +79,7 @@ Distribution starts with versioned GitHub Release archives, Terraform/azd source
 
 ## Activation and backend switching
 
-Use the [activation commands](install.md#activate-from-terraform) after Terraform apply or through either azd postprovision hook. `--preview` writes nothing; `--enable` is a separate local admission decision. Neither default activation nor azd hooks changes GitHub settings. Explicit `--apply` requires `gh` and applies non-secret variables only. Secrets and protected environments remain administrator-owned.
+Use the [activation commands](install.md#activate-from-terraform) after Terraform apply or through either azd postprovision hook. `--preview` writes nothing; `--enable` is a separate local admission decision. Neither default activation nor azd hooks changes GitHub settings. Explicit Sandbox `--apply` requires `gh`, creates or updates its two protected-branch environments, and can set reviewer requirements and the `squad-publish` PEM secret from a file streamed through stdin. Jobs does not create GitHub environments or set a GitHub secret. App creation, installation, key generation and repository branch protection remain administrator tasks.
 
 Legacy settings detection covers target workflow references, process variables and an optional exported repository-variable JSON file. It reports retired `SQUAD_ISSUE_FLOW_ENABLED`, `SQUAD_ISSUE_OPT_IN_NUMBER` and `sandbox-run` settings without translating them into authorization. Stop the old settings writer and retire competing ingress before activation. Terraform's existing GitHub provider ownership must be transferred explicitly before settings apply.
 

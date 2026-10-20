@@ -151,6 +151,9 @@ test('--apply is explicit, requires gh, uses argument arrays and applies only kn
   assert.deepEqual(f.calls[0], ['gh', ['--version']]);
   assert.equal(f.calls.at(-1)[1][2], 'SQUAD_EXECUTION_BACKEND');
   assert.equal(f.calls.some(call => call[1].includes('secret')), false);
+  const environmentCalls = f.calls.filter(([, args]) => args[0] === 'api' && args.includes('--method'));
+  assert.equal(environmentCalls.length, 2);
+  for (const [, , input] of environmentCalls) assert.deepEqual(JSON.parse(input.input), { deployment_branch_policy: { protected_branches: true, custom_branch_policies: false } });
   const f2 = fixture(t, 'sandbox');
   assert.throws(() => activate({ ...f2.options, apply: true, repo: 'example/repository' }, f2.dependencies), /--app-id/);
   assert.equal(fs.existsSync(f2.options.target), false); assert.deepEqual(f2.calls, []);
@@ -235,4 +238,113 @@ test('immutable binding still requires the selected identity and exact audience'
     assert.throws(() => activate({ ...f.options, enable: true, repo: 'example/repository' }, f.dependencies));
     assert.equal(fs.existsSync(f.options.target), false);
   }
+});
+
+test('Sandbox --apply creates both protected environments before variables and sets backend last', t => {
+  const f = fixture(t, 'sandbox');
+  const options = { ...f.options, apply: true, repo: 'example/repository', appId: '1', installationId: '2', reviewers: ['octo-user', 'another-user'] };
+  activate(options, { ...f.dependencies, execute: (bin, args, input) => {
+    f.calls.push([bin, args, input]);
+    if (args[0] === 'api' && args[1] === 'users/octo-user') return JSON.stringify({ id: 41, type: 'User' });
+    if (args[0] === 'api' && args[1] === 'users/another-user') return JSON.stringify({ id: 42, type: 'User' });
+    return '';
+  } });
+  const environmentCalls = f.calls.filter(([, args]) => args[0] === 'api' && args.includes('--method'));
+  assert.deepEqual(environmentCalls.map(([, args]) => args[3]), [
+    'repos/example/repository/environments/squad-sandbox-issue',
+    'repos/example/repository/environments/squad-publish'
+  ]);
+  for (const [, , input] of environmentCalls) assert.deepEqual(JSON.parse(input.input), {
+    deployment_branch_policy: { protected_branches: true, custom_branch_policies: false },
+    reviewers: [{ type: 'User', id: 41 }, { type: 'User', id: 42 }]
+  });
+  assert.ok(f.calls.findIndex(([, args]) => args[0] === 'api' && args.includes('--method')) < f.calls.findIndex(([, args]) => args[0] === 'variable'));
+  const variableCalls = f.calls.filter(([, args]) => args[0] === 'variable');
+  assert.equal(variableCalls.at(-1)[1][2], 'SQUAD_EXECUTION_BACKEND');
+  assert.ok(f.logs.some(line => line.includes('Resolving GitHub reviewer octo-user')));
+});
+
+test('Sandbox print-only lists environment and secret commands without calling gh', t => {
+  const f = fixture(t, 'sandbox');
+  activate({ ...f.options, repo: 'example/repository' }, f.dependencies);
+  const output = f.logs.join('\n');
+  assert.deepEqual(f.calls, []);
+  assert.match(output, /gh api --method PUT repos\/example\/repository\/environments\/squad-sandbox-issue --input -/);
+  assert.match(output, /gh api --method PUT repos\/example\/repository\/environments\/squad-publish --input -/);
+  assert.match(output, /gh secret set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM --repo example\/repository --env squad-publish/);
+  assert.match(output, /No reviewers specified/);
+});
+
+test('Jobs --apply never creates GitHub environments or sets an environment secret', t => {
+  const f = fixture(t, 'jobs');
+  activate({ ...f.options, apply: true, repo: 'example/repository' }, f.dependencies);
+  assert.equal(f.calls.some(([, args]) => args[0] === 'api' || args[0] === 'secret'), false);
+});
+
+test('PEM secret is passed through stdin only and never appears in argv or output', t => {
+  const f = fixture(t, 'sandbox');
+  const marker = 'UNIQUE_FAKE_PRIVATE_KEY_MARKER_6fd1';
+  const key = `-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----\n`;
+  const keyFile = path.join(f.root, 'app.pem');
+  fs.writeFileSync(keyFile, key);
+  activate({ ...f.options, apply: true, repo: 'example/repository', appId: '1', installationId: '2', appPrivateKeyFile: keyFile }, f.dependencies);
+  const call = f.calls.find(([, args]) => args[0] === 'secret');
+  assert.ok(call);
+  assert.deepEqual(call[1], ['secret', 'set', 'SQUAD_GITHUB_APP_PRIVATE_KEY_PEM', '--repo', 'example/repository', '--env', 'squad-publish']);
+  assert.equal(call[2].input, key);
+  assert.equal(f.calls.every(([, args]) => !JSON.stringify(args).includes(marker)), true);
+  assert.equal(f.logs.join('\n').includes(marker), false);
+});
+
+test('invalid PEM and private-key option without apply are rejected before gh calls or writes', t => {
+  const f = fixture(t, 'sandbox');
+  const keyFile = path.join(f.root, 'invalid.pem');
+  fs.writeFileSync(keyFile, 'not a key');
+  assert.throws(() => activate({ ...f.options, apply: true, repo: 'example/repository', appId: '1', installationId: '2', appPrivateKeyFile: keyFile }, f.dependencies), /does not look like a PEM/);
+  assert.throws(() => activate({ ...f.options, appPrivateKeyFile: keyFile }, f.dependencies), /requires --apply/);
+  assert.deepEqual(f.calls, []);
+  assert.equal(fs.existsSync(f.options.target), false);
+});
+
+test('environment and secret gh failures stop safely without leaking the PEM', t => {
+  const f = fixture(t, 'sandbox');
+  const marker = 'UNIQUE_FAILURE_KEY_MARKER_84a2';
+  const keyFile = path.join(f.root, 'app.pem');
+  fs.writeFileSync(keyFile, `-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----`);
+  const options = { ...f.options, apply: true, repo: 'example/repository', appId: '1', installationId: '2', appPrivateKeyFile: keyFile };
+  const failEnvironment = { ...f.dependencies, execute: (bin, args) => {
+    f.calls.push([bin, args]);
+    if (args[0] === 'api' && args.includes('--method')) throw new Error('environment rejected');
+    return '';
+  } };
+  assert.throws(() => activate(options, failEnvironment), /environment rejected/);
+  assert.equal(f.calls.some(([, args]) => args[0] === 'variable'), false);
+
+  f.calls.length = 0;
+  const failSecret = { ...f.dependencies, execute: (bin, args) => {
+    f.calls.push([bin, args]);
+    if (args[0] === 'secret') throw new Error(marker);
+    return '';
+  } };
+  assert.throws(() => activate(options, failSecret), error => {
+    assert.match(error.message, /Failed to set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM/);
+    assert.equal(error.message.includes(marker), false);
+    return true;
+  });
+  assert.equal(f.calls.some(([, args]) => args[0] === 'variable'), false);
+  assert.equal(f.logs.join('\n').includes(marker), false);
+});
+
+
+test('CLI help documents reviewer and private-key options, and reviewer flags repeat', t => {
+  const help = spawnSync(process.execPath, [path.join(__dirname, 'activate.cjs'), '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--reviewer <login>/);
+  assert.match(help.stdout, /--app-private-key-file <path>/);
+
+  const f = fixture(t, 'sandbox');
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'activate.cjs'), '--descriptor', f.file, '--target', f.options.target, '--repo', 'example/repository', '--reviewer', 'octo-user', '--reviewer', 'another-user'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /gh api users\/octo-user/);
+  assert.match(result.stdout, /gh api users\/another-user/);
 });
