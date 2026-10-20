@@ -2,6 +2,11 @@
 
 ## Active Decisions
 
+### 2026-10-20: Protect settings activation environments and private key handling
+**By:** Lando
+**What:** During explicit `scripts/activate.cjs --apply`, create or update GitHub environments `squad-sandbox-issue` and `squad-publish` with protected-branch deployment policy, optionally resolving `--reviewer`; stream the App PEM from `--app-private-key-file` to `gh secret set` through stdin.
+**Why:** Ensure environment-scoped secrets are set only after environments exist, maintain deployment protection, and avoid logging or persisting private key contents.
+
 ### 2026-10-17: Keep the sandbox flow stack-agnostic and configuration-driven
 **By:** Squad
 **What:** The sandbox flow is configured through `.squad/sandbox-flow.json` and remains stack-agnostic; the bootstrap repository should not impose Terraform-specific opinions.
