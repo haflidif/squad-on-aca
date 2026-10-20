@@ -19,7 +19,7 @@ Before you begin, verify you have everything:
 - [ ] Ability to create **Federated Identity Credentials** (OIDC)
 - [ ] Ability to create **Key Vault** with RBAC authorization
 - [ ] No policies blocking **Container App Jobs** or **Storage Queues**
-- [ ] Subscription allows `allowSharedKeyAccess = false` on storage (or doesn't enforce it — the platform handles both)
+- [ ] Subscription allows `allowSharedKeyAccess = false` on storage (or doesn't enforce it  -  the platform handles both)
 
 ### GitHub
 
@@ -58,7 +58,7 @@ Squad on ACA supports two infrastructure-as-code paths. Terraform remains the ca
 | State management | Uses local Terraform state. A remote backend is not configured in this template. | Uses Azure Resource Manager idempotency through `azd provision`; no Terraform state file. |
 | Provider lag | Uses `azapi_resource` for the Container App Job because the Terraform provider does not expose identity-based KEDA scale rules yet. | Uses native ARM/Bicep resource definitions for the Container App Job. |
 | One-command deploy | Run `terraform init`, `terraform plan`, and `terraform apply`, then upload Key Vault secrets. | Run `azd up` to provision and deploy, then upload Key Vault secrets when the post-provision guidance prompts you. |
-| GitHub Actions variables | Terraform uses the GitHub provider to set repository variables after you provide `TF_VAR_github_token`. | The `azd` postprovision hook prints settings through `scripts/activate.cjs`; only a separate explicit `--apply` uses `gh` to change non-secret variables. |
+| GitHub settings | Terraform may manage repository variables through the GitHub provider after you provide `TF_VAR_github_token`. | The `azd` postprovision hook prints settings through `scripts/activate.cjs`; a separate explicit `--apply` uses `gh` to set variables and, for Sandbox, environment branch policies and optional reviewers. A PEM file can optionally set the Sandbox environment secret through stdin. |
 | Teardown | Run `terraform destroy` from `infra/terraform/`. | Run `azd down` from the repository root. |
 | Best fit | Default choice when you want the canonical path, explicit plans, and Terraform workflows. | Azure-native choice when you want `azd up`, ARM idempotency, and a Bicep-first workflow. |
 
@@ -102,9 +102,9 @@ The GitHub App is the bot identity for all PR operations. This is a one-time set
 
 | Field | Value |
 |-------|-------|
-| **App name** | `squad-aca-bot` (or your preference — must be globally unique) |
+| **App name** | `squad-aca-bot` (or your preference  -  must be globally unique) |
 | **Homepage URL** | `https://github.com/haflidif/squad-on-aca` |
-| **Webhook** | **Uncheck** "Active" — this platform uses queue polling, not webhooks |
+| **Webhook** | **Uncheck** "Active"  -  this platform uses queue polling, not webhooks |
 
 ### 2.3 Set permissions
 
@@ -140,7 +140,7 @@ Two supported IaC paths create equivalent Azure resources. Complete one path (A 
 
 | | [Path A: Terraform](#path-a-terraform) | [Path B: Bicep + azd](#path-b-bicep--azd) |
 |---|---|---|
-| Best fit | Default, canonical path — explicit plans, Terraform workflows | Azure-native — `azd up`, ARM idempotency, Bicep-first workflow |
+| Best fit | Default, canonical path  -  explicit plans, Terraform workflows | Azure-native  -  `azd up`, ARM idempotency, Bicep-first workflow |
 
 Not sure which to pick? See [Terraform vs Bicep and azd: which should you choose?](#terraform-vs-bicep-and-azd-which-should-you-choose)
 
@@ -148,7 +148,7 @@ Not sure which to pick? See [Terraform vs Bicep and azd: which should you choose
 
 ## Path A: Terraform
 
-The canonical, default path — explicit plans, Terraform state, and Terraform workflows. Follow Path A · Steps 3–5, then continue at [Step 6](#step-6-build-and-push-container-image).
+The canonical, default path  -  explicit plans, Terraform state, and Terraform workflows. Follow Path A · Steps 3–5, then continue at [Step 6](#step-6-build-and-push-container-image).
 
 ### Path A · Step 3: Configure Terraform variables
 
@@ -228,16 +228,16 @@ This creates:
 - Federated Identity Credentials (per target repo)
 - GitHub Actions repository variables (per target repo)
 
-**Save the outputs** — you'll need them:
+**Save the outputs**  -  you'll need them:
 
 ```bash
 terraform output -json
 ```
 
 Key outputs:
-- `key_vault_name` — where to upload secrets
-- `acr_login_server` — where to push the container image
-- `agent_job_name` — the Container App Job name for monitoring
+- `key_vault_name`  -  where to upload secrets
+- `acr_login_server`  -  where to push the container image
+- `agent_job_name`  -  the Container App Job name for monitoring
 
 ---
 
@@ -268,7 +268,7 @@ az keyvault secret set \
 1. Go to `https://github.com/settings/tokens?type=beta` (fine-grained PAT)
 2. Or use `https://github.com/settings/tokens/new` (classic PAT)
 3. The user **must** have an active Copilot license (Copilot Business or Individual)
-4. Required scope: `copilot` (if using fine-grained tokens — classic tokens need no special scope beyond default)
+4. Required scope: `copilot` (if using fine-grained tokens  -  classic tokens need no special scope beyond default)
 5. Set expiration to maximum allowed (recommend 90 days, set a reminder)
 
 ---
@@ -379,7 +379,7 @@ Review the prompt carefully before confirming deletion.
 
 ## Both paths converge here
 
-Whether you deployed with **Path A (Terraform)** or **Path B (Bicep + azd)**, continue with Step 6. If you used `azd up`, read the leading note in Step 6 — you may be able to skip it entirely.
+Whether you deployed with **Path A (Terraform)** or **Path B (Bicep + azd)**, continue with Step 6. If you used `azd up`, read the leading note in Step 6  -  you may be able to skip it entirely.
 
 ---
 
@@ -473,13 +473,13 @@ git commit -m "feat: add Squad on ACA workflow templates"
 git push
 ```
 
-The repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, etc.) were set during deployment — by Terraform (Path A) or by the `azd` post-provision hook (Path B) — so the workflows will have everything they need.
+The repository variables (`SQUAD_AZURE_CLIENT_ID`, `SQUAD_AZURE_TENANT_ID`, etc.) were set during deployment  -  by Terraform (Path A) or by the `azd` post-provision hook (Path B)  -  so the workflows will have everything they need.
 
 ---
 
 ## Step 7.5: Initialize your Squad team on target repos
 
-Before testing, each target repo needs a Squad team. [Squad](https://bradygaster.github.io/squad/) (the framework) creates agent charters, routing rules, team configuration, and labels — this platform (Squad on ACA) provides the serverless infrastructure to run those agents headlessly.
+Before testing, each target repo needs a Squad team. [Squad](https://bradygaster.github.io/squad/) (the framework) creates agent charters, routing rules, team configuration, and labels  -  this platform (Squad on ACA) provides the serverless infrastructure to run those agents headlessly.
 
 ### How Squad initialization works
 
@@ -487,7 +487,7 @@ Before testing, each target repo needs a Squad team. [Squad](https://bradygaster
    ```bash
    cd /path/to/target-repo
    # Ensure .github/agents/squad.agent.md exists (the Squad coordinator manifest)
-   # Start a Copilot session — Squad will propose a team
+   # Start a Copilot session  -  Squad will propose a team
    copilot --agent squad
    ```
 
@@ -496,22 +496,22 @@ Before testing, each target repo needs a Squad team. [Squad](https://bradygaster
 3. **Confirm the proposal**: Once you approve, Squad creates:
 
    **The `.squad/` directory:**
-   - `team.md` — Agent roster with names, roles, and specialties
-   - `routing.md` — Rules for dispatching work to agents
-   - Agent charter files — Per-agent instructions and context
-   - `decisions.md` / `history.md` — Institutional memory (grows over time)
+   - `team.md`  -  Agent roster with names, roles, and specialties
+   - `routing.md`  -  Rules for dispatching work to agents
+   - Agent charter files  -  Per-agent instructions and context
+   - `decisions.md` / `history.md`  -  Institutional memory (grows over time)
 
    **Labels on the repo** (from Squad's [label taxonomy](https://bradygaster.github.io/squad/docs/features/labels/)):
-   - `squad:{agent-name}` — One per team member, derived from `team.md` (allows multiple per issue for pair work)
-   - `go:*` — Verdict labels (yes/no/needs-research) — mutually exclusive
-   - `type:*` — Issue category — mutually exclusive
-   - `priority:*` — Urgency — mutually exclusive
-   - `release:*` — Release target — mutually exclusive
+   - `squad:{agent-name}`  -  One per team member, derived from `team.md` (allows multiple per issue for pair work)
+   - `go:*`  -  Verdict labels (yes/no/needs-research)  -  mutually exclusive
+   - `type:*`  -  Issue category  -  mutually exclusive
+   - `priority:*`  -  Urgency  -  mutually exclusive
+   - `release:*`  -  Release target  -  mutually exclusive
 
    **Automation workflows:**
-   - `sync-squad-labels.yml` — Keeps labels in sync with the team roster
-   - `label-enforcement.yml` — Enforces mutual exclusivity within label namespaces
-   - `squad-heartbeat.yml` — Periodic triage and auto-assignment
+   - `sync-squad-labels.yml`  -  Keeps labels in sync with the team roster
+   - `label-enforcement.yml`  -  Enforces mutual exclusivity within label namespaces
+   - `squad-heartbeat.yml`  -  Periodic triage and auto-assignment
 
 4. **Commit and push**:
    ```bash
@@ -522,7 +522,7 @@ Before testing, each target repo needs a Squad team. [Squad](https://bradygaster
 
 ### What this platform uses
 
-Squad on ACA only uses **`squad:{agent-name}` labels** from Squad's taxonomy to trigger agent runs. The other label namespaces (`go:*`, `type:*`, etc.) are part of Squad's broader project management features — they don't affect the platform.
+Squad on ACA only uses **`squad:{agent-name}` labels** from Squad's taxonomy to trigger agent runs. The other label namespaces (`go:*`, `type:*`, etc.) are part of Squad's broader project management features  -  they don't affect the platform.
 
 The platform adds its own **operational labels** (`squad:processing`, `squad:queued`) via the container entrypoint for deduplication and lifecycle tracking. These are separate from Squad's taxonomy.
 
@@ -569,7 +569,7 @@ body:
 
 ## Optional: Enable the ACA Sandbox issue flow
 
-The ACA Sandbox issue workflow is a separate preview path. The ACA Job queue remains the default and stays unchanged. Complete the [ACA Sandbox issue flow setup](sandbox-issue-flow.md) before enabling it. That guide covers the Sandbox Group, GitHub App, protected environments, OIDC subject, repository variables, image digest, labels, postprocess configuration, revise flow, and rollback.
+The ACA Sandbox issue workflow is a separate preview path. The ACA Job queue remains the default and stays unchanged. Complete the [ACA Sandbox issue flow setup](sandbox-issue-flow.md) before enabling it. That guide covers the Sandbox Group, GitHub App, environment protections, OIDC subject, repository variables, image digest, labels, postprocess configuration, revise flow, and rollback. Explicit Sandbox `--apply` can create or update both required environments and their protected-branch deployment policies. Pass `--reviewer <login>` for each required GitHub user. Use `--app-private-key-file <path>` to set the `squad-publish` environment secret; the key is streamed to `gh` through stdin and is never stored or logged by activation. You still create and install the App and download its key yourself. Jobs does not use these environments or this GitHub secret.
 
 ## Step 8: Test end-to-end
 
@@ -578,7 +578,7 @@ The ACA Sandbox issue workflow is a separate preview path. The ACA Job queue rem
 Go to your target repo on GitHub and create an issue:
 
 ```
-Title: Test Squad agent — add a hello world file
+Title: Test Squad agent  -  add a hello world file
 Body: Create a file called hello.txt with the content "Hello from Squad on ACA!"
 ```
 
@@ -621,7 +621,7 @@ To onboard additional repositories:
 
 ### 9.1 Add the repo to your IaC
 
-**Path A: Terraform** — Edit `infra/terraform/terraform.tfvars`:
+**Path A: Terraform**  -  Edit `infra/terraform/terraform.tfvars`:
 
 ```hcl
 target_repos = [
@@ -636,17 +636,17 @@ cd infra/terraform
 terraform apply
 ```
 
-**Path B: Bicep + azd** — Add the repo to `targetRepos` in `infra/bicep/main.bicepparam`, then re-provision:
+**Path B: Bicep + azd**  -  Add the repo to `targetRepos` in `infra/bicep/main.bicepparam`, then re-provision:
 
 ```bash
 azd provision
 ```
 
-The post-provision hook wires the new repo's GitHub Actions variables and federated credentials automatically.
+Provisioning wires federated credentials and may manage repository variables according to the selected IaC path. The activation script prints its settings by default. Only explicit `--apply` changes settings through `gh`; Sandbox environments and optional reviewers are handled there, while Jobs creates no environments.
 
 Both paths create:
 - Federated identity credentials for each new repo
-- GitHub Actions variables on each new repo
+- GitHub Actions variables on each new repo when managed by the selected IaC path
 
 ### 9.2 Install the GitHub App
 
@@ -666,7 +666,7 @@ Each new target repo needs Squad initialized:
 1. **Run `squad init`** on the new repo (see Step 7.5). This creates `.squad/`, agent charters, and `squad:{agent-name}` labels automatically. Alternatively, copy `.squad/` from an existing target repo if using the same team, then run `squad upgrade` to sync labels.
 2. **Commit and push** the `.squad/` directory.
 
-> **Note**: `squad init` creates the agent labels. The entrypoint only auto-creates `squad:processing` and `squad:queued` pipeline labels — those are separate from Squad's label taxonomy.
+> **Note**: `squad init` creates the agent labels. The entrypoint only auto-creates `squad:processing` and `squad:queued` pipeline labels  -  those are separate from Squad's label taxonomy.
 
 If `squad init` wasn't able to create labels (e.g., no GitHub CLI access during init), create them manually:
 
@@ -753,7 +753,7 @@ The revision flow is an optional but recommended addition:
 **Cause**: Queue is empty when the container starts (KEDA over-trigger).
 **Solution**: This is normal behavior. KEDA may trigger a container slightly after another container has already drained the queue. The entrypoint exits cleanly.
 
-### "PR not created — no commits on branch"
+### "PR not created  -  no commits on branch"
 
 **Cause**: Copilot CLI ran but didn't produce any changes.
 **Solution**: Check the PR body for the fallback work artifact. The issue description may be too vague for Copilot to act on. Make the issue more specific.
@@ -766,7 +766,7 @@ The revision flow is an optional but recommended addition:
    - Path A (Terraform): `cd infra/terraform && terraform output -raw squad_agent_client_id`
    - Path B (Bicep + azd): `az identity list -g <resource-group> --query "[0].clientId" -o tsv`
 2. Verify RBAC roles: `az role assignment list --assignee <UAMI-principal-id>`
-3. Wait 5 minutes — RBAC propagation can take time after initial deployment.
+3. Wait 5 minutes  -  RBAC propagation can take time after initial deployment.
 
 ### "Failed to retrieve private key from Key Vault"
 

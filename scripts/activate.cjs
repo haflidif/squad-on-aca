@@ -6,8 +6,8 @@ const { validate } = require('./backend-router.cjs');
 const schema = name => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'contracts', 'backend', 'v1', 'schemas', `${name}.schema.json`), 'utf8'));
 const LEGACY = ['SQUAD_ISSUE_FLOW_ENABLED', 'SQUAD_ISSUE_OPT_IN_NUMBER'];
 function parse(text) { return JSON.parse(text.replace(/^\uFEFF/, '')); }
-function run(bin, args) {
-  const result = spawnSync(bin, args, { encoding: 'utf8', shell: false });
+function run(bin, args, options = {}) {
+  const result = spawnSync(bin, args, { encoding: 'utf8', shell: false, ...(options.input === undefined ? {} : { input: options.input }) });
   if (result.error || result.status !== 0) throw new Error(`${bin} ${args[0]} failed. Check CLI installation, authentication and permissions.`);
   return result.stdout;
 }
@@ -114,6 +114,7 @@ function legacy(root, env, extra) {
 function activate(options, { env = process.env, log = console.log, execute = run } = {}) {
   const root = path.resolve(options.target || '.');
   if (options.enable && options.disable || options.preview && options.apply) throw new Error('Conflicting activation options.');
+  if (options.appPrivateKeyFile && !options.apply) throw new Error('--app-private-key-file requires --apply.');
   const repo = options.repo || '<owner/repo>';
   if (options.repo && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error('Expected --repo owner/repo.');
   if ((options.apply || options.enable) && !options.repo) throw new Error('--repo owner/repo is required for --apply or --enable.');
@@ -128,6 +129,14 @@ function activate(options, { env = process.env, log = console.log, execute = run
     if (Array.isArray(missing) && missing.length) throw new Error(`Descriptor unavailable. Missing: ${missing.join('; ')}. Reprovision; nothing activated.`);
   }
   const descriptor = validateDescriptor(value);
+  const reviewers = [...new Set(options.reviewers || [])];
+  if (descriptor.backend !== 'sandbox' && (options.appPrivateKeyFile || reviewers.length)) throw new Error('--app-private-key-file and --reviewer are only valid for Sandbox.');
+  for (const reviewer of reviewers) if (!/^[A-Za-z0-9-]{1,39}$/.test(reviewer)) throw new Error(`Invalid GitHub reviewer login: ${reviewer}`);
+  let privateKey;
+  if (options.appPrivateKeyFile) {
+    privateKey = fs.readFileSync(options.appPrivateKeyFile, 'utf8');
+    if (!privateKey.includes('-----BEGIN') || !privateKey.includes('PRIVATE KEY-----')) throw new Error('The app private key file does not look like a PEM private key.');
+  }
   const folder = path.join(root, '.squad');
   // Refuse links in existing ancestors, including a target reached through a junction.
   for (let current = root; ; current = path.dirname(current)) {
@@ -160,12 +169,24 @@ function activate(options, { env = process.env, log = console.log, execute = run
     }
   }
   log(`OIDC bindings: ${JSON.stringify(descriptor.oidc)}. Protected environments: ${JSON.stringify(descriptor.protected_environments)}.`);
+  if (descriptor.backend === 'sandbox') {
+    log(`Required Sandbox secret: SQUAD_GITHUB_APP_PRIVATE_KEY_PEM in protected environment squad-publish. Jobs does not use this GitHub secret.`);
+    log('Actions Copilot authentication uses github.token, not a repository PAT.');
+  } else log(`No GitHub repository secrets required for Jobs OIDC queue dispatch. In Key Vault ${descriptor.jobs.key_vault_id}, separately configure github-app-private-key and copilot-pat for the worker.`);
+  if (descriptor.backend === 'sandbox') {
+    const envNames = ['squad-sandbox-issue', 'squad-publish'];
+    for (const login of reviewers) log(`gh api users/${login} (resolve reviewer ID)`);
+    for (const name of envNames) {
+      const payload = { deployment_branch_policy: { protected_branches: true, custom_branch_policies: false } };
+      if (reviewers.length) payload.reviewers = reviewers.map(login => ({ type: 'User', id: `<id resolved from ${login}>` }));
+      log(`gh api --method PUT repos/${repo}/environments/${name} --input - (JSON on stdin): ${JSON.stringify(payload)}`);
+    }
+    if (!reviewers.length) log('No reviewers specified. Add required reviewers with --reviewer <login> for both protected environments.');
+    if (options.appPrivateKeyFile) log(`gh secret set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM --repo ${repo} --env squad-publish (PEM streamed via stdin from ${options.appPrivateKeyFile})`);
+    else log(`Set the secret manually with gh secret set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM --repo ${repo} --env squad-publish.`);
+  }
   log('GitHub repository variables (print-only unless --apply; set SQUAD_EXECUTION_BACKEND last):');
   for (const [key, value] of Object.entries(variables).sort(([a], [b]) => (a === 'SQUAD_EXECUTION_BACKEND') - (b === 'SQUAD_EXECUTION_BACKEND'))) log(`gh variable set ${key} --repo ${repo} --body ${JSON.stringify(value)}`);
-  if (descriptor.backend === 'sandbox') {
-    log(`Required secret: SQUAD_GITHUB_APP_PRIVATE_KEY_PEM in protected environment squad-publish. Set securely with the interactive command gh secret set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM --repo ${repo} --env squad-publish. Secret values are never read or applied by this script. Jobs App/PAT secrets are not required for Sandbox.`);
-    log('Require reviewers and trusted-branch restrictions on squad-sandbox-issue and squad-publish. Actions Copilot authentication uses github.token, not a repository PAT.');
-  } else log(`No GitHub repository secrets required for Jobs OIDC queue dispatch. In Key Vault ${descriptor.jobs.key_vault_id}, separately configure github-app-private-key and copilot-pat for the worker.`);
   log('Verify OIDC subjects, environment protections, installed callers, roster and competing ingress before --enable. Commit both JSON files through review; no files are committed by activation.');
   const execution = { schema_version: 'backend/v1', platform_id: descriptor.platform_id, backend: descriptor.backend, enabled };
   const writes = [[platformFile, descriptor], [executionFile, execution]];
@@ -175,7 +196,32 @@ function activate(options, { env = process.env, log = console.log, execute = run
   if (options.apply) {
     if (Object.values(variables).some(value => value.startsWith('<'))) throw new Error('--apply requires --app-id and --installation-id for Sandbox (or GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID).');
     execute('gh', ['--version']);
-    for (const [key, value] of Object.entries(variables).sort(([a], [b]) => (a === 'SQUAD_EXECUTION_BACKEND') - (b === 'SQUAD_EXECUTION_BACKEND'))) execute('gh', ['variable', 'set', key, '--repo', repo, '--body', value]);
+    if (descriptor.backend === 'sandbox') {
+      const reviewerEntries = [];
+      for (const login of reviewers) {
+        log(`Resolving GitHub reviewer ${login}.`);
+        const raw = execute('gh', ['api', `users/${login}`]);
+        let user;
+        try { user = JSON.parse(raw); } catch { throw new Error(`Could not resolve GitHub reviewer ${login} as a user.`); }
+        if (user.type !== 'User' || !Number.isSafeInteger(user.id) || user.id < 1) throw new Error(`GitHub reviewer ${login} did not resolve to a user account.`);
+        reviewerEntries.push({ type: 'User', id: user.id });
+      }
+      for (const name of ['squad-sandbox-issue', 'squad-publish']) {
+        const payload = { deployment_branch_policy: { protected_branches: true, custom_branch_policies: false } };
+        if (reviewerEntries.length) payload.reviewers = reviewerEntries;
+        log(`Applying GitHub environment ${name}.`);
+        execute('gh', ['api', '--method', 'PUT', `repos/${repo}/environments/${name}`, '--input', '-'], { input: JSON.stringify(payload) });
+      }
+      if (privateKey !== undefined) {
+        log('Setting SQUAD_GITHUB_APP_PRIVATE_KEY_PEM in squad-publish from stdin.');
+        try { execute('gh', ['secret', 'set', 'SQUAD_GITHUB_APP_PRIVATE_KEY_PEM', '--repo', repo, '--env', 'squad-publish'], { input: privateKey }); }
+        catch { throw new Error('Failed to set SQUAD_GITHUB_APP_PRIVATE_KEY_PEM. Check gh authentication and environment permissions. Secret input was not included in the error.'); }
+      }
+    }
+    for (const [key, value] of Object.entries(variables).sort(([a], [b]) => (a === 'SQUAD_EXECUTION_BACKEND') - (b === 'SQUAD_EXECUTION_BACKEND'))) {
+      log(`Applying repository variable ${key}.`);
+      execute('gh', ['variable', 'set', key, '--repo', repo, '--body', value]);
+    }
   }
   for (const [file, value] of writes) {
     const bytes = JSON.stringify(value, null, 2) + '\n';
@@ -183,16 +229,21 @@ function activate(options, { env = process.env, log = console.log, execute = run
     log(`${options.preview ? 'WOULD WRITE' : 'WRITE'} ${path.relative(root, file)}`);
     if (!options.preview) { fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(file, bytes); }
   }
-  log(`Backend ${descriptor.backend}; enabled=${enabled}. ${options.preview ? 'Preview only.' : 'Local binding prepared.'} GitHub ${options.apply ? 'variables applied; secrets and protections remain manual.' : 'unchanged.'}`);
+  log(`Backend ${descriptor.backend}; enabled=${enabled}. ${options.preview ? 'Preview only.' : 'Local binding prepared.'} GitHub ${options.apply ? 'requested settings applied.' : 'unchanged.'}`);
   return { descriptor, execution, variables, legacy: retired };
 }
+function usage() {
+  return 'Usage: node scripts/activate.cjs (--terraform <file|-> | --azd | --azd-values <file> | --descriptor <file>) [--target <path>] [--repo <owner/repo>] [--apply] [--reviewer <login>]... [--app-private-key-file <path>] [--app-id <id>] [--installation-id <id>] [--preview] [--enable|--disable]';
+}
 function main(argv) {
-  const options = {};
+  if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) { console.log(usage()); return; }
+  const options = { reviewers: [] };
   const flags = { '--azd': 'azd', '--apply': 'apply', '--preview': 'preview', '--enable': 'enable', '--disable': 'disable' };
-  const values = { '--terraform': 'terraform', '--azd-values': 'azdValues', '--descriptor': 'descriptor', '--target': 'target', '--repo': 'repo', '--legacy-settings': 'legacySettings', '--app-id': 'appId', '--installation-id': 'installationId' };
+  const values = { '--terraform': 'terraform', '--azd-values': 'azdValues', '--descriptor': 'descriptor', '--target': 'target', '--repo': 'repo', '--legacy-settings': 'legacySettings', '--app-id': 'appId', '--installation-id': 'installationId', '--app-private-key-file': 'appPrivateKeyFile' };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (flags[arg]) options[flags[arg]] = true;
+    else if (arg === '--reviewer' && argv[index + 1] && !argv[index + 1].startsWith('--')) options.reviewers.push(argv[++index]);
     else if (values[arg] && argv[index + 1] && !argv[index + 1].startsWith('--')) options[values[arg]] = argv[++index];
     else throw new Error(`Unknown option or missing value: ${arg}`);
   }
