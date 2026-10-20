@@ -15,6 +15,98 @@ Both paths create equivalent Azure resources. See [Terraform vs Bicep and azd: w
 
 ---
 
+## Choose the execution backend
+
+Both roots accept exactly `jobs` or `sandbox`. Omit the selector to keep Jobs.
+Use one IaC tool per deployment. A backend switch means provisioning a separate
+destination, not changing an existing installation in place.
+
+Terraform example for a new Sandbox destination:
+
+```hcl
+execution_backend = "sandbox"
+sandbox_image_ref = "registry.example/worker@sha256:<64 lowercase hex characters>"
+```
+
+For azd, set these before `azd provision`:
+
+```text
+azd env set SQUAD_EXECUTION_BACKEND sandbox
+azd env set SQUAD_SANDBOX_IMAGE_REF registry.example/worker@sha256:<64 lowercase hex characters>
+```
+
+The azd parameter mapping is `infra/bicep/main.parameters.json`. Direct Bicep
+uses `executionBackend`, `sandboxImageRef`, and `jobsImageRef`. The example
+`main.bicepparam` remains available for direct ARM deployments.
+
+Both choices share the resource group, registry, and monitoring. Sandbox
+creates a Sandbox Group, a dispatcher identity with group-scoped Data Owner,
+a separate registry pull identity with AcrPull, and exact protected-environment
+OIDC subjects. It creates no Job, managed environment, work queue, Job identity,
+or Jobs Key Vault. Sandbox hooks skip Jobs image builds, PAT/Key Vault checks,
+and legacy queue variable writes. Supply an already published immutable worker
+image. No hook activates repository execution or configures environment
+protections. The trusted publisher and its secrets remain administrator-owned.
+
+Terraform exports `platform_descriptor`; Bicep exports `platformDescriptor`.
+Both use the non-secret [backend/v1 schema](../contracts/backend/v1/schemas/platform-descriptor.schema.json)
+and include only the selected backend. Set `release_version` in Terraform or
+`SQUAD_RELEASE_VERSION` in azd to the installed release (default `0.0.1`).
+Limits use the positive concurrency and timeout inputs; downstream onboarding
+must enforce those limits before dispatch.
+
+For existing Jobs installations, leaving the selector and image inputs unset
+preserves the existing image and resource settings. Terraform `moved` blocks
+preserve the singleton resource identities when adding conditional instances.
+Review a no-change plan or Bicep what-if before adopting these sources. No
+live migration or deployment is performed by local tests.
+
+The descriptor is deliberately **null** until the selected image is pinned to
+`@sha256:<64 lowercase hex characters>`. It never advertises `latest` as an
+immutable onboarding image. To opt into a Jobs descriptor, set `jobs_image_ref`
+in Terraform or `SQUAD_JOBS_IMAGE_REF` in azd. This explicit choice also pins the
+Job image, and azd then skips the legacy build/update-to-latest step. azd hooks
+reject invalid pins; direct Bicep with an invalid pin produces no descriptor.
+An absent or null descriptor is not a ready onboarding destination.
+
+The old Terraform `enable_aca_sandbox=true` remains an additive Jobs plus
+Sandbox inventory with its original resources. It emits no onboarding
+descriptor. Combining it with `execution_backend="sandbox"` is rejected. Drain
+and preserve mixed or Jobs installations until an explicit retirement is
+approved, including their queues, state storage, secrets, and open revisions.
+
+The Sandbox Group and identity attachment mirror the existing verified lab
+model. Bicep's public schema catalog does not yet model the identity property;
+a local type-warning suppression is limited to that property. Disk image
+creation, runtime dispatch, image publication, publisher provisioning, and
+repository activation are separate operations, not claims of this bootstrap.
+
+Local validation:
+
+```text
+node --test contracts\backend\v1\test\contracts.test.cjs infra\tests\backend-selector.test.cjs
+terraform -chdir=infra\terraform init -backend=false
+terraform -chdir=infra\terraform fmt -check -recursive
+terraform -chdir=infra\terraform validate
+terraform -chdir=infra\terraform test -filter=tests\backend.tftest.hcl
+az bicep build --file infra\bicep\main.bicep
+```
+
+Terraform tests override resources and modules and use synthetic inputs. They
+make no Azure or GitHub calls. Run Bicep build with a process-local
+`AZURE_CONFIG_DIR`; no login or deployment is needed.
+
+---
+
+## Activate and switch backend
+
+After a reviewed apply, pipe `terraform output -json` to `node scripts\activate.cjs --terraform - --target <repository>` from the release root. Both azd postprovision hooks use the same script with `--azd`: set `SQUAD_ACTIVATION_TARGET` to prepare disabled JSON files, or leave it unset for a write-free preview. Supply the selected Jobs or Sandbox image digest first. `platform_descriptor_missing` reports the exact input blocking a null descriptor. No mutable tag is accepted as an activation image pin.
+
+Activation writes the validated non-secret descriptor and repository binding, never Terraform state or credentials. GitHub settings are print-only unless `--apply` is explicit and `gh` is present. `--enable --repo <owner/repo>` is a separate reviewed choice after settings, protections and ingress migration. The old azd hook no longer writes legacy settings. Terraform's existing GitHub resource ownership remains until explicitly transferred without remote deletion; do not use two settings writers.
+
+To switch, commit a pause, drain admitted work, provision a separate destination, bind and review it, then enable. Do not destroy old resources while in-flight receipts or PR revisions still need them. In-flight issues keep their original backend and settings. See [activation and migration](install.md#activate-from-terraform) for commands, secrets, ownership transfer and both switch directions.
+
+
 ## Terraform Modules
 
 Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure consistency:
@@ -26,7 +118,7 @@ Squad on ACA uses Microsoft's Azure Verified Modules (AVM) for infrastructure co
 | `azure/avm-res-containerregistry-registry` | Container Registry (Basic) | Hosts `squad-agent:latest` image |
 | `azure/avm-res-app-managedenvironment` | ACA Managed Environment | Provides KEDA, Log Analytics integration |
 | `azapi_resource` (Container App Job) | Generic squad agent job | Custom `azapi_resource` due to identity-based KEDA auth not in AVM |
-| `azapi_resource` (ACA Sandbox Group) | Optional Sandbox security boundary | Created only when `enable_aca_sandbox = true` |
+| `azapi_resource` (ACA Sandbox Group) | Optional Sandbox security boundary | Selected by `execution_backend = "sandbox"`; legacy additive flag remains supported |
 
 ---
 
@@ -49,9 +141,11 @@ These decisions are also captured in `.squad/decisions.md`:
 
 ---
 
-## Optional ACA Sandbox infrastructure
+## Legacy additive ACA Sandbox infrastructure
 
-Terraform exposes `enable_aca_sandbox` as a feature flag for PR 3 infrastructure.
+This section describes only the legacy additive flag. New Sandbox-only
+deployments use the selector above. Terraform retains `enable_aca_sandbox`
+for existing mixed inventory.
 The default is `false`. With the flag off, Terraform creates no sandbox
 resources, no sandbox identity, and no sandbox RBAC assignments. Existing ACA
 Job resources and outputs are unchanged.
@@ -81,8 +175,9 @@ Persona sandboxes do not receive managed identities or RBAC. They get
 no Key Vault access, no ACR push, no queue access, and no GitHub write access.
 The legacy shared `squad_agent` identity remains unchanged for the existing ACA
 Job path. Splitting that legacy identity is deferred to a later hardening PR.
-How Sandbox Groups authenticate to ACR is not verified yet, so this PR grants no
-ACR role for sandbox execution.
+The legacy additive flag does not attach an image-pull identity or grant an
+ACR role. The new Sandbox selector uses the separate image-pull identity model
+from the verified lab root.
 
 The persona worker image lives under `agents/sandbox/` and is built separately
 from the legacy `agents/base/` ACA Job image. It uses the same Debian base image
@@ -90,8 +185,8 @@ family and Copilot CLI installation style, but it does not install Azure CLI,
 GitHub CLI, Key Vault helpers, queue helpers, GitHub App authentication, or
 publication tooling. The trusted host dispatcher creates sandboxes and passes
 a pre-staged repository path, dispatch envelope, output directory, and Copilot
-credential to the persona worker. ACR authentication for Sandbox Groups remains
-unverified.
+credential to the persona worker. Image publication and disk image creation
+remain separate runtime/bootstrap operations.
 
 Build the persona worker from the repository root:
 

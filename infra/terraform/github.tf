@@ -27,35 +27,35 @@ locals {
 }
 
 resource "github_actions_variable" "squad_azure_client_id" {
-  for_each      = local.target_repo_names
+  for_each      = local.jobs_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_AZURE_CLIENT_ID"
-  value         = azurerm_user_assigned_identity.squad_agent.client_id
+  value         = azurerm_user_assigned_identity.squad_agent[0].client_id
 }
 
 resource "github_actions_variable" "squad_azure_tenant_id" {
-  for_each      = local.target_repo_names
+  for_each      = local.jobs_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_AZURE_TENANT_ID"
   value         = data.azurerm_client_config.current.tenant_id
 }
 
 resource "github_actions_variable" "squad_azure_subscription_id" {
-  for_each      = local.target_repo_names
+  for_each      = local.jobs_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_AZURE_SUBSCRIPTION_ID"
   value         = var.subscription_id
 }
 
 resource "github_actions_variable" "squad_storage_account" {
-  for_each      = local.target_repo_names
+  for_each      = local.jobs_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_STORAGE_ACCOUNT"
-  value         = module.storage.name
+  value         = module.storage[0].name
 }
 
 resource "github_actions_variable" "squad_queue_name" {
-  for_each      = local.target_repo_names
+  for_each      = local.jobs_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_QUEUE_NAME"
   value         = var.queue_name
@@ -102,49 +102,49 @@ resource "github_actions_variable" "squad_github_app_installation_id" {
 }
 
 resource "github_actions_variable" "sandbox_group_name" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_GROUP_NAME"
   value         = local.sandbox_group_name
 }
 
 resource "github_actions_variable" "sandbox_region" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_REGION"
   value         = local.sandbox_group_location
 }
 
 resource "github_actions_variable" "sandbox_resource_group_name" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_RESOURCE_GROUP_NAME"
   value         = azurerm_resource_group.main.name
 }
 
 resource "github_actions_variable" "sandbox_azure_client_id" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_AZURE_CLIENT_ID"
   value         = azurerm_user_assigned_identity.sandbox_dispatcher[0].client_id
 }
 
 resource "github_actions_variable" "sandbox_azure_tenant_id" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_AZURE_TENANT_ID"
   value         = data.azurerm_client_config.current.tenant_id
 }
 
 resource "github_actions_variable" "sandbox_azure_subscription_id" {
-  for_each      = var.enable_aca_sandbox ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_AZURE_SUBSCRIPTION_ID"
   value         = var.subscription_id
 }
 
 resource "github_actions_variable" "sandbox_image_ref" {
-  for_each      = var.enable_aca_sandbox && var.sandbox_image_ref != "" ? local.target_repo_names : {}
+  for_each      = local.sandbox_enabled && var.sandbox_image_ref != "" ? local.target_repo_names : {}
   repository    = each.value
   variable_name = "SQUAD_SANDBOX_IMAGE_REF"
   value         = var.sandbox_image_ref

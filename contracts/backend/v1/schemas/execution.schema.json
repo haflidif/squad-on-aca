@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repository execution setting",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "platform_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "backend/v1"
+    },
+    "platform_id": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "jobs",
+        "sandbox"
+      ],
+      "default": "jobs"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

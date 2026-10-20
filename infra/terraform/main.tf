@@ -22,6 +22,13 @@ resource "azurerm_resource_group" "main" {
   name     = "rg-${local.name_prefix}-${local.name_suffix}"
   location = var.location
   tags     = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = !local.jobs_enabled || (var.github_app_id != "" && var.github_app_installation_id != "")
+      error_message = "Jobs requires github_app_id and github_app_installation_id."
+    }
+  }
 }
 
 # --------------------------------------------------------------------------
@@ -47,6 +54,8 @@ module "log_analytics" {
 # AVM: Azure/avm-res-storage-storageaccount/azurerm
 # --------------------------------------------------------------------------
 module "storage" {
+  count = local.jobs_enabled ? 1 : 0
+
   source  = "Azure/avm-res-storage-storageaccount/azurerm"
   version = "~> 0.6.0"
 
@@ -96,6 +105,8 @@ module "acr" {
 # AVM: Azure/avm-res-app-managedenvironment/azurerm
 # --------------------------------------------------------------------------
 module "aca_environment" {
+  count = local.jobs_enabled ? 1 : 0
+
   source  = "Azure/avm-res-app-managedenvironment/azurerm"
   version = "~> 0.4.0"
 
@@ -117,6 +128,8 @@ module "aca_environment" {
 # Used for KEDA scaling (queue auth) and ACR image pull — no shared keys needed
 # --------------------------------------------------------------------------
 resource "azurerm_user_assigned_identity" "squad_agent" {
+  count = local.jobs_enabled ? 1 : 0
+
   name                = "id-squad-agent-${local.name_suffix}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
@@ -125,30 +138,38 @@ resource "azurerm_user_assigned_identity" "squad_agent" {
 
 # RBAC: UAMI → Storage Queue Data Reader (KEDA scaler reads queue length)
 resource "azurerm_role_assignment" "agent_queue_reader" {
-  scope                = module.storage.resource_id
+  count = local.jobs_enabled ? 1 : 0
+
+  scope                = module.storage[0].resource_id
   role_definition_name = "Storage Queue Data Reader"
-  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+  principal_id         = azurerm_user_assigned_identity.squad_agent[0].principal_id
 }
 
 # RBAC: UAMI → Storage Queue Data Contributor (agent dequeues messages at runtime)
 resource "azurerm_role_assignment" "agent_queue_contributor" {
-  scope                = module.storage.resource_id
+  count = local.jobs_enabled ? 1 : 0
+
+  scope                = module.storage[0].resource_id
   role_definition_name = "Storage Queue Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+  principal_id         = azurerm_user_assigned_identity.squad_agent[0].principal_id
 }
 
 # RBAC: UAMI → AcrPull (pull agent image without admin credentials)
 resource "azurerm_role_assignment" "agent_acr_pull" {
+  count = local.jobs_enabled ? 1 : 0
+
   scope                = module.acr.resource_id
   role_definition_name = "AcrPull"
-  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+  principal_id         = azurerm_user_assigned_identity.squad_agent[0].principal_id
 }
 
 # RBAC: UAMI → AcrPush (import base images from Docker Hub)
 resource "azurerm_role_assignment" "agent_acr_push" {
+  count = local.jobs_enabled ? 1 : 0
+
   scope                = module.acr.resource_id
   role_definition_name = "AcrPush"
-  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+  principal_id         = azurerm_user_assigned_identity.squad_agent[0].principal_id
 }
 
 # --------------------------------------------------------------------------
@@ -157,13 +178,19 @@ resource "azurerm_role_assignment" "agent_acr_push" {
 # and push messages to the Storage Queue without secrets.
 # --------------------------------------------------------------------------
 resource "azurerm_federated_identity_credential" "github_actions" {
-  for_each = toset(var.target_repos)
+  for_each = local.jobs_enabled ? toset(var.target_repos) : toset([])
 
   name      = "ghactions-${replace(replace(each.value, "/", "-"), ".", "-")}"
-  parent_id = azurerm_user_assigned_identity.squad_agent.id
+  parent_id = azurerm_user_assigned_identity.squad_agent[0].id
   audience  = ["api://AzureADTokenExchange"]
   issuer    = "https://token.actions.githubusercontent.com"
-  subject   = "repo:${each.value}:ref:refs/heads/main"
+  subject   = local.oidc_subjects.jobs[each.value]
+  lifecycle {
+    precondition {
+      condition     = local.oidc_valid
+      error_message = "OIDC subjects must bind exactly to their target repo and backend context, without wildcards, duplicate claims, malformed IDs or inconsistent inline/custom IDs."
+    }
+  }
 }
 
 # --------------------------------------------------------------------------
@@ -171,6 +198,8 @@ resource "azurerm_federated_identity_credential" "github_actions" {
 # RBAC-based access only (no access policies)
 # --------------------------------------------------------------------------
 resource "azurerm_key_vault" "squad" {
+  count = local.jobs_enabled ? 1 : 0
+
   name                          = "kv-squad-${local.name_suffix}"
   location                      = azurerm_resource_group.main.location
   resource_group_name           = azurerm_resource_group.main.name
@@ -184,14 +213,18 @@ resource "azurerm_key_vault" "squad" {
 
 # RBAC: UAMI → Key Vault Secrets User (read secrets at runtime)
 resource "azurerm_role_assignment" "agent_keyvault_reader" {
-  scope                = azurerm_key_vault.squad.id
+  count = local.jobs_enabled ? 1 : 0
+
+  scope                = azurerm_key_vault.squad[0].id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.squad_agent.principal_id
+  principal_id         = azurerm_user_assigned_identity.squad_agent[0].principal_id
 }
 
 # RBAC: Deployer → Key Vault Secrets Officer (upload PEM via TF)
 resource "azurerm_role_assignment" "deployer_keyvault_officer" {
-  scope                = azurerm_key_vault.squad.id
+  count = local.jobs_enabled ? 1 : 0
+
+  scope                = azurerm_key_vault.squad[0].id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
 }
@@ -211,6 +244,8 @@ resource "azurerm_role_assignment" "deployer_keyvault_officer" {
 # at runtime by entrypoint.sh.
 # --------------------------------------------------------------------------
 resource "azapi_resource" "squad_agent_job" {
+  count = local.jobs_enabled ? 1 : 0
+
   type      = "Microsoft.App/jobs@2025-01-01"
   name      = "job-squad-agent-${local.name_suffix}"
   location  = azurerm_resource_group.main.location
@@ -221,12 +256,12 @@ resource "azapi_resource" "squad_agent_job" {
 
   identity {
     type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.squad_agent.id]
+    identity_ids = [azurerm_user_assigned_identity.squad_agent[0].id]
   }
 
   body = {
     properties = {
-      environmentId = module.aca_environment.resource_id
+      environmentId = module.aca_environment[0].resource_id
 
       configuration = {
         replicaTimeout    = var.agent_job_config.timeout_seconds
@@ -238,7 +273,7 @@ resource "azapi_resource" "squad_agent_job" {
         registries = [
           {
             server   = module.acr.resource.login_server
-            identity = azurerm_user_assigned_identity.squad_agent.id
+            identity = azurerm_user_assigned_identity.squad_agent[0].id
           }
         ]
 
@@ -258,7 +293,7 @@ resource "azapi_resource" "squad_agent_job" {
                   queueLength = "1"
                   accountName = local.storage_account_name
                 }
-                identity = azurerm_user_assigned_identity.squad_agent.id
+                identity = azurerm_user_assigned_identity.squad_agent[0].id
               }
             ]
           }
@@ -269,7 +304,7 @@ resource "azapi_resource" "squad_agent_job" {
         containers = [
           {
             name  = "squad-agent"
-            image = "${module.acr.resource.login_server}/squad-agent:latest"
+            image = var.jobs_image_ref != "" ? var.jobs_image_ref : "${module.acr.resource.login_server}/squad-agent:latest"
             resources = {
               cpu    = var.agent_job_config.cpu
               memory = var.agent_job_config.memory
@@ -278,11 +313,11 @@ resource "azapi_resource" "squad_agent_job" {
               { name = "GITHUB_REPO", value = var.github_repo },
               { name = "GITHUB_APP_ID", value = var.github_app_id },
               { name = "GITHUB_APP_INSTALLATION_ID", value = var.github_app_installation_id },
-              { name = "KEY_VAULT_NAME", value = azurerm_key_vault.squad.name },
+              { name = "KEY_VAULT_NAME", value = azurerm_key_vault.squad[0].name },
               { name = "KEY_VAULT_SECRET_NAME", value = "github-app-private-key" },
               { name = "QUEUE_NAME", value = var.queue_name },
               { name = "AZURE_STORAGE_ACCOUNT", value = local.storage_account_name },
-              { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.squad_agent.client_id },
+              { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.squad_agent[0].client_id },
               { name = "COPILOT_TOKEN_SECRET_NAME", value = "copilot-pat" },
             ]
           }

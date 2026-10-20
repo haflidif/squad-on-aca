@@ -1,3 +1,5 @@
+import { checkedSubject, RepositorySubjects } from '../oidc.bicep'
+
 /*
   Squad on ACA — User-Assigned Managed Identity Module
   Wraps: br/public:avm/res/managed-identity/user-assigned-identity
@@ -19,12 +21,15 @@ param tags object = {}
 @description('GitHub repos (owner/repo) to create federated credentials for. One credential per repo.')
 param targetRepos array = []
 
+@description('Exact subjects keyed by target repository. Validated before creating trust.')
+param oidcSubjects RepositorySubjects = {}
+
 // Build federated identity credentials: one per target repo
 var federatedIdentityCredentials = [for repo in targetRepos: {
   name: replace(replace(replace(repo, '/', '-'), '.', '-'), '_', '-')
   audiences: ['api://AzureADTokenExchange']
   issuer: 'https://token.actions.githubusercontent.com'
-  subject: 'repo:${repo}:ref:refs/heads/main'
+  subject: checkedSubject(oidcSubjects[?repo] ?? 'repo:${repo}:ref:refs/heads/main', repo, 'ref:refs/heads/main')
 }]
 
 // ---------------------------------------------------------------------------

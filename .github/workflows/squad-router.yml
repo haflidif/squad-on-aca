@@ -1,0 +1,59 @@
+name: Squad execution router
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+permissions: {}
+# Repository serialization also covers PR revisions, whose event number differs from the issue.
+concurrency:
+  group: squad-router-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  route:
+    if: (github.event_name == 'issues' && (github.event.label.name == 'squad' || startsWith(github.event.label.name, 'squad:'))) || (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/squad revise '))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.route.outputs.backend }}
+      route_run_id: ${{ steps.route.outputs.route_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/sandbox-engine
+      - id: route
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/backend-router.cjs').admit({ github, context, root: process.cwd() });
+  jobs:
+    needs: route
+    if: github.run_attempt == 1 && needs.route.outputs.backend == 'jobs'
+    uses: ./.github/workflows/squad-queue.yml
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    with:
+      backend: ${{ needs.route.outputs.backend }}
+      route_run_id: ${{ needs.route.outputs.route_run_id }}
+  sandbox:
+    needs: route
+    if: github.run_attempt == 1 && needs.route.outputs.backend == 'sandbox'
+    uses: ./.github/workflows/squad-sandbox-issue.yml
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      id-token: write
+      copilot-requests: write
+    secrets: inherit
+    with:
+      backend: ${{ needs.route.outputs.backend }}
+      route_run_id: ${{ needs.route.outputs.route_run_id }}

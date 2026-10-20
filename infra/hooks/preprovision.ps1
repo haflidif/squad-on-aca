@@ -19,6 +19,20 @@
 # ---------------------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
 
+$Backend = if (Test-Path Env:\SQUAD_EXECUTION_BACKEND) { $env:SQUAD_EXECUTION_BACKEND } else { 'jobs' }
+if ($Backend -cnotin @('jobs', 'sandbox')) { throw 'SQUAD_EXECUTION_BACKEND must be jobs or sandbox.' }
+$ImagePattern = '^[^\s@]+@sha256:[0-9a-f]{64}$'
+if ($Backend -ceq 'sandbox') {
+    if ($env:SQUAD_SANDBOX_IMAGE_REF -cnotmatch $ImagePattern) {
+        throw 'Sandbox requires SQUAD_SANDBOX_IMAGE_REF pinned to a lowercase SHA-256 digest.'
+    }
+    Write-Host 'Sandbox bootstrap: no Jobs Key Vault, PAT, queue, or App settings are required. Repository execution remains disabled.'
+    exit 0
+}
+if ($env:SQUAD_JOBS_IMAGE_REF -and $env:SQUAD_JOBS_IMAGE_REF -cnotmatch $ImagePattern) {
+    throw 'SQUAD_JOBS_IMAGE_REF must be pinned to a lowercase SHA-256 digest.'
+}
+
 Write-Host ""
 Write-Host "=== Squad on ACA — pre-provision checks ===" -ForegroundColor Cyan
 Write-Host ""

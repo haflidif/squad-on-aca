@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deployment descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_version",
+    "platform_id",
+    "backend",
+    "location",
+    "tenant_id",
+    "registry_id",
+    "monitoring_id",
+    "limits",
+    "oidc",
+    "protected_environments"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "backend/v1"
+    },
+    "release_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform_id": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "jobs",
+        "sandbox"
+      ],
+      "default": "jobs"
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    },
+    "registry_id": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+    },
+    "monitoring_id": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_concurrency",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "oidc": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "client_id",
+          "subject",
+          "audience"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+          },
+          "subject": {
+            "type": "string",
+            "pattern": "^(?=(?:[^:]+:[^:]+:)*repo:)(?=(?:[^:]+:[^:]+:)*(?:environment|ref):)(?!(?:[^:]+:[^:]+:)*(repo|environment|ref|repository_owner_id|repository_id):[^:]+:(?:[^:]+:[^:]+:)*\\1:)(?!(?:[^:]+:[^:]+:)*environment:[^:]+:(?:[^:]+:[^:]+:)*ref:)(?!(?:[^:]+:[^:]+:)*ref:[^:]+:(?:[^:]+:[^:]+:)*environment:)(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+):(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+)(?::(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+):(?:repo:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*)|repository_owner_id:[1-9][0-9]*|repository_id:[1-9][0-9]*|environment:[A-Za-z0-9_.%/-]+|ref:refs/heads/[A-Za-z0-9_./-]+))?$(?![\\s\\S])"
+          },
+          "audience": {
+            "const": "api://AzureADTokenExchange"
+          }
+        }
+      },
+      "uniqueItems": true
+    },
+    "protected_environments": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managed_environment_id",
+        "job_id",
+        "storage_account_id",
+        "queue_name",
+        "identity_client_id",
+        "image_ref",
+        "key_vault_id"
+      ],
+      "properties": {
+        "managed_environment_id": {
+          "type": "string",
+          "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+        },
+        "job_id": {
+          "type": "string",
+          "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+        },
+        "storage_account_id": {
+          "type": "string",
+          "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+        },
+        "queue_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_client_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "image_ref": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$"
+        },
+        "key_vault_id": {
+          "type": "string",
+          "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "dispatcher_client_id",
+        "image_pull_client_id",
+        "image_ref"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+        },
+        "dispatcher_client_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "image_pull_client_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "image_ref": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "backend": {
+          "const": "jobs"
+        },
+        "sandbox": false
+      },
+      "required": [
+        "jobs"
+      ]
+    },
+    {
+      "properties": {
+        "backend": {
+          "const": "sandbox"
+        },
+        "jobs": false
+      },
+      "required": [
+        "sandbox"
+      ]
+    }
+  ]
+}

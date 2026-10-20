@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DEFAULT_PATHS, loadConfig, memberPaths, roleKind, scopeMatchesAllowed, isDeniedPath, globToRegExp, validPathPattern, enginePath } = require('./sandbox-flow-config.cjs');
 
-const LABEL = 'sandbox-run';
+const LABEL = 'squad';
 const MAX_EVENT_BYTES = 2 * 1024 * 1024;
 const MAX_BODY_CHARS = 8000;
 const MAX_TITLE_CHARS = 200;
@@ -28,7 +28,7 @@ function fail(code) {
 function evaluateEvent(event, env, options = {}) {
   if (!event || typeof event !== 'object') fail('EVENT_INVALID');
   if (event.action !== 'labeled') fail('EVENT_ACTION_REJECTED');
-  if (!event.label || event.label.name !== LABEL) fail('LABEL_REJECTED');
+  if (!require('./backend-router.cjs').eligibleLabel(event.label?.name)) fail('LABEL_REJECTED');
   const repository = env.GITHUB_REPOSITORY;
   if (typeof repository !== 'string' || !REPOSITORY.test(repository)) fail('REPOSITORY_INVALID');
   if (!event.repository || event.repository.full_name !== repository) fail('REPOSITORY_MISMATCH');
@@ -39,7 +39,6 @@ function evaluateEvent(event, env, options = {}) {
   if (!ALLOWED_ASSOCIATIONS.has(issue.author_association)) fail('ISSUE_AUTHOR_NOT_TRUSTED');
   const sender = event.sender;
   if (!sender || sender.type !== 'User' || typeof sender.login !== 'string' || !LOGIN.test(sender.login)) fail('SENDER_REJECTED');
-  if (options.requireOptIn && env.SQUAD_ISSUE_OPT_IN_NUMBER !== String(issue.number)) fail('RUN_OPT_IN_MISSING');
   if (typeof issue.title !== 'string' || issue.title.length > MAX_TITLE_CHARS) fail('ISSUE_TITLE_INVALID');
   if (typeof issue.body !== 'string') fail('ISSUE_BODY_MISSING');
   if (issue.body.length > MAX_BODY_CHARS) fail('ISSUE_BODY_TOO_LARGE');
@@ -277,7 +276,7 @@ function main(argv, env) {
     console.log(`ISSUE_EVENT_OK issue=${result.issueNumber}`);
     return;
   }
-  const root = path.resolve(__dirname, '..');
+  const root = path.resolve(process.cwd());
   const roster = loadRoster(root);
   const config = loadConfig(root);
   const plan = buildLeadPlan({ ...result, runId: env.GITHUB_RUN_ID, attempt: env.GITHUB_RUN_ATTEMPT || '1', roster, config });

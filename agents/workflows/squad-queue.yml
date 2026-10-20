@@ -1,21 +1,21 @@
 # =============================================================================
-# Squad Issue Queue — GitHub Actions Workflow (TEMPLATE)
+# Squad Issue Queue - GitHub Actions Workflow (TEMPLATE)
 # =============================================================================
 # Bridges GitHub issues to Azure Storage Queue so Squad agents wake up.
-# Copy this file to your target repo: .github/workflows/squad-queue.yml
+# Callable Jobs backend. Install with squad-router.yml and the pinned engine.
 #
 # Prerequisites:
 #   1. Set GitHub repository variables (Settings > Secrets and variables > Actions > Variables):
-#      - SQUAD_AZURE_CLIENT_ID      — UAMI client ID (from Terraform output)
-#      - SQUAD_AZURE_TENANT_ID      — Azure AD tenant ID
-#      - SQUAD_AZURE_SUBSCRIPTION_ID — Azure subscription ID
-#      - SQUAD_STORAGE_ACCOUNT      — Storage account name (e.g. stsquadacaa6b49feb)
-#      - SQUAD_QUEUE_NAME           — Queue name (e.g. squad-work-queue)
+#      - SQUAD_AZURE_CLIENT_ID      - UAMI client ID (from Terraform output)
+#      - SQUAD_AZURE_TENANT_ID      - Azure AD tenant ID
+#      - SQUAD_AZURE_SUBSCRIPTION_ID - Azure subscription ID
+#      - SQUAD_STORAGE_ACCOUNT      - Storage account name (e.g. stsquadacaa6b49feb)
+#      - SQUAD_QUEUE_NAME           - Queue name (e.g. squad-work-queue)
 #
 #   2. Add a federated credential on the UAMI for this repo:
 #      - Issuer: https://token.actions.githubusercontent.com
 #      - Subject: repo:<owner>/<repo>:ref:refs/heads/main
-#        (or use a broader filter — see README.md)
+#        (or use a broader filter - see README.md)
 #
 #   3. Assign UAMI the "Storage Queue Data Message Sender" role on the queue.
 #
@@ -27,8 +27,14 @@
 name: Squad Issue Queue
 
 on:
-  issues:
-    types: [labeled]
+  workflow_call:
+    inputs:
+      backend:
+        type: string
+        required: true
+      route_run_id:
+        type: string
+        required: true
 
 # OIDC federated credentials require these permissions
 permissions:
@@ -39,14 +45,26 @@ permissions:
 jobs:
   enqueue:
     # Only run when a label starting with "squad:" is added.
-    # NOTE: The "squad:processing" label also matches this condition — that's
+    # NOTE: The "squad:processing" label also matches this condition - that's
     # intentional. The dedup check in step 1 prevents infinite loops.
-    if: startsWith(github.event.label.name, 'squad:')
+    if: github.run_attempt == 1 && inputs.backend == 'jobs' && inputs.route_run_id == github.run_id && github.event_name == 'issues' && startsWith(github.event.label.name, 'squad:')
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/sandbox-engine
+      - name: Verify exclusive Jobs admission receipt
+        uses: actions/github-script@v7
+        env:
+          ROUTE_RUN_ID: ${{ inputs.route_run_id }}
+        with:
+          script: |
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/backend-router.cjs').assertRoute({ github, context, backend: 'jobs', runId: process.env.ROUTE_RUN_ID });
       # -----------------------------------------------------------------------
-      # Step 1: Dedup — skip if "squad:processing" is already on the issue.
+      # Step 1: Dedup - skip if "squad:processing" is already on the issue.
       # This is CRITICAL because adding "squad:processing" in step 3 fires
       # another issues.labeled event. Without this check, we'd loop forever.
       # -----------------------------------------------------------------------
@@ -87,7 +105,7 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Step 3: Mark the issue so we don't process it again.
-      # Done BEFORE enqueuing — if the enqueue fails, we still have the label
+      # Done BEFORE enqueuing - if the enqueue fails, we still have the label
       # to signal that processing was attempted. The label can be removed
       # manually to retry.
       # -----------------------------------------------------------------------
@@ -107,9 +125,13 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Enqueue issue to Storage Queue
         if: steps.dedup.outputs.skip != 'true'
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REQUEST_LABEL: ${{ github.event.label.name }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           # Extract agent type from the label (e.g., "squad:backend" → "backend")
-          AGENT_TYPE="${{ github.event.label.name }}"
+          AGENT_TYPE="$REQUEST_LABEL"
           AGENT_TYPE="${AGENT_TYPE#squad:}"
 
           # Build the queue message JSON
@@ -117,7 +139,7 @@ jobs:
             --arg issue_number "${{ github.event.issue.number }}" \
             --arg agent_type "${AGENT_TYPE}" \
             --arg repo "${{ github.repository }}" \
-            --arg title "${{ github.event.issue.title }}" \
+            --arg title "$ISSUE_TITLE" \
             '{
               issue_number: ($issue_number | tonumber),
               agent_type: $agent_type,
@@ -125,7 +147,7 @@ jobs:
               title: $title
             }')
 
-          # Base64 encode — Azure Storage Queue expects base64 content
+          # Base64 encode - Azure Storage Queue expects base64 content
           MESSAGE_B64=$(echo "${MESSAGE}" | base64 -w 0)
 
           # Put message on the queue using managed identity auth

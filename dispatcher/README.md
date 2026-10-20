@@ -6,11 +6,11 @@ The dispatcher is the trusted PR 5 fan-out boundary. It reads a `coordinator-exe
 node dispatcher\cli.js --plan plan.json --repo . --out .dispatcher-out --client fake --concurrency 3 --auth-mode pat
 ```
 
-## Opt-in issue flow
+## Repository issue routing
 
-The legacy ACA Job workflow remains the default. The separate `squad-sandbox-issue.yml` workflow runs only for issues labeled `sandbox-run` when `SQUAD_ISSUE_FLOW_ENABLED` is `true`; `SQUAD_ISSUE_OPT_IN_NUMBER` can further restrict the allowed issue. A repository collaborator with write access must apply the label. The workflow runs a Lead routing stage and one to three scoped members in at most two dependency-ordered stages, integrates their changes, then publishes the validated result as a draft pull request.
+The single `squad-router.yml` ingress reads the trusted `.squad/execution.json` backend and matching `.squad/platform.json` descriptor. It persists a route receipt and request claim, then calls exactly one backend workflow. Jobs is the default; Sandbox is a whole-repository alternative. The old single-issue variables and `sandbox-run` gate are removed. See the [backend contract](../docs/backend-contract.md) and [issue flow guide](../docs/sandbox-issue-flow.md) for setup, receipt reuse, and retry reconciliation.
 
-Set `SQUAD_ISSUE_FLOW_ENABLED` as a repository variable to enable dispatch. Set `SQUAD_ISSUE_OPT_IN_NUMBER` as a `squad-sandbox-issue` environment variable to restrict it to one issue, and configure the ACA settings in that environment. In `squad-publish`, set `SQUAD_GITHUB_APP_ID` and `SQUAD_GITHUB_APP_INSTALLATION_ID` as variables and `SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` as a secret. The flow uses `sandbox:*` lifecycle labels and `squad:<member>` routing labels; it does not run unless explicitly enabled.
+Keep protected environments, separate dispatcher and publisher credentials, immutable images, and target-specific OIDC and image-pull checks. Only repository admission has changed; persona execution and the trusted publish boundary are unchanged.
 
 ### Member ownership and stages
 
@@ -18,7 +18,7 @@ Routing decisions may include `depends_on: ["<member id>"]` per member. Independ
 
 The trusted `.squad/sandbox-flow.json` configuration defines member-kind or exact-role `allowed_paths` globs and optional generic postprocess tools and argv steps. With no config, members can own any path except engine-denied paths. The engine always blocks `.github/**`, `.squad/**`, `.git` paths, traversal, escaping symlinks, and its own files in this bootstrap repository. Generic integration checks cover patch/scope validation, symlink containment, and likely secret material; stack-specific checks are not built into the engine. See the [Sandbox issue flow guide](../docs/sandbox-issue-flow.md) for the version 1 schema, examples, setup, revise behavior, and troubleshooting.
 
-`issue-stages.cjs` reserves AI credits per member against one aggregate budget (the workflow allows 30 per member, 90 total). The issue report shows each member's stage. Member artifacts retain patch-only diagnostics, including member patches, per-stage combined patches, and the final combined patch, even when integration fails. Failed stages prevent dependent execution and publication. Existing opt-in gates, protected environments, and permissions remain unchanged.
+`issue-stages.cjs` reserves AI credits per member against one aggregate budget (the workflow allows 30 per member, 90 total). The issue report shows each member's stage. Member artifacts retain patch-only diagnostics, including member patches, per-stage combined patches, and the final combined patch, even when integration fails. Failed stages prevent dependent execution and publication. Protected environments, resource checks, and publication permissions remain unchanged.
 
 ## Before live dispatch
 
@@ -302,7 +302,7 @@ dispatch until the live checklist passes. Publication remains disabled.
 
 ### Deployment readiness
 
-Sandbox Group capabilities, image-pull identity configuration, OIDC trust, and live dispatch must be verified for each target repository and Azure environment before enabling issue dispatch. The optional Sandbox Terraform resources create a Group placeholder and dispatcher identity, but do not yet configure the Group's image-pull identity or image reference. Keep `SQUAD_ISSUE_FLOW_ENABLED` false until those target-specific prerequisites and the workflow checks are complete. The legacy ACA Job path remains the default.
+Sandbox Group capabilities, image-pull identity configuration, OIDC trust, and live dispatch must be verified for each target repository and Azure environment before enabling issue dispatch. The optional Sandbox Terraform resources create a Group placeholder and dispatcher identity, but do not yet configure the Group's image-pull identity or image reference. Keep `enabled: false` in `.squad/execution.json` until those target-specific prerequisites and workflow checks are complete. Jobs remains the default backend.
 
 ## Integration phase
 

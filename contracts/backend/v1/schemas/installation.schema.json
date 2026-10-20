@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repository installation ownership receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_version",
+    "action_sha",
+    "generated_files"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "backend/v1"
+    },
+    "platform_id": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+(?:/providers/[^/]+(?:/[^/]+)+)?$"
+    },
+    "release_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "generated_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "jobs",
+        "sandbox"
+      ],
+      "default": "jobs"
+    }
+  }
+}

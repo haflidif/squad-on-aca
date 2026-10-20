@@ -134,7 +134,7 @@ test('roster snapshot contains only contract member fields', () => {
 });
 
 for (const [label, mutate, code] of [
-  ['other label', value => { value.label.name = 'squad:other'; }, 'LABEL_REJECTED'],
+  ['other label', value => { value.label.name = 'unrelated'; }, 'LABEL_REJECTED'],
   ['other action', value => { value.action = 'opened'; }, 'EVENT_ACTION_REJECTED'],
   ['other repository', value => { value.repository.full_name = 'evil/repo'; }, 'REPOSITORY_MISMATCH'],
   ['pull request', value => { value.issue.pull_request = {}; }, 'ISSUE_REJECTED'],
@@ -153,9 +153,9 @@ for (const [label, mutate, code] of [
   });
 }
 
-test('opt-in is required only when requested and must match exactly', () => {
+test('retired opt-in values cannot restrict repository-wide requests', () => {
   assert.doesNotThrow(() => evaluateEvent(event(), { ...ENV, SQUAD_ISSUE_OPT_IN_NUMBER: undefined }));
-  assert.equal(reason(() => evaluateEvent(event(), { ...ENV, SQUAD_ISSUE_OPT_IN_NUMBER: '' }, { requireOptIn: true })), 'RUN_OPT_IN_MISSING');
+  assert.doesNotThrow(() => evaluateEvent(event(), { ...ENV, SQUAD_ISSUE_OPT_IN_NUMBER: '' }, { requireOptIn: true }));
 });
 
 test('issue text stays delimited and is never interpolated into an executable plan check', () => {

@@ -1,0 +1,6 @@
+{
+  "schema_version": "backend/v1",
+  "platform_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/example-platform",
+  "backend": "sandbox",
+  "enabled": true
+}

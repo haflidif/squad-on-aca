@@ -1,19 +1,41 @@
-# Opt-in ACA Sandbox issue flow
+# ACA Sandbox repository backend
 
-> **Preview:** This workflow is separate from the default ACA Job queue path. It creates temporary ACA Sandboxes and a draft pull request. Keep it disabled until you configure the Sandbox Group, identity, image, GitHub environments, and OIDC trust.
+> **Preview:** Sandbox is a repository-wide alternative to the default ACA Jobs backend. Configure the Sandbox Group, identities, immutable image, protected GitHub environments, and OIDC trust before enabling repository admission.
 
 Try this after setup:
 
 ```text
-Label issue #<number> with sandbox-run
+Label an eligible issue with squad:<member>, or squad for Sandbox Lead selection
 ```
 
-The `squad-sandbox-issue.yml` workflow routes work through your Squad roster, runs members in dependency-ordered stages, integrates their patches, applies optional trusted postprocess steps, and publishes one draft pull request. The existing `squad-queue.yml` workflow remains the default ACA Job path. The Sandbox workflow stays off unless you explicitly enable it.
+The single `squad-router.yml` ingress selects the configured backend for every eligible issue request. It calls `squad-queue.yml` for Jobs or `squad-sandbox-issue.yml` for Sandbox, never both. Sandbox routes work through your Squad roster, runs members in dependency-ordered stages, integrates their patches, applies optional trusted postprocess steps, and publishes one draft PR. Labels request work; they do not select a backend.
+
+## Consume the packaged engine
+
+You do not need to fork this repository or copy `scripts/`, `dispatcher/`, `contracts/`, or `agents/` into your target repository. Install `.github/workflows/squad-router.yml`, `.github/workflows/squad-queue.yml`, and `.github/workflows/squad-sandbox-issue.yml` together from the engine release you select. Replace any independently triggered old queue or Sandbox workflow. Neither callable backend workflow may retain issue event triggers. Replace every local `uses: ./.github/actions/sandbox-engine` step with the same full commit pin:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    persist-credentials: false
+    ref: ${{ github.sha }}
+- uses: haflidif/squad-on-aca/.github/actions/sandbox-engine@<full-40-character-commit-sha>
+- name: Build the Lead plan
+  run: squad-engine plan --stage lead --event "$GITHUB_WORKSPACE/.squad-issue/event.json" --out "$GITHUB_WORKSPACE/.squad-issue/lead-plan.json"
+```
+
+Replace the SHA placeholder with a reviewed engine commit, not a branch or mutable tag. Retain the complete workflow's gate, environment protections, permissions, artifacts, job ordering, and publish checks. The example above only shows how to load and invoke the package after the gate has captured the request. Apply the same pin to the optional conflict-hint and manual workflows if you use them. The external conflict-hint workflow does not need its engine-only `sparse-checkout` list.
+
+The action bundles the engine through the selected repository commit, sets up the pinned Node.js version, and adds `squad-engine` to `PATH`. Commands map to the existing entrypoints: `plan`, `route`, `stages`, `revise`, `report`, `postprocess`, `install-tools`, `preflight`, `dispatch`, `diagnose`, and `stage-pem`. Arguments pass through unchanged without shell evaluation. `dispatch publish` invokes the existing trusted publisher.
+
+The working directory and `--repo "$GITHUB_WORKSPACE"` always refer to your trusted target checkout. Your roster, charters, `.squad/sandbox-flow.json`, captured requests, and generated plans stay there. `SQUAD_ENGINE_ROOT` and the action's `engine-root` output refer only to the pinned engine bundle. GitHub-script steps load engine modules from that root, never from target `scripts/`. Do not check out a PR head or a sandbox patch as trusted engine code.
+
+Keep the App private key and write installation token in the protected publish job. Do not pass them to the action setup, dispatcher, postprocess, or sandbox. Metadata jobs retain their existing limited workflow-token writes. Repository admission uses `.squad/execution.json` and the matching `.squad/platform.json` deployment descriptor. The old `SQUAD_ISSUE_FLOW_ENABLED` and `SQUAD_ISSUE_OPT_IN_NUMBER` variables are ignored; `sandbox-run` is no longer a request label. Do not use these removed gates to pause admission.
 
 ## How the flow works
 
-1. A repository collaborator with write access applies `sandbox-run` to an open issue.
-2. The workflow validates the issue and the exact opt-in issue number before Azure authentication.
+1. A human with write, maintain, or admin permission applies a work request label to an open issue.
+2. The router validates the trusted repository binding and persists the chosen backend plus original run ID in an issue comment. It writes a separate request claim before invoking exactly one backend. Both backend workflows independently verify this receipt before authentication.
 3. The Lead selects one to three active non-lead members with disjoint owned paths. The repository config supplies path limits by member kind or exact role.
 4. Independent members run in the first stage. Members that depend on first-stage work run in the second stage. The flow supports up to two stages and a bounded AI-credit budget.
 5. The dispatcher validates each patch and integrates the combined result. Generic checks verify patch application, scope, symlinks, and likely secret material.
@@ -24,13 +46,13 @@ Issue text, comments, member output, and PR diffs are untrusted task data. They 
 
 ## Prerequisites and bootstrap steps
 
-The Terraform and Bicep bootstrap paths create the legacy ACA Job resources by default. Optional Sandbox resources must be configured separately before enabling this flow.
+Jobs remains the default when the backend is omitted. Provision the selected backend and export its deployment descriptor before binding a repository.
 
 1. **Create or install a GitHub App** on the target repository. Grant `contents: write`, `pull_requests: write`, and `issues: write`. Set its App ID and installation ID as `SQUAD_GITHUB_APP_ID` and `SQUAD_GITHUB_APP_INSTALLATION_ID` in the protected `squad-publish` environment. Store its private key as the `SQUAD_GITHUB_APP_PRIVATE_KEY_PEM` environment secret. Do not put the key in repository files or pass it to a dispatcher or sandbox.
 2. **Create the `squad-sandbox-issue` environment** and restrict deployments to the protected default branch. Add required reviewers if your organization requires them.
 3. **Create the `squad-publish` environment** with its own branch restrictions and required reviewers. The publish workflow needs the GitHub App variables and private key described above.
 4. **Configure Azure OIDC trust** on the Sandbox dispatcher identity. For this workflow, the default subject is `repo:<owner>/<repository>:environment:squad-sandbox-issue`. Use issuer `https://token.actions.githubusercontent.com` and audience `api://AzureADTokenExchange`. Create the GitHub environment before the first Azure login. If your organization customizes OIDC subjects, match the exact `sub` claim used by the repository.
-5. **Set the issue-flow variables** at repository scope. Start with `SQUAD_ISSUE_FLOW_ENABLED=false`. Set `SQUAD_ISSUE_OPT_IN_NUMBER=0`; replace it with the one approved issue number before enabling the flow.
+5. **Bind the repository.** Save the exported descriptor as `.squad/platform.json`. Add `.squad/execution.json` with `schema_version: "backend/v1"`, the same `platform_id`, `backend: "sandbox"`, and initially `enabled: false`. Review these trusted default-branch files. A missing backend means Jobs, not Sandbox. A missing `enabled` means disabled. See the [backend contract](backend-contract.md).
 6. **Set Sandbox runtime variables** in the `squad-sandbox-issue` environment, or at repository scope when appropriate:
 
    | Variable | Value |
@@ -45,8 +67,8 @@ The Terraform and Bicep bootstrap paths create the legacy ACA Job resources by d
    | `SQUAD_SANDBOX_IMAGE_REF` | Immutable persona image reference with a SHA-256 digest |
 
    Do not use a mutable image tag for a live run. The persona image differs from the legacy `agents/base/` ACA Job image. Verify the image-pull identity and registry permissions for your Azure environment.
-7. **Create labels.** Ensure the repository has `sandbox-run`, `sandbox:processing`, `sandbox:queued`, `sandbox:revising`, `sandbox:ready`, and `sandbox:failed`. Bootstrap hooks create these labels. Squad creates member labels from `.squad/team.md`. Confirm a maintainer can apply `sandbox-run` and approve protected environments.
-8. **Enable one issue only.** Set `SQUAD_ISSUE_FLOW_ENABLED=true`, set `SQUAD_ISSUE_OPT_IN_NUMBER` to that issue number, then apply `sandbox-run`. Turn the variable off after the test if you do not want to keep the flow enabled.
+7. **Create labels.** Ensure the repository has `squad`, `sandbox:processing`, `sandbox:queued`, `sandbox:revising`, `sandbox:ready`, and `sandbox:failed`. Bootstrap hooks create these labels. Squad creates member labels from `.squad/team.md`. Confirm a maintainer can apply a request label and approve protected environments.
+8. **Enable the repository.** After replacing old ingress workflows and reviewing protections, set `enabled: true` in `.squad/execution.json`. Apply a work request label to any eligible issue. There is no single-issue allowlist. Set `enabled: false` to pause new requests without changing providers.
 
 The workflow uses the Actions token for Copilot requests. It does not use a stored Copilot PAT in the persona sandbox. The publish App key is isolated to the publish job.
 
@@ -178,7 +200,7 @@ The existing ACA Job `/squad revise` workflow continues to handle its own branch
 
 | Label | Meaning |
 |---|---|
-| `sandbox-run` | Input label that requests the opt-in Sandbox issue workflow |
+| `squad` or `squad:<member>` | Requests work through the repository router; does not choose a backend |
 | `sandbox:processing` | Work is being dispatched |
 | `sandbox:queued` | A draft PR has been published and awaits review |
 | `sandbox:revising` | A validated revise run is in progress |
@@ -206,7 +228,8 @@ Integration checks run in a Git-free copy of the integrated tree. The dispatcher
 | `REVISE_MAIN_NOT_INCLUDED` | The PR branch does not contain the current base branch. Merge the base branch, resolve conflicts, then post a new revise comment. |
 | `REVISE_BRANCH_HEAD_MOVED` | The PR head changed after the revise request was captured. Review the new changes and post a new revise comment. |
 | Head lease refusal | The remote branch no longer matches the captured PR head. The workflow does not overwrite it. Inspect the PR and rerun only with a newly validated request. |
-| `SQUAD_ISSUE_OPT_IN_NUMBER` mismatch | The issue number is not the approved issue. Set the exact issue number or keep the flow disabled. |
+| `ROUTE_REJECTED CONFIG_*` or `PLATFORM_BINDING_MISMATCH` | Fix the trusted execution setting and matching exported descriptor. Invalid values never dispatch Sandbox or fall back to Jobs. |
+| `DISPATCH_AMBIGUOUS_RECONCILE_REQUIRED` | Inspect the original receipt and run before retrying. Reruns, duplicate requests, and relabels do not automatically dispatch again. See the backend contract for reconciliation. |
 | Azure OIDC login fails | Confirm the environment exists and the identity FIC subject matches `repo:<owner>/<repository>:environment:squad-sandbox-issue`. |
 | Image pull fails | Verify the immutable image digest, image-pull client ID, registry permissions, and Sandbox Group image identity configuration. |
 
@@ -214,7 +237,7 @@ See [Troubleshooting](troubleshooting.md) for legacy ACA Job failures and additi
 
 ## Disable or roll back
 
-To stop new Sandbox issue runs, set `SQUAD_ISSUE_FLOW_ENABLED=false` or remove the `sandbox-run` label. The flow is disabled by default. The existing ACA Job dispatch remains unchanged and is still the default path. Keep `squad-queue.yml` and the legacy ACA Job resources in place. Do not delete a Sandbox Group or identity until running work has stopped and cleanup has been verified.
+To stop new requests, set `enabled: false` in `.squad/execution.json`. Do not remove the file: a missing file enables only the guarded legacy Jobs adapter. Existing Sandbox PR revisions continue through their original receipt and protected environments. A selector change affects only new issues, not in-flight PRs. Keep the original deployment settings and resources until running work, open revisions, and cleanup are complete. Never replace a run receipt just to change its provider. Disable the router workflow as an emergency stop for both initial requests and revisions.
 
 ## Related documentation
 

@@ -2,6 +2,10 @@
 
 > Step-by-step guide to deploying Squad on ACA for your organization. Follow these steps in order.
 
+## Install into a new or existing repository without a fork
+
+Use the [no-fork installation guide](install.md) to download a release, preview target-owned workflow changes, and install with `install.ps1` or `install.sh`. This path keeps your application and Squad state in your own repository. Choose Jobs or Sandbox without assuming an application stack. Deployment and activation remain separate steps. Follow [descriptor activation](install.md#activate-from-terraform) for Terraform or [azd activation](install.md#activate-from-azd), then the [backend switch and legacy migration steps](install.md#migrate-legacy-settings-and-switch-backend). The fork and clone instructions below are for platform customization or evaluation.
+
 ---
 
 ## Prerequisites Checklist
@@ -54,7 +58,7 @@ Squad on ACA supports two infrastructure-as-code paths. Terraform remains the ca
 | State management | Uses local Terraform state. A remote backend is not configured in this template. | Uses Azure Resource Manager idempotency through `azd provision`; no Terraform state file. |
 | Provider lag | Uses `azapi_resource` for the Container App Job because the Terraform provider does not expose identity-based KEDA scale rules yet. | Uses native ARM/Bicep resource definitions for the Container App Job. |
 | One-command deploy | Run `terraform init`, `terraform plan`, and `terraform apply`, then upload Key Vault secrets. | Run `azd up` to provision and deploy, then upload Key Vault secrets when the post-provision guidance prompts you. |
-| GitHub Actions variables | Terraform uses the GitHub provider to set repository variables after you provide `TF_VAR_github_token`. | The `azd` post-provision hook uses `gh` CLI to set repository variables. |
+| GitHub Actions variables | Terraform uses the GitHub provider to set repository variables after you provide `TF_VAR_github_token`. | The `azd` postprovision hook prints settings through `scripts/activate.cjs`; only a separate explicit `--apply` uses `gh` to change non-secret variables. |
 | Teardown | Run `terraform destroy` from `infra/terraform/`. | Run `azd down` from the repository root. |
 | Best fit | Default choice when you want the canonical path, explicit plans, and Terraform workflows. | Azure-native choice when you want `azd up`, ARM idempotency, and a Bicep-first workflow. |
 

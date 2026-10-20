@@ -8,7 +8,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   hint:
-    if: vars.SQUAD_ISSUE_FLOW_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -21,10 +20,12 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: |
+            .github/actions/sandbox-engine
             scripts
             contracts
             dispatcher
+      - uses: ./.github/actions/sandbox-engine
       - uses: actions/github-script@v7
         with:
           script: |
-            await require('./scripts/issue-revise.cjs').conflictHints({ github, context });
+            await require(process.env.SQUAD_ENGINE_ROOT + '/scripts/issue-revise.cjs').conflictHints({ github, context });

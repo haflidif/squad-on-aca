@@ -21,9 +21,9 @@ function ownedPull(pr, repository) {
 }
 function validateRequest(event, pr, env, roster) {
   if (event.action !== 'created' || !event.issue?.pull_request || !TRUSTED.has(event.comment?.author_association) || event.comment.user?.type !== 'User') fail('REVISE_COMMENT_NOT_TRUSTED');
-  if (env.SQUAD_ISSUE_FLOW_ENABLED !== 'true' || !ownedPull(pr, env.GITHUB_REPOSITORY) || pr.number !== event.issue.number) fail('REVISE_PR_REJECTED');
+  if (!ownedPull(pr, env.GITHUB_REPOSITORY) || pr.number !== event.issue.number) fail('REVISE_PR_REJECTED');
   const issueNumber = Number(BRANCH.exec(pr.head.ref)[1]);
-  if (!Number.isSafeInteger(issueNumber) || env.SQUAD_ISSUE_OPT_IN_NUMBER !== String(issueNumber)) fail('RUN_OPT_IN_MISSING');
+  if (!Number.isSafeInteger(issueNumber) || env.SQUAD_ISSUE_NUMBER && env.SQUAD_ISSUE_NUMBER !== String(issueNumber)) fail('REVISE_ISSUE_MISMATCH');
   const command = parseCommand(event.comment.body);
   const labels = new Set((pr.labels || []).map(label => label.name));
   const allowed = roster.members.filter(member => supportedKind(member) && labels.has(`squad:${member.resolved_persistent_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`));
@@ -131,7 +131,7 @@ async function prepare({ github, context, root, env = process.env }) {
     if (typeof diff !== 'string' || Buffer.byteLength(diff) > 1024 * 1024) fail('REVISE_DIFF_TOO_LARGE');
     if (!fs.existsSync(capturedFile)) revise.diff = diff;
     const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: revise.issue_number });
-    event = { action: 'labeled', label: { name: 'sandbox-run' }, repository: { full_name: env.GITHUB_REPOSITORY }, issue, sender: context.payload.comment.user };
+    event = { action: 'labeled', label: { name: 'squad' }, repository: { full_name: env.GITHUB_REPOSITORY }, issue, sender: context.payload.comment.user };
     evaluateEvent(event, env, { requireOptIn: true });
     fs.writeFileSync(path.join(out, 'revise.json'), JSON.stringify(revise));
   } else evaluateEvent(event, env, { requireOptIn: true });

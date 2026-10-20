@@ -1,0 +1,24 @@
+name: Squad sandbox engine
+description: Make the bundled trusted engine available without copying it into the target repository.
+outputs:
+  engine-root:
+    description: Absolute path to the bundled engine, separate from the target checkout.
+    value: ${{ steps.engine.outputs.root }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22.14.0
+    - name: Expose the bundled engine
+      id: engine
+      shell: bash
+      env:
+        ENGINE_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        ENGINE_ROOT="$(cd "$ENGINE_ACTION_PATH/../../.." && pwd -P)"
+        echo "SQUAD_ENGINE_ROOT=$ENGINE_ROOT" >> "$GITHUB_ENV"
+        echo "root=$ENGINE_ROOT" >> "$GITHUB_OUTPUT"
+        chmod +x "$ENGINE_ACTION_PATH/squad-engine"
+        echo "$ENGINE_ACTION_PATH" >> "$GITHUB_PATH"
